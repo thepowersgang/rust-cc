@@ -1,0 +1,5 @@
+[package]
+
+name = "cc"
+version = "0.0.1"
+authors = ["John Hodge (sonata) <tpg@mutabah.net>"]
