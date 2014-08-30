@@ -222,32 +222,55 @@ impl<'ast> ParseState<'ast>
 	
 	fn get_struct(&mut self) -> ParseResult<::types::StructRef>
 	{
-		fail!("TODO: get_struct");
+		let structname = match try!(self.lex.get_token())
+			{
+			lex::TokIdent(n) => n,
+			tok @ _ => {
+				self.lex.put_back(tok);
+				"".to_string()
+				}
+			};
+		
+		let ret = self.ast.get_struct(structname.as_slice());
+		// Check for defining the structure's contents
+		match try!(self.lex.get_token())
+		{
+		lex::TokBraceOpen => {
+			if ret.is_populated() { syntax_error!("Multiple defintions of struct '{}'", structname); }
+			fail!("TODO: Define structure {}", structname);
+			},
+		tok @ _ => {
+			self.lex.put_back(tok);
+			if structname.as_slice() == "" { syntax_error!("Nameless struct with no definition"); }
+			}
+		}
+		Ok( ret )
 	}
+	fn populate_struct(&mut self, structinfo: 
 	
+	/// Parse a full type (Pointers, arrays, and functions)
+	///	
+	/// Implements an AST-style parser, to handle function types correctly
 	fn get_full_type(&mut self, basetype: ::types::TypeRef) -> ParseResult<(::types::TypeRef,String)>
 	{
-		// 1. Handle pointers, with const-ness
-		// 2. If brackets, recurse and expect close braket
-		// 3. else, Expect ident
-		// 4. Handle quare brackets and function args
 		let mut typenode = try!(self.get_fulltype_ptr());
 		debug!("get_full_type: typenode={}", typenode);
 		let mut rettype = basetype;
 		loop
 		{
 			typenode = match typenode
-			{
-			TypeNodeLeaf(name) => { return Ok( (rettype, name) ); },
-			TypeNodePtr(sub,is_c,is_v) => {
-				rettype = ::types::Type::new_ref( ::types::TypePointer(rettype), is_c, is_v );
-				*sub
-				},
-			TypeNodeFcn(sub, args) => {
-				fail!("TODO: Function type - rettype={}, sub={}, args={}", rettype, sub, args);
-				*sub
-				}
-			}
+				{
+				TypeNodeLeaf(name) => { return Ok( (rettype, name) ); },
+				TypeNodePtr(sub,is_c,is_v) => {
+					rettype = ::types::Type::new_ref( ::types::TypePointer(rettype), is_c, is_v );
+					*sub
+					},
+				TypeNodeFcn(sub, args) => {
+					rettype = ::types::Type::new_ref( ::types::TypeFunction(rettype, args), false, false );
+					*sub
+					}
+				};
+			debug!("get_full_type: rettype={}, typenode={}", rettype, typenode);
 		}
 		// TODO: Unwrap typenode over basetype
 		fail!("TODO: get_full_type");
@@ -258,8 +281,20 @@ impl<'ast> ParseState<'ast>
 		{
 		lex::TokStar => {
 			// TODO: Get const/volatile
-			let is_const = false;
-			let is_volatile = false;
+			let mut is_const = false;
+			let mut is_volatile = false;
+			loop
+			{
+				match try!(self.lex.get_token())
+				{
+				lex::TokRword_const    => { is_const    = true; },
+				lex::TokRword_volatile => { is_volatile = true; },
+				tok @ _ => {
+					self.lex.put_back(tok);
+					break;
+					}
+				}
+			}
 			Ok( TypeNodePtr( box try!(self.get_fulltype_ptr()), is_const, is_volatile ) )
 			},
 		tok @ _ => {
@@ -276,6 +311,7 @@ impl<'ast> ParseState<'ast>
 		match try!(self.lex.get_token())
 		{
 		lex::TokParenOpen => {
+			debug!("get_fulltype_bottom - Parentheses");
 			let rv = try!(self.get_fulltype_ptr());
 			if try!(self.lex.get_token()) != lex::TokParenClose { syntax_error!("Expected ')')") }
 			Ok(rv)
@@ -284,7 +320,8 @@ impl<'ast> ParseState<'ast>
 			Ok(TypeNodeLeaf(v))
 			},
 		tok @ _ => {
-			syntax_error!("Unexpected {}, expected TokParenOpen or TokIdent", tok);
+			self.lex.put_back(tok);
+			Ok(TypeNodeLeaf("".to_string()))
 			}
 		}
 	}
@@ -293,6 +330,7 @@ impl<'ast> ParseState<'ast>
 		match try!(self.lex.get_token())
 		{
 		lex::TokParenOpen => {
+			debug!("get_fulltype_fcn - Parentheses");
 			let mut args = Vec::new();
 			loop
 			{
@@ -306,6 +344,9 @@ impl<'ast> ParseState<'ast>
 					break;
 					}
 				}
+			}
+			if args.len() == 1 && args[0] == (::types::Type::new_ref(::types::TypeVoid,false,false),"".to_string()) {
+				args.clear();
 			}
 			syntax_assert!(try!(self.lex.get_token()), lex::TokParenClose);
 			Ok( TypeNodeFcn(box inner, args) )

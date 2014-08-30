@@ -86,6 +86,8 @@ impl Preproc
 					while try!(lexer.get_token()) != lex::TokNewline
 					{
 					}
+					
+					debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
 					},
 				_ => {
 					fail!("TODO: Syntax errors");

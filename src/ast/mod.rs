@@ -1,10 +1,12 @@
 /*
  */
+use std::collections::HashMap;
 
 #[deriving(Default)]
 pub struct Program
 {
-	typedefs: ::std::collections::HashMap<String,::types::TypeRef>,
+	typedefs: HashMap<String,::types::TypeRef>,
+	structs: HashMap<String, ::types::StructRef>,
 	symbols: ::std::vec::Vec<Symbol>,
 }
 
@@ -39,6 +41,23 @@ impl Program
 			Some(x) => Some(x.clone()),
 			None => None
 			};
+	}
+	
+	pub fn get_struct(&mut self, name: &str) -> ::types::StructRef
+	{
+		if name == ""
+		{
+			return ::types::Struct::new_ref("");
+		}
+		else
+		{
+			let key = name.to_string();
+			if ! self.structs.contains_key(&key)
+			{
+				self.structs.insert(key.clone(), ::types::Struct::new_ref(name));
+			}
+			return self.structs.find(&key).unwrap().clone();
+		}
 	}
 }
 

@@ -219,6 +219,9 @@ impl Lexer
 		'#' => TokHash,
 		';' => TokSemicolon,
 		',' => TokComma,
+		'(' => TokParenOpen,	')' => TokParenClose,
+		'{' => TokBraceOpen,	'}' => TokBraceClose,
+		'[' => TokSquareOpen,	']' => TokSquareClose,
 		'*' => TokStar,
 		'/' => {
 			ch = try_eof!(self.getc(), TokSlash);

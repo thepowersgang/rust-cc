@@ -30,6 +30,7 @@ pub enum FloatClass
 pub type TypeRef = Rc<Type>;
 pub type StructRef = Rc<Struct>;
 
+#[deriving(PartialEq)]
 pub struct Type
 {
 	pub basetype: BaseType,
@@ -39,6 +40,7 @@ pub struct Type
 
 #[deriving(Show)]
 #[deriving(Clone)]
+#[deriving(PartialEq)]
 pub enum BaseType
 {
 	TypeVoid,
@@ -46,12 +48,15 @@ pub enum BaseType
 	TypeFloat(FloatClass),
 	TypeInteger(IntClass),
 	TypePointer(Rc<Type>),
+	TypeFunction(Rc<Type>,Vec<(Rc<Type>,String)>),
 }
 
 #[deriving(Show)]
-struct Struct
+#[deriving(PartialEq)]
+pub struct Struct
 {
 	name: String,
+	items:	Vec<(String,TypeRef)>,
 }
 
 impl ::std::fmt::Show for Type
@@ -74,6 +79,22 @@ impl Type
 			is_const: is_const,
 			is_volatile: is_volatile,
 			})
+	}
+}
+
+impl Struct
+{
+	pub fn new_ref(name: &str) -> StructRef
+	{
+		::std::rc::Rc::new( Struct {
+			name: name.to_string(),
+			items: Vec::new(),
+			})
+	}
+	
+	pub fn is_populated(&self) -> bool
+	{
+		return self.items.is_empty() == false;
 	}
 }
 
