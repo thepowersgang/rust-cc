@@ -99,7 +99,9 @@ impl Preproc
 				Some(macro) => fail!("TODO: Macro expansion"),
 				_ => {}
 				}
-				return Ok( lex::TokIdent(v) );
+				let ret = lex::TokIdent(v);
+				debug!("get_token = {}", ret);
+				return Ok( ret );
 				},
 			_ => {
 				debug!("get_token = {}", tok);

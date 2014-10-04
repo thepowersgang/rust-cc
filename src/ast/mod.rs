@@ -27,7 +27,7 @@ impl Program
 	
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Node>)
 	{
-		fail!("TODO: Define variable {} {} = {}", typeid, name, value);
+		error!("TODO: Define variable '{}': '{}' = {}", name, typeid, value);
 	}
 	
 	pub fn set_typedef(&mut self, name: String, typeid: ::types::TypeRef) -> bool

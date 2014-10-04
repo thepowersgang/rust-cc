@@ -14,6 +14,7 @@ enum Error
 	SyntaxError(String),
 }
 
+#[must_use]
 type ParseResult<T> = Result<T,Error>;
 
 // vim: ft=rust

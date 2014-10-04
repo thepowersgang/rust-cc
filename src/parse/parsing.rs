@@ -37,6 +37,14 @@ macro_rules! syntax_assert( ($tok:expr, $exp:pat) => (match $tok {
 	tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 	})
 	)
+macro_rules! peek_token( ($lex:expr, $tok:pat) => ({
+	let lex = &mut $lex;
+	match try!(lex.get_token()) {
+	$tok => true,
+	tok @ _ => { lex.put_back(tok); false }
+	}
+	})
+	)
 
 impl<'ast> ParseState<'ast>
 {
@@ -75,16 +83,25 @@ impl<'ast> ParseState<'ast>
 		debug!("do_definition: basetype={}", basetype);
 		// 2. Get extended type and identifier
 		let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-		// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
-		match try!(self.lex.get_token())
+		// - Ignore empty ident
+		if ident.as_slice() != ""
 		{
-		// NOTE: The following would need changes for C++11 array literals
-		lex::TokBraceOpen => return self.parse_function(typeid, ident),
-		tok @ _ => {
-			self.lex.put_back(tok);
-			try!(self.parse_variable_def(typeid, ident));
-			return self.parse_variable_list(basetype)
+			// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
+			match try!(self.lex.get_token())
+			{
+			// NOTE: The following would need changes for C++11 array literals
+			lex::TokBraceOpen => return self.parse_function(typeid, ident),
+			tok @ _ => {
+				self.lex.put_back(tok);
+				try!(self.parse_variable_def(typeid, ident));
+				return self.parse_variable_list(basetype)
+				}
 			}
+		}
+		else
+		{
+			syntax_assert!( try!(self.lex.get_token()), lex::TokSemicolon );
+			return Ok( () );
 		}
 	}
 	
@@ -94,6 +111,7 @@ impl<'ast> ParseState<'ast>
 	{
 		let mut is_const = false;
 		let mut is_volatile = false;
+		let mut storageclass = None;
 		
 		let mut typeid = None;
 		let mut is_primitive = false;	// Set on any primitive specifier
@@ -103,6 +121,20 @@ impl<'ast> ParseState<'ast>
 		let mut double_seen = false;
 		let mut is_unsigned = false;
 		// 1. Storage classes (extern, static, auto, register)
+		loop
+		{
+			match try!(self.lex.get_token())
+			{
+			lex::TokRword_extern =>   { storageclass = Some(::types::StorageExtern); },
+			lex::TokRword_auto =>     { storageclass = Some(::types::StorageAuto); },
+			lex::TokRword_static =>   { storageclass = Some(::types::StorageStatic); },
+			lex::TokRword_register => { storageclass = Some(::types::StorageRegister); },
+			tok @ _ => {
+				self.lex.put_back(tok);
+				break;
+				}
+			}
+		}
 		// 2. Type (with const mixed in)
 		loop
 		{
@@ -236,8 +268,8 @@ impl<'ast> ParseState<'ast>
 		match try!(self.lex.get_token())
 		{
 		lex::TokBraceOpen => {
-			if ret.is_populated() { syntax_error!("Multiple defintions of struct '{}'", structname); }
-			fail!("TODO: Define structure {}", structname);
+			if ret.borrow().is_populated() { syntax_error!("Multiple defintions of struct '{}'", structname); }
+			try!(self.populate_struct(ret.clone()));
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
@@ -246,7 +278,32 @@ impl<'ast> ParseState<'ast>
 		}
 		Ok( ret )
 	}
-	fn populate_struct(&mut self, structinfo: 
+	fn populate_struct(&mut self, structinfo: ::types::StructRef) -> ParseResult<()>
+	{
+		assert!( !structinfo.borrow().is_populated() );
+		let mut items = Vec::new();
+		loop
+		{
+			if peek_token!(self.lex, lex::TokBraceClose) {
+				break;
+			}
+			
+			// 1. Get base type
+			let basetype = try!(self.get_base_type());
+			debug!("do_definition: basetype={}", basetype);
+			// 2. Get extended type and identifier
+			items.push( try!(self.get_full_type(basetype.clone())) );
+			
+			while( peek_token!(self.lex, lex::TokComma) )
+			{
+				items.push( try!(self.get_full_type(basetype.clone())) );
+			}
+			syntax_assert!( try!(self.lex.get_token()), lex::TokSemicolon );
+		}
+		
+		structinfo.borrow_mut().set_items( items );
+		Ok( () )
+	}
 	
 	/// Parse a full type (Pointers, arrays, and functions)
 	///	
@@ -334,6 +391,10 @@ impl<'ast> ParseState<'ast>
 			let mut args = Vec::new();
 			loop
 			{
+				if peek_token!(self.lex, lex::TokVargs) {
+					args.push( ( ::types::Type::new_ref(::types::TypeVoid,false,false), "...".to_string()) );
+					break;
+				}
 				let basetype = try!(self.get_base_type());
 				args.push( try!(self.get_full_type(basetype)) );
 				match try!(self.lex.get_token())

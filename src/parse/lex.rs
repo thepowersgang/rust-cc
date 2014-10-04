@@ -26,11 +26,13 @@ pub enum Token
 	
 	// Symbols
 	TokHash,
+	TokPeriod,
 	TokComma,
 	TokSemicolon,
 	TokStar,
 	TokSlash,
 	TokAssign,
+	TokVargs,
 	
 	//
 	TokBraceOpen,
@@ -42,8 +44,10 @@ pub enum Token
 	
 	// Reserved Words
 	TokRword_typedef,
+	TokRword_auto,
 	TokRword_extern,
 	TokRword_static,
+	TokRword_register,
 	TokRword_inline,
 	TokRword_const,
 	TokRword_volatile,
@@ -219,6 +223,22 @@ impl Lexer
 		'#' => TokHash,
 		';' => TokSemicolon,
 		',' => TokComma,
+		'.' => {
+			match try_eof!(self.getc(), TokPeriod)
+			{
+			'.' => {
+				if try_eof!(self.getc(), TokPeriod) != '.' {
+					error!("Lex error '..' hit");
+					return Err( ::parse::BadCharacter('.') );
+				}
+				TokVargs
+				},
+			ch @ _ => {
+				self.ungetc(ch);
+				TokPeriod
+				}
+			}
+			},
 		'(' => TokParenOpen,	')' => TokParenClose,
 		'{' => TokBraceOpen,	'}' => TokBraceClose,
 		'[' => TokSquareOpen,	']' => TokSquareClose,
