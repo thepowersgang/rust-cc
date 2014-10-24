@@ -183,7 +183,7 @@ impl Lexer
 		{
 			let ch = try_eof!(self.getc(), ret);
 			if ch == '\n' { break; }
-			ret.push_char( ch );
+			ret.push( ch );
 		}
 		return Ok(ret);
 	}
@@ -198,7 +198,7 @@ impl Lexer
 				self.ungetc(ch);
 				break;
 			}
-			name.push_char( ch );
+			name.push( ch );
 		}
 		return Ok(name);
 	}
@@ -236,15 +236,17 @@ impl Lexer
 			if ch == '\\' {
 				let codechar = try!(self.getc());
 				match codechar {
-				'\\' => ret.push_char('\\'),
-				'"' => ret.push_char('"'),
-				'n' => ret.push_char('\n'),
-				'r' => ret.push_char('\r'),
+				'\\' => ret.push('\\'),
+				'"' => ret.push('"'),
+				'n' => ret.push('\n'),
+				'r' => ret.push('\r'),
 				'\n' => (),
 				_ => fail!("Unexpected escape code in string '\\{}'", codechar)
 				}
 			}
-			ret.push_char( ch );
+			else {
+				ret.push( ch );
+			}
 		}
 		return Ok(ret);
 	}
@@ -304,10 +306,10 @@ impl Lexer
 						match try_eof!(self.getc(), TokBlockComment(comment)) {
 						'/' => break,
 						'*' => self.ungetc('*'),	// Handles '**/'
-						c @ _ => comment.push_char(c)
+						c @ _ => comment.push(c)
 						}
 						},
-					c @ _ => comment.push_char(c)
+					c @ _ => comment.push(c)
 					}
 				}
 				TokBlockComment(comment)

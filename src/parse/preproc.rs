@@ -57,13 +57,13 @@ impl Preproc
 	{
 		if self.saved_tok.is_some()
 		{
-			let tok = self.saved_tok.take_unwrap();
+			let tok = self.saved_tok.take().unwrap();
 			debug!("get_token = {} (saved)", tok);
 			return Ok( tok );
 		}
 		loop
 		{
-			let lexer_h = &mut self.lexers.mut_last().unwrap();
+			let lexer_h = &mut self.lexers.last_mut().unwrap();
 			let lexer = &mut lexer_h.lexer;
 			let tok = try!(lexer.get_token());
 			match tok
