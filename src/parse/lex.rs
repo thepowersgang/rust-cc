@@ -33,14 +33,20 @@ pub enum Token
 	TokSlash,
 	TokVargs,
 	TokQuestionMark,
+	TokColon,
 	
 	TokAssign,
 	TokAssignAdd,
+	TokAssignSub,
 	
 	TokShiftRight,
 	TokShiftLeft,
 	
 	TokEquality,
+	TokLt,
+	TokGt,
+	TokLtE,
+	TokGtE,
 	
 	TokPlus,
 	TokMinus,
@@ -120,8 +126,14 @@ macro_rules! try_eof( ($fcn:expr, $eofval:expr) => (
 	}
 ))
 
-macro_rules! other_ch {
-	($_self:ident, $val:expr) => (ch @ _ => { $_self.ungetc(ch); $val } )
+macro_rules! match_ch {
+	($_self:ident, $def:expr, $($p:pat => $v:expr),* ) => (
+		match try_eof!($_self.getc(),$def) {
+		$($p => $v),*,
+		ch @ _ => { $_self.ungetc(ch); $def }
+		}
+	);
+	($_self:ident, $def:expr, $($p:pat => $v:expr),*, ) => (match_ch!($_self,$def,$($p=>$v),*));
 }
 
 impl Lexer
@@ -248,8 +260,9 @@ impl Lexer
 		'#' => TokHash,
 		';' => TokSemicolon,
 		',' => TokComma,
-		'.' => match try_eof!(self.getc(), TokPeriod)
-			{
+		'?' => TokQuestionMark,
+		':' => TokColon,
+		'.' => match_ch!(self, TokPeriod,
 			'.' => {
 				if try_eof!(self.getc(), TokPeriod) != '.' {
 					error!("Lex error '..' hit");
@@ -257,35 +270,31 @@ impl Lexer
 				}
 				TokVargs
 				},
-			ch @ _ => {
-				self.ungetc(ch);
-				TokPeriod
-				}
-			},
-		'=' => match try_eof!(self.getc(), TokAssign)
-			{
+			),
+		'=' => match_ch!(self, TokAssign,
 			'=' => TokEquality,
-			ch @ _ => {
-				self.ungetc(ch);
-				TokAssign
-				}
-			},
-		'+' => match try_eof!(self.getc(), TokAssign)
-			{
+			),
+		'+' => match_ch!(self, TokPlus,
 			'+' => TokDoublePlus,
 			'=' => TokAssignAdd,
-			ch @ _ => {
-				self.ungetc(ch);
-				TokPlus
-				}
-			},
+			),
+		'-' => match_ch!(self, TokMinus,
+			'-' => TokDoubleMinus,
+			'=' => TokAssignSub,
+			),
+		'>' => match_ch!(self, TokGt,
+			'>' => TokShiftRight,
+			'=' => TokGtE,
+			),
+		'<' => match_ch!(self, TokLt,
+			'<' => TokShiftLeft,
+			'=' => TokLtE,
+			),
 		'(' => TokParenOpen,	')' => TokParenClose,
 		'{' => TokBraceOpen,	'}' => TokBraceClose,
 		'[' => TokSquareOpen,	']' => TokSquareClose,
 		'*' => TokStar,
-		'/' => {
-			ch = try_eof!(self.getc(), TokSlash);
-			match ch {
+		'/' => match_ch!(self, TokSlash,
 			'/' => TokLineComment(try!(self.read_to_eol())),
 			'*' => {
 				let mut comment = String::new();
@@ -303,12 +312,7 @@ impl Lexer
 				}
 				TokBlockComment(comment)
 				},
-			_ => {
-				self.ungetc(ch);
-				TokSlash
-				},
-			}
-			}
+			),
 
 		'"' => TokString( try!(self.read_string()) ),
 		
@@ -379,6 +383,10 @@ impl Lexer
 			"enum"   => TokRword_enum,
 			"union"  => TokRword_union,
 			"struct" => TokRword_struct,
+			
+			"return" => TokRword_return,
+			"break"  => TokRword_break,
+			"continue" => TokRword_continue,
 			
 			"__attribute__" => TokRword_gcc_attribute,
 			_ => TokIdent(ident)

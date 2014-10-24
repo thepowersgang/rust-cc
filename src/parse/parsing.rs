@@ -45,12 +45,12 @@ macro_rules! syntax_error(
 	($fmt:expr, $($arg:tt)*) => ({ return Err(::parse::SyntaxError(format!($fmt, $($arg)*))) });
 	)
 macro_rules! syntax_assert(
-	($tok:expr, $exp:pat) => (match $tok {
-		$exp => {},
+	($tok:expr, lex::$exp:ident) => (match $tok {
+		lex::$exp => {},
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		});
-	($tok:expr, $exp:pat => $v:expr) => (match $tok {
-		$exp => $v,
+	($tok:expr, lex::$exp:ident($a:ident) => $v:expr) => (match $tok {
+		lex::$exp($a) => $v,
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		})
 	)
@@ -133,6 +133,7 @@ impl<'ast> ParseState<'ast>
 		let mut typeid = None;
 		let mut is_primitive = false;	// Set on any primitive specifier
 		let mut is_signed = true;
+		let mut seen_sign = false;
 		let mut intsize: Option<uint> = None;
 		let mut int_seen = false;
 		let mut double_seen = false;
@@ -162,8 +163,8 @@ impl<'ast> ParseState<'ast>
 			lex::TokRword_const    => {is_const    = true; },
 			lex::TokRword_volatile => {is_volatile = true; },
 			// Primitives (Integer and Double)
-			lex::TokRword_signed   => {is_signed = true ; },
-			lex::TokRword_unsigned => {is_signed = false; },
+			lex::TokRword_signed   => {is_signed = true ; seen_sign = true; },
+			lex::TokRword_unsigned => {is_signed = false; seen_sign = true; },
 			lex::TokRword_int => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				if int_seen { syntax_error!("Multiple 'int' keywords in type") }
@@ -274,6 +275,9 @@ impl<'ast> ParseState<'ast>
 				4 => ::types::IntClass_LongLong(is_signed),
 				_ => fail!("BUGCHECK")
 				})
+			}
+			else if seen_sign {
+				::types::TypeInteger( ::types::IntClass_Int(is_signed) )
 			}
 			else {
 				syntax_error!("No type provided, got token {}", try!(self.lex.get_token()));
@@ -611,8 +615,33 @@ impl<'ast> ParseState<'ast>
 	
 	fn parse_function(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
+		let code = try!(self.parse_block());
+		debug!("parse_function: code = {}", code);
+		self.ast.define_variable(typeid, ident, Some(code));
+		Ok( () )
+	}
+	fn parse_block(&mut self) -> ParseResult<::ast::Node>
+	{
 		// Opening brace has been eaten
-		return Err(::parse::Todo("parse_function"));
+		let mut statements = Vec::new();
+		
+		loop
+		{
+			statements.push( match try!(self.lex.get_token())
+			{
+			lex::TokBraceClose => break,
+			lex::TokRword_return => {
+				::ast::NodeReturn( box try!(self.parse_expr()) )
+				},
+			t @ _ => {
+				self.lex.put_back(t);
+				try!(self.parse_expr())
+				}
+			} );
+			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+		}
+		
+		Ok( ::ast::NodeBlock(statements) )
 	}
 	
 	fn parse_variable_list(&mut self, basetype: ::types::TypeRef) -> ParseResult<()>
@@ -703,7 +732,15 @@ impl<'ast> ParseState<'ast>
 		
 		Ok( match try!(self.lex.get_token())
 		{
-		lex::TokQuestionMark => return Err(::parse::Todo("Ternary")),
+		lex::TokQuestionMark => {
+			debug!("Ternary, rv (cnd) = {}", rv);
+			let tv = box try!(self.parse_expr_1());
+			debug!("Ternary - tv = {}", tv);
+			syntax_assert!(try!(self.lex.get_token()), lex::TokColon);
+			let fv = box try!(self.parse_expr_1());
+			debug!("Ternary - fv = {}", fv);
+			::ast::NodeTernary(box rv, tv, fv)
+			}
 		t @ _ => {
 			self.lex.put_back(t);
 			rv
@@ -727,6 +764,10 @@ impl<'ast> ParseState<'ast>
 	/// Expression #4 - Comparison Operators
 	parse_left_assoc!(self, parse_expr_4, parse_expr_5, rv, {
 		lex::TokEquality => ::ast::NodeBinOp(::ast::BinOpCmpEqu, box rv, box try!(self.parse_expr_5())),
+		lex::TokLt  => ::ast::NodeBinOp(::ast::BinOpCmpLt,  box rv, box try!(self.parse_expr_5())),
+		lex::TokLtE => ::ast::NodeBinOp(::ast::BinOpCmpLtE, box rv, box try!(self.parse_expr_5())),
+		lex::TokGt  => ::ast::NodeBinOp(::ast::BinOpCmpGt,  box rv, box try!(self.parse_expr_5())),
+		lex::TokGtE => ::ast::NodeBinOp(::ast::BinOpCmpGtE, box rv, box try!(self.parse_expr_5())),
 	})
 	
 	/// Expression #5 - Bit Shifts
@@ -749,16 +790,18 @@ impl<'ast> ParseState<'ast>
 	
 	/// Expression #8 - Unary Righthand
 	parse_left_assoc!(self, parse_expr_8, parse_expr_9, rv, {
-		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpInc, box rv),
-		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpDec, box rv),
+		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpPostInc, box rv),
+		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpPostDec, box rv),
 	})
 	
+	/// Expression #9 - Unary left
 	fn parse_expr_9(&mut self) -> ParseResult<::ast::Node>
 	{
 		Ok( match try!(self.lex.get_token())
 		{
-		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpInc, box try!(self.parse_expr_P())),
-		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpDec, box try!(self.parse_expr_P())),
+		lex::TokMinus => ::ast::NodeBinOp(::ast::BinOpSub, box ::ast::NodeInteger(0), box try!(self.parse_expr_P())),
+		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpPreInc, box try!(self.parse_expr_P())),
+		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpPreDec, box try!(self.parse_expr_P())),
 		t @ _ => {
 			self.lex.put_back(t);
 			try!(self.parse_expr_P())

@@ -119,6 +119,8 @@ impl Program
 #[deriving(Show)]
 pub enum Node
 {
+	NodeBlock(Vec<Node>),
+	
 	NodeIdentifier(String),
 	NodeString(String),
 	NodeInteger(u64),
@@ -126,8 +128,11 @@ pub enum Node
 	
 	NodeFcnCall(Box<Node>, Vec<Box<Node>>),
 	
+	NodeReturn(Box<Node>),
+	
 	NodeAssign(Box<Node>, Box<Node>),
 	
+	NodeTernary(Box<Node>,Box<Node>,Box<Node>),
 	NodeUniOp(UniOp, Box<Node>),
 	NodeBinOp(BinOp, Box<Node>, Box<Node>),
 }
@@ -146,6 +151,11 @@ pub enum BinOp
 	BinOpShiftRight,
 	
 	BinOpCmpEqu,
+	BinOpCmpNEqu,
+	BinOpCmpLt,
+	BinOpCmpLtE,
+	BinOpCmpGt,
+	BinOpCmpGtE,
 	
 	BinOpAdd,
 	BinOpSub,
@@ -157,8 +167,10 @@ pub enum BinOp
 #[deriving(Show)]
 pub enum UniOp
 {
-	UniOpInc,
-	UniOpDec,
+	UniOpPreInc,
+	UniOpPreDec,
+	UniOpPostInc,
+	UniOpPostDec,
 	UniOpAddress,
 	UniOpDeref,
 }
@@ -170,6 +182,11 @@ impl Node
 		match self
 		{
 		&NodeInteger(v) => Some(v),
+		&NodeBinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
+			{
+			(&BinOpSub,Some(a),Some(b)) => Some(a-b),
+			_ => None,
+			},
 		_ => None,
 		}
 	}
