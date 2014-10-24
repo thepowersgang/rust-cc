@@ -112,5 +112,14 @@ impl Preproc
 	}
 }
 
+impl ::std::fmt::Show for Preproc
+{
+	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> Result<(),::std::fmt::FormatError>
+	{
+		let h = self.lexers.last().unwrap();
+		write!(f, "{}:{}: ", h.filename, h.line)
+	}
+}
+
 // vim: ft=rust
 

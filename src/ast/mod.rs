@@ -7,6 +7,8 @@ pub struct Program
 {
 	typedefs: HashMap<String,::types::TypeRef>,
 	structs: HashMap<String, ::types::StructRef>,
+	unions: HashMap<String, ::types::UnionRef>,
+	enums: HashMap<String, ::types::EnumRef>,
 	symbols: ::std::vec::Vec<Symbol>,
 }
 
@@ -36,6 +38,11 @@ impl Program
 	}
 	pub fn get_typedef(&self, name: &str) -> Option<::types::TypeRef>
 	{
+		// HACK! Define __builtin_va_list (a GCC internal) to be void
+		// TODO: It should be its own type
+		if name == "__builtin_va_list" {
+			return Some( ::types::Type::new_ref(::types::TypeVoid, false, false) );
+		}
 		return match self.typedefs.find( &name.to_string() )
 			{
 			Some(x) => Some(x.clone()),
@@ -59,19 +66,113 @@ impl Program
 			return self.structs.find(&key).unwrap().clone();
 		}
 	}
+	
+	pub fn get_union(&mut self, name: &str) -> Option<::types::UnionRef> {
+		if name == "" {
+			None
+		}
+		else {
+			self.unions.find(&name.to_string()).map(|v| v.clone())
+		}
+	}
+	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::UnionRef,()> {
+		if name == "" {
+			Ok( ::types::Union::new_ref(name, items) )
+		}
+		else {
+			let key = name.to_string();
+			match self.unions.entry(key)
+			{
+			::std::collections::hashmap::Occupied(_) => Err( () ),
+			::std::collections::hashmap::Vacant(e) => Ok( e.set(::types::Union::new_ref(name, items)).clone() ),
+			}
+		}
+	}
+	
+	pub fn get_enum(&mut self, name: &str) -> Option<::types::EnumRef>
+	{
+		if name == "" {
+			None
+		}
+		else {
+			self.enums.find(&name.to_string()).map(|v| v.clone())
+		}
+	}
+	pub fn make_enum(&mut self, name: &str, items: Vec<(uint,String)>) -> Result<::types::EnumRef,Option<String>> {
+		// Insert 'items' into the global constant scope
+		
+		
+		if name == "" {
+			Ok( ::types::Enum::new_ref(name, items) )
+		}
+		else {
+			let key = name.to_string();
+			match self.enums.entry(key)
+			{
+			::std::collections::hashmap::Occupied(_) => Err( None ),
+			::std::collections::hashmap::Vacant(e) => Ok( e.set(::types::Enum::new_ref(name, items)).clone() ),
+			}
+		}
+	}
 }
 
 #[deriving(Show)]
 pub enum Node
 {
 	NodeIdentifier(String),
+	NodeString(String),
 	NodeInteger(u64),
 	NodeFloat(f64),
 	
 	NodeFcnCall(Box<Node>, Vec<Box<Node>>),
 	
-	NodeAdd(Box<Node>, Box<Node>),
-	NodeSub(Box<Node>, Box<Node>),
+	NodeAssign(Box<Node>, Box<Node>),
+	
+	NodeUniOp(UniOp, Box<Node>),
+	NodeBinOp(BinOp, Box<Node>, Box<Node>),
+}
+
+#[deriving(Show)]
+pub enum BinOp
+{
+	BinOpLogicAnd,
+	BinOpLogicOr,
+	
+	BinOpBitAnd,
+	BinOpBitOr,
+	BinOpBitXor,
+	
+	BinOpShiftLeft,
+	BinOpShiftRight,
+	
+	BinOpCmpEqu,
+	
+	BinOpAdd,
+	BinOpSub,
+	
+	BinOpMul,
+	BinOpDiv,
+}
+
+#[deriving(Show)]
+pub enum UniOp
+{
+	UniOpInc,
+	UniOpDec,
+	UniOpAddress,
+	UniOpDeref,
+}
+
+impl Node
+{
+	pub fn literal_integer(&self) -> Option<u64>
+	{
+		match self
+		{
+		&NodeInteger(v) => Some(v),
+		_ => None,
+		}
+	}
 }
 
 // vim: ft=rust

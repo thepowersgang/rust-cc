@@ -38,6 +38,8 @@ pub enum StorageClass
 
 pub type TypeRef = Rc<Type>;
 pub type StructRef = Rc<RefCell<Struct>>;
+pub type UnionRef = Rc<Union>;
+pub type EnumRef = Rc<Enum>;
 
 #[deriving(PartialEq)]
 pub struct Type
@@ -52,10 +54,15 @@ pub struct Type
 pub enum BaseType
 {
 	TypeVoid,
+	TypeBool,
 	TypeStruct(StructRef),
+	TypeEnum(EnumRef),
+	TypeUnion(UnionRef),
 	TypeFloat(FloatClass),
 	TypeInteger(IntClass),
+	
 	TypePointer(Rc<Type>),
+	TypeArray(Rc<Type>),	// TODO: Should the array include the size? How to handle non-literal sizes?
 	TypeFunction(Rc<Type>,Vec<(Rc<Type>,String)>),
 }
 
@@ -65,6 +72,22 @@ pub struct Struct
 {
 	name: String,
 	items:	Vec<(TypeRef,String)>,
+}
+
+#[deriving(Show)]
+#[deriving(PartialEq)]
+pub struct Union
+{
+	name: String,
+	items:	Vec<(TypeRef,String)>,
+}
+
+#[deriving(Show)]
+#[deriving(PartialEq)]
+pub struct Enum
+{
+	name: String,
+	items: Vec<(uint,String)>,
 }
 
 impl ::std::fmt::Show for Type
@@ -85,9 +108,14 @@ impl ::std::fmt::Show for BaseType
 		match *self
 		{
 		TypeVoid => write!(fmt, "void"),
+		TypeBool => write!(fmt, "_Bool"),
 		TypeStruct(ref sr) => write!(fmt, "struct {}", sr.borrow().name),
+		TypeUnion(ref ur)  => write!(fmt, "union {}", ur.name),
+		TypeEnum(ref er)   => write!(fmt, "enum {}", er.name),
 		TypeFloat(fc) => write!(fmt, "{}", fc),
 		TypeInteger(ic) => write!(fmt, "{}", ic),
+		
+		TypeArray(ref typeref) => write!(fmt, "{}[]", typeref),
 		TypePointer(ref typeref) => write!(fmt, "*{}", typeref),
 		TypeFunction(ref ret, ref args) => write!(fmt, "Fcn({}, {})", ret, args),
 		}
@@ -136,6 +164,28 @@ impl Struct
 	{
 		assert!( self.items.is_empty() );
 		self.items = items;
+	}
+}
+
+impl Union
+{
+	pub fn new_ref(name: &str, items: Vec<(TypeRef,String)>) -> UnionRef
+	{
+		Rc::new( Union {
+			name: name.to_string(),
+			items: items,
+			} )
+	}
+}
+
+impl Enum
+{
+	pub fn new_ref(name: &str, items: Vec<(uint,String)>) -> EnumRef
+	{
+		Rc::new( Enum {
+			name: name.to_string(),
+			items: items,
+			} )
 	}
 }
 

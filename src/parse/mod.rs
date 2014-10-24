@@ -9,6 +9,7 @@ mod parsing;
 #[deriving(Show)]
 enum Error
 {
+	Todo(&'static str),
 	IOError(::std::io::IoError),
 	BadCharacter(char),
 	SyntaxError(String),

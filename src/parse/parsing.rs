@@ -17,7 +17,18 @@ pub fn parse(ast: &mut ::ast::Program, filename: &str) -> ParseResult<()>
 		lex: try!(::parse::preproc::Preproc::new(filename))
 		};
 	
-	self_.parseroot()
+	match self_.parseroot()
+	{
+	Ok(o) => Ok(o),
+	Err(e) => {
+		error!("Parse error {} at {}", e, self_.lex);
+		match e
+		{
+		::parse::SyntaxError(s) => Err( ::parse::SyntaxError(format!("{} {}", self_.lex, s)) ),
+		_ => Err( e ),
+		}
+		}
+	}
 }
 
 #[deriving(Show)]
@@ -26,16 +37,22 @@ enum TypeNode
 	TypeNodeLeaf(String),
 	TypeNodePtr(Box<TypeNode>, bool,bool),
 	TypeNodeFcn(Box<TypeNode>, Vec<(::types::TypeRef,String)>),
+	TypeNodeArray(Box<TypeNode>, Option<::ast::Node>),
 }
 
 macro_rules! syntax_error(
 	($msg:expr) => ({ return Err(::parse::SyntaxError(format!("{}",$msg))) });
 	($fmt:expr, $($arg:tt)*) => ({ return Err(::parse::SyntaxError(format!($fmt, $($arg)*))) });
 	)
-macro_rules! syntax_assert( ($tok:expr, $exp:pat) => (match $tok {
-	$exp => {},
-	tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
-	})
+macro_rules! syntax_assert(
+	($tok:expr, $exp:pat) => (match $tok {
+		$exp => {},
+		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
+		});
+	($tok:expr, $exp:pat => $v:expr) => (match $tok {
+		$exp => $v,
+		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
+		})
 	)
 macro_rules! peek_token( ($lex:expr, $tok:pat) => ({
 	let lex = &mut $lex;
@@ -129,6 +146,7 @@ impl<'ast> ParseState<'ast>
 			lex::TokRword_auto =>     { storageclass = Some(::types::StorageAuto); },
 			lex::TokRword_static =>   { storageclass = Some(::types::StorageStatic); },
 			lex::TokRword_register => { storageclass = Some(::types::StorageRegister); },
+			lex::TokRword_inline =>   { error!("TODO: Handle 'inline'"); },
 			tok @ _ => {
 				self.lex.put_back(tok);
 				break;
@@ -198,6 +216,10 @@ impl<'ast> ParseState<'ast>
 				}
 				},
 			// Simple types
+			lex::TokRword_Bool => {
+				if typeid.is_some() { syntax_error!("Multiple types in definition") }
+				typeid = Some(::types::TypeBool);
+				},
 			lex::TokRword_void => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				typeid = Some(::types::TypeVoid);
@@ -205,6 +227,14 @@ impl<'ast> ParseState<'ast>
 			lex::TokRword_struct => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				typeid = Some(::types::TypeStruct(try!(self.get_struct())));
+				},
+			lex::TokRword_union => {
+				if typeid.is_some() { syntax_error!("Multiple types in definition") }
+				typeid = Some(::types::TypeUnion(try!(self.get_union())));
+				},
+			lex::TokRword_enum => {
+				if typeid.is_some() { syntax_error!("Multiple types in definition") }
+				typeid = Some(::types::TypeEnum(try!(self.get_enum())));
 				},
 			lex::TokIdent(n) => {
 				if typeid.is_some() {
@@ -246,22 +276,26 @@ impl<'ast> ParseState<'ast>
 				})
 			}
 			else {
-				syntax_error!("No type provided");
+				syntax_error!("No type provided, got token {}", try!(self.lex.get_token()));
 			};
 		
 		Ok( ::types::Type::new_ref( rv, is_const, is_volatile ) )
 	}
 	
+	fn _get_ident_or_blank(&mut self) -> ParseResult<String> {
+		Ok( match try!(self.lex.get_token())
+		{
+		lex::TokIdent(n) => n,
+		tok @ _ => {
+			self.lex.put_back(tok);
+			"".to_string()
+			}
+		})
+	}
+	
 	fn get_struct(&mut self) -> ParseResult<::types::StructRef>
 	{
-		let structname = match try!(self.lex.get_token())
-			{
-			lex::TokIdent(n) => n,
-			tok @ _ => {
-				self.lex.put_back(tok);
-				"".to_string()
-				}
-			};
+		let structname = try!(self._get_ident_or_blank());
 		
 		let ret = self.ast.get_struct(structname.as_slice());
 		// Check for defining the structure's contents
@@ -301,13 +335,133 @@ impl<'ast> ParseState<'ast>
 			syntax_assert!( try!(self.lex.get_token()), lex::TokSemicolon );
 		}
 		
+		if peek_token!(self.lex, lex::TokRword_gcc_attribute)
+		{
+			return Err( ::parse::Todo("Handle GCC __attribute__ on struct") );
+		}
+		
 		structinfo.borrow_mut().set_items( items );
 		Ok( () )
+	}
+
+	fn get_union(&mut self) -> ParseResult<::types::UnionRef>
+	{
+		let name = try!(self._get_ident_or_blank());
+		
+		// Check for defining the enum's contents
+		match try!(self.lex.get_token())
+		{
+		lex::TokBraceOpen => {
+			let fields = try!(self.populate_union());
+			match self.ast.make_union(name.as_slice(), fields)
+			{
+			Ok(er) => Ok(er),
+			Err( () ) => syntax_error!("Multiple definitions of union '{}'", name),
+			}
+			},
+		tok @ _ => {
+			self.lex.put_back(tok);
+			if name.as_slice() == "" { syntax_error!("Nameless union with no definition"); }
+			match self.ast.get_union(name.as_slice())
+			{
+			Some(er) => Ok(er),
+			None => syntax_error!("No union by the name '{}'", name),
+			}
+			}
+		}
+	}
+	fn populate_union(&mut self) -> ParseResult<Vec<(::types::TypeRef,String)>>
+	{
+		let mut items = Vec::new();
+		loop
+		{
+			if peek_token!(self.lex, lex::TokBraceClose) {
+				break;
+			}
+			
+			// 1. Get base type
+			let basetype = try!(self.get_base_type());
+			debug!("populate_union: basetype={}", basetype);
+			// 2. Get extended type and identifier
+			items.push( try!(self.get_full_type(basetype.clone())) );
+			
+			while( peek_token!(self.lex, lex::TokComma) )
+			{
+				items.push( try!(self.get_full_type(basetype.clone())) );
+			}
+			syntax_assert!( try!(self.lex.get_token()), lex::TokSemicolon );
+		}
+		
+		Ok( items )
+	}
+	
+	fn get_enum(&mut self) -> ParseResult<::types::EnumRef>
+	{
+		let name = try!(self._get_ident_or_blank());
+		
+		// Check for defining the enum's contents
+		match try!(self.lex.get_token())
+		{
+		lex::TokBraceOpen => {
+			let fields = try!(self.populate_enum());
+			match self.ast.make_enum(name.as_slice(), fields)
+			{
+			Ok(er) => Ok(er),
+			Err(opt_str) => match opt_str
+				{
+				Some(fname) => syntax_error!("Multiple definitions of name '{}'", fname),
+				None => syntax_error!("Multiple definitions of enum '{}'", name),
+				},
+			}
+			},
+		tok @ _ => {
+			self.lex.put_back(tok);
+			if name.as_slice() == "" { syntax_error!("Nameless enum with no definition"); }
+			match self.ast.get_enum(name.as_slice())
+			{
+			Some(er) => Ok(er),
+			None => syntax_error!("No enum by the name '{}'", name),
+			}
+			}
+		}
+	}
+	fn populate_enum(&mut self) -> ParseResult<Vec<(uint,String)>>
+	{
+		let mut curval = 0;
+		let mut items = Vec::new();
+		loop
+		{
+			if peek_token!(self.lex, lex::TokBraceClose) {
+				break;
+			}
+			let name = syntax_assert!( try!(self.lex.get_token()), lex::TokIdent(v) => v );
+			
+			if peek_token!(self.lex, lex::TokAssign) {
+				// This can be a constant expression
+				let node = try!(self.parse_expr());
+				let val = match node.literal_integer()
+					{
+					Some(v) => v as uint,
+					None => syntax_error!("Non-literal used to set enum value"),
+					};
+				curval = val;
+			}
+			items.push( (curval, name) );
+			curval += 1;
+			match try!(self.lex.get_token())
+			{
+			lex::TokComma => continue,
+			lex::TokBraceClose => break,
+			t @ _ => syntax_error!("Unexpected token {}, expected TokComma or TokBraceClose", t),
+			}
+		}
+	
+		Ok( items )
 	}
 	
 	/// Parse a full type (Pointers, arrays, and functions)
 	///	
-	/// Implements an AST-style parser, to handle function types correctly
+	/// Implements a recursive-descent parser, to handle function types correctly
 	fn get_full_type(&mut self, basetype: ::types::TypeRef) -> ParseResult<(::types::TypeRef,String)>
 	{
 		let mut typenode = try!(self.get_fulltype_ptr());
@@ -325,19 +479,26 @@ impl<'ast> ParseState<'ast>
 				TypeNodeFcn(sub, args) => {
 					rettype = ::types::Type::new_ref( ::types::TypeFunction(rettype, args), false, false );
 					*sub
-					}
+					},
+				TypeNodeArray(sub, size) => {
+					// TODO: Parse size somehow. Need to propagate the size up the chain
+					rettype = ::types::Type::new_ref( ::types::TypeArray(rettype), false, false );
+					*sub
+					},
 				};
 			debug!("get_full_type: rettype={}, typenode={}", rettype, typenode);
 		}
 		// TODO: Unwrap typenode over basetype
-		fail!("TODO: get_full_type");
+		return Err(::parse::Todo("get_full_type"));
 	}
+	
+	/// Handle pointers in types
 	fn get_fulltype_ptr(&mut self) -> ParseResult<TypeNode>
 	{
 		match try!(self.lex.get_token())
 		{
 		lex::TokStar => {
-			// TODO: Get const/volatile
+			// Get const/volatile
 			let mut is_const = false;
 			let mut is_volatile = false;
 			loop
@@ -363,6 +524,7 @@ impl<'ast> ParseState<'ast>
 			}
 		}
 	}
+	/// Handle the bottom layer (either parentheses, or an identifier)
 	fn get_fulltype_bottom(&mut self) -> ParseResult<TypeNode>
 	{
 		match try!(self.lex.get_token())
@@ -382,6 +544,7 @@ impl<'ast> ParseState<'ast>
 			}
 		}
 	}
+	/// Handle function types (parentheses after identifier)
 	fn get_fulltype_fcn(&mut self, inner: TypeNode) -> ParseResult<TypeNode>
 	{
 		match try!(self.lex.get_token())
@@ -389,6 +552,7 @@ impl<'ast> ParseState<'ast>
 		lex::TokParenOpen => {
 			debug!("get_fulltype_fcn - Parentheses");
 			let mut args = Vec::new();
+			// Arguments!
 			loop
 			{
 				if peek_token!(self.lex, lex::TokVargs) {
@@ -406,6 +570,7 @@ impl<'ast> ParseState<'ast>
 					}
 				}
 			}
+			// Special case handling of (void)
 			if args.len() == 1 && args[0] == (::types::Type::new_ref(::types::TypeVoid,false,false),"".to_string()) {
 				args.clear();
 			}
@@ -418,11 +583,25 @@ impl<'ast> ParseState<'ast>
 			}
 		}
 	}
+	/// Handle array definition
 	fn get_fulltype_array(&mut self, inner: TypeNode) -> ParseResult<TypeNode>
 	{
 		match try!(self.lex.get_token())
 		{
-		lex::TokSquareOpen => fail!("TODO: Arrays"),
+		lex::TokSquareOpen => {
+			// If next token == TokSquareClose, return an array with null node
+			let sizenode = match try!(self.lex.get_token())
+				{
+				lex::TokSquareClose => None,
+				t @ _ => {
+					self.lex.put_back(t);
+					let size = try!(self.parse_expr());
+					syntax_assert!( try!(self.lex.get_token()), lex::TokSquareClose );
+					Some( size )
+					},
+				};
+			Ok( TypeNodeArray(box inner, sizenode) )
+			},
 		tok @ _ => {
 			self.lex.put_back(tok);
 			Ok(inner)
@@ -433,7 +612,7 @@ impl<'ast> ParseState<'ast>
 	fn parse_function(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
 		// Opening brace has been eaten
-		fail!("TODO: parse_function");
+		return Err(::parse::Todo("parse_function"));
 	}
 	
 	fn parse_variable_list(&mut self, basetype: ::types::TypeRef) -> ParseResult<()>
@@ -470,11 +649,153 @@ impl<'ast> ParseState<'ast>
 
 		Ok( () )
 	}
-	
+}
+
+// Parse, left associative
+macro_rules! parse_left_assoc(
+	($_self:ident, $name:ident, $next:ident, $rv:ident, { $($patterns:pat => $vals:expr),*, }) => {
+		fn $name(&mut $_self) -> ParseResult<::ast::Node> {
+			let mut $rv = try!($_self.$next());
+			loop
+			{
+				$rv = match try!($_self.lex.get_token())
+					{
+					$($patterns => $vals),*,
+					t @ _ => {
+						$_self.lex.put_back(t);
+						break;
+						}
+					};
+			}
+			Ok($rv)
+		}
+	}
+)
+
+impl<'ast> ParseState<'ast>
+{
+	// ----------------------------------------------------------------
 	// Expressions!
+	// ----------------------------------------------------------------
 	fn parse_expr(&mut self) -> ParseResult<::ast::Node>
 	{
-		fail!("TODO: parse_expr");
+		return self.parse_expr_0();
+	}
+	
+	/// Parse #0 : Assignment
+	fn parse_expr_0(&mut self) -> ParseResult<::ast::Node>
+	{
+		let rv = try!(self.parse_expr_1());
+		Ok( match try!(self.lex.get_token())
+		{
+		lex::TokAssign => ::ast::NodeAssign(box rv, box try!(self.parse_expr_0())),
+		t @ _ => {
+			self.lex.put_back(t);
+			rv
+			}
+		})
+	}
+	
+	/// Expression #1 - Ternary
+	fn parse_expr_1(&mut self) -> ParseResult<::ast::Node>
+	{
+		let rv = try!(self.parse_expr_2());
+		
+		Ok( match try!(self.lex.get_token())
+		{
+		lex::TokQuestionMark => return Err(::parse::Todo("Ternary")),
+		t @ _ => {
+			self.lex.put_back(t);
+			rv
+			}
+		})
+	}
+	
+	/// Expression #2 - Boolean AND/OR
+	parse_left_assoc!(self, parse_expr_2, parse_expr_3, rv, {
+		lex::TokDoublePipe      => ::ast::NodeBinOp(::ast::BinOpLogicOr,  box rv, box try!(self.parse_expr_3())),
+		lex::TokDoubleAmpersand => ::ast::NodeBinOp(::ast::BinOpLogicAnd, box rv, box try!(self.parse_expr_3())),
+	})
+	
+	/// Expresission #3 - Bitwise
+	parse_left_assoc!(self, parse_expr_3, parse_expr_4, rv, {
+		lex::TokPipe      => ::ast::NodeBinOp(::ast::BinOpBitOr , box rv, box try!(self.parse_expr_4())),
+		lex::TokAmpersand => ::ast::NodeBinOp(::ast::BinOpBitAnd, box rv, box try!(self.parse_expr_4())),
+		lex::TokCaret     => ::ast::NodeBinOp(::ast::BinOpBitXor, box rv, box try!(self.parse_expr_4())),
+	})
+	
+	/// Expression #4 - Comparison Operators
+	parse_left_assoc!(self, parse_expr_4, parse_expr_5, rv, {
+		lex::TokEquality => ::ast::NodeBinOp(::ast::BinOpCmpEqu, box rv, box try!(self.parse_expr_5())),
+	})
+	
+	/// Expression #5 - Bit Shifts
+	parse_left_assoc!(self, parse_expr_5, parse_expr_6, rv, {
+		lex::TokShiftLeft  => ::ast::NodeBinOp(::ast::BinOpShiftLeft,  box rv, box try!(self.parse_expr_6())),
+		lex::TokShiftRight => ::ast::NodeBinOp(::ast::BinOpShiftRight, box rv, box try!(self.parse_expr_6())),
+	})
+		
+	/// Expresion #6 - Arithmatic
+	parse_left_assoc!(self, parse_expr_6, parse_expr_7, rv, {
+		lex::TokPlus  => ::ast::NodeBinOp(::ast::BinOpAdd, box rv, box try!(self.parse_expr_7())),
+		lex::TokMinus => ::ast::NodeBinOp(::ast::BinOpSub, box rv, box try!(self.parse_expr_7())),
+	})
+	
+	/// Expression #7 - Multiply/Divide
+	parse_left_assoc!(self, parse_expr_7, parse_expr_8, rv, {
+		lex::TokStar  => ::ast::NodeBinOp(::ast::BinOpMul, box rv, box try!(self.parse_expr_8())),
+		lex::TokSlash => ::ast::NodeBinOp(::ast::BinOpDiv, box rv, box try!(self.parse_expr_8())),
+	})
+	
+	/// Expression #8 - Unary Righthand
+	parse_left_assoc!(self, parse_expr_8, parse_expr_9, rv, {
+		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpInc, box rv),
+		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpDec, box rv),
+	})
+	
+	fn parse_expr_9(&mut self) -> ParseResult<::ast::Node>
+	{
+		Ok( match try!(self.lex.get_token())
+		{
+		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpInc, box try!(self.parse_expr_P())),
+		//lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpDec, box try!(self.parse_expr_P())),
+		t @ _ => {
+			self.lex.put_back(t);
+			try!(self.parse_expr_P())
+			},
+		})
+	}
+	
+	
+	/// Expression - Member access
+	
+	/// Expression - Parens
+	fn parse_expr_P(&mut self) -> ParseResult<::ast::Node>
+	{
+		loop
+		{
+			match try!(self.lex.get_token())
+			{
+			lex::TokParenOpen => {
+					return Err( ::parse::Todo("Paren/Cast") );
+				},
+			t @ _ => {
+				self.lex.put_back(t);
+				return self.parse_expr_Z();
+				}
+			}
+		}
+	}
+	/// Expression - Leaf nodes
+	fn parse_expr_Z(&mut self) -> ParseResult<::ast::Node>
+	{
+		match try!(self.lex.get_token())
+		{
+		lex::TokIdent(id) => Ok( ::ast::NodeIdentifier(id) ),
+		lex::TokString(s) => Ok( ::ast::NodeString(s) ),
+		lex::TokInteger(v,_) => Ok( ::ast::NodeInteger(v) ),
+		t @ _ => Err( ::parse::SyntaxError(format!("Unexpected {}, expected value", t)) ),
+		}
 	}
 }
 

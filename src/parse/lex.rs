@@ -31,8 +31,27 @@ pub enum Token
 	TokSemicolon,
 	TokStar,
 	TokSlash,
-	TokAssign,
 	TokVargs,
+	TokQuestionMark,
+	
+	TokAssign,
+	TokAssignAdd,
+	
+	TokShiftRight,
+	TokShiftLeft,
+	
+	TokEquality,
+	
+	TokPlus,
+	TokMinus,
+	TokDoublePlus,	// ungood (bad joke, sorry)
+	TokDoubleMinus,
+	
+	TokAmpersand,
+	TokPipe,
+	TokCaret,
+	TokDoubleAmpersand,
+	TokDoublePipe,
 	
 	//
 	TokBraceOpen,
@@ -77,11 +96,13 @@ pub enum Token
 	TokRword_continue,
 	TokRword_break,
 	TokRword_return,
+	// - Meta
+	TokRword_gcc_attribute,
 }
 
 pub struct Lexer
 {
-	instream: Box<Reader>,
+	instream: Box<Reader+'static>,
 
 	lastchar: Option<char>,
 }
@@ -99,9 +120,13 @@ macro_rules! try_eof( ($fcn:expr, $eofval:expr) => (
 	}
 ))
 
+macro_rules! other_ch {
+	($_self:ident, $val:expr) => (ch @ _ => { $_self.ungetc(ch); $val } )
+}
+
 impl Lexer
 {
-	pub fn new(instream: Box<Reader>) -> Lexer {
+	pub fn new(instream: Box<Reader+'static>) -> Lexer {
 		Lexer {
 			instream: instream,
 			
@@ -223,8 +248,7 @@ impl Lexer
 		'#' => TokHash,
 		';' => TokSemicolon,
 		',' => TokComma,
-		'.' => {
-			match try_eof!(self.getc(), TokPeriod)
+		'.' => match try_eof!(self.getc(), TokPeriod)
 			{
 			'.' => {
 				if try_eof!(self.getc(), TokPeriod) != '.' {
@@ -237,7 +261,23 @@ impl Lexer
 				self.ungetc(ch);
 				TokPeriod
 				}
-			}
+			},
+		'=' => match try_eof!(self.getc(), TokAssign)
+			{
+			'=' => TokEquality,
+			ch @ _ => {
+				self.ungetc(ch);
+				TokAssign
+				}
+			},
+		'+' => match try_eof!(self.getc(), TokAssign)
+			{
+			'+' => TokDoublePlus,
+			'=' => TokAssignAdd,
+			ch @ _ => {
+				self.ungetc(ch);
+				TokPlus
+				}
 			},
 		'(' => TokParenOpen,	')' => TokParenClose,
 		'{' => TokBraceOpen,	'}' => TokBraceClose,
@@ -254,6 +294,7 @@ impl Lexer
 					'*' => {
 						match try_eof!(self.getc(), TokBlockComment(comment)) {
 						'/' => break,
+						'*' => self.ungetc('*'),	// Handles '**/'
 						c @ _ => comment.push_char(c)
 						}
 						},
@@ -268,20 +309,21 @@ impl Lexer
 				},
 			}
 			}
+
 		'"' => TokString( try!(self.read_string()) ),
 		
-		'0' .. '9' => {
+		'0' ... '9' => {
 			let (base, whole) = if ch == '0' {
 					let ch2 = try_eof!(self.getc(), TokInteger(0,::types::IntClass_Int(false)));
 					match ch2 {
-					'1' .. '7' => {
-						self.ungetc(ch);
+					'1' ... '7' => {
+						self.ungetc(ch2);
 						(8u, try!(self.read_number( 8)))
 						},
 					'x' => (16u, try!(self.read_number(16))),
 					'b' => ( 2u, try!(self.read_number( 2))),
 					_ => {
-						self.ungetc(ch);
+						self.ungetc(ch2);
 						(10u, 0)
 						}
 					}
@@ -313,7 +355,7 @@ impl Lexer
 					} )
 			}
 			},
-		'a'..'z'|'A'..'Z'|'_' => {
+		'a'...'z'|'A'...'Z'|'_' => {
 			self.ungetc(ch);
 			let ident = try!(self.read_ident());
 			match ident.as_slice()
@@ -321,6 +363,7 @@ impl Lexer
 			"typedef" => TokRword_typedef,
 			"static"  => TokRword_static,
 			"extern"  => TokRword_extern,
+			"inline"  => TokRword_inline,
 			
 			"const"    => TokRword_const,
 			"volatile" => TokRword_volatile,
@@ -336,6 +379,8 @@ impl Lexer
 			"enum"   => TokRword_enum,
 			"union"  => TokRword_union,
 			"struct" => TokRword_struct,
+			
+			"__attribute__" => TokRword_gcc_attribute,
 			_ => TokIdent(ident)
 			}
 			},
