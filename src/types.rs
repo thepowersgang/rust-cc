@@ -39,8 +39,8 @@ pub enum StorageClass
 
 pub type TypeRef = Rc<Type>;
 pub type StructRef = Rc<RefCell<Struct>>;
-pub type UnionRef = Rc<Union>;
-pub type EnumRef = Rc<Enum>;
+pub type UnionRef  = Rc<RefCell<Union>>;
+pub type EnumRef   = Rc<RefCell<Enum>>;
 
 #[deriving(PartialEq)]
 pub struct Type
@@ -80,7 +80,7 @@ pub struct Struct
 pub struct Union
 {
 	name: String,
-	items:	Vec<(TypeRef,String)>,
+	items: Option<Vec<(TypeRef,String)>>,
 }
 
 #[deriving(Show)]
@@ -88,7 +88,7 @@ pub struct Union
 pub struct Enum
 {
 	name: String,
-	items: Vec<(uint,String)>,
+	items: Option<Vec<(uint,String)>>,
 }
 
 impl ::std::fmt::Show for Type
@@ -111,8 +111,8 @@ impl ::std::fmt::Show for BaseType
 		TypeVoid => write!(fmt, "void"),
 		TypeBool => write!(fmt, "_Bool"),
 		TypeStruct(ref sr) => write!(fmt, "struct {}", sr.borrow().name),
-		TypeUnion(ref ur)  => write!(fmt, "union {}", ur.name),
-		TypeEnum(ref er)   => write!(fmt, "enum {}", er.name),
+		TypeUnion(ref ur)  => write!(fmt, "union {}",  ur.borrow().name),
+		TypeEnum(ref er)   => write!(fmt, "enum {}",   er.borrow().name),
 		TypeFloat(fc) => write!(fmt, "{}", fc),
 		TypeInteger(ic) => write!(fmt, "{}", ic),
 		
@@ -170,23 +170,43 @@ impl Struct
 
 impl Union
 {
-	pub fn new_ref(name: &str, items: Vec<(TypeRef,String)>) -> UnionRef
+	pub fn new_ref(name: &str) -> UnionRef
 	{
-		Rc::new( Union {
+		Rc::new(RefCell::new( Union {
 			name: name.to_string(),
-			items: items,
-			} )
+			items: None,
+			} ))
+	}
+	
+	pub fn is_populated(&self) -> bool
+	{
+		return self.items.is_some();
+	}
+	pub fn set_items(&mut self, items: Vec<(TypeRef,String)>)
+	{
+		assert!( self.items.is_none() );
+		self.items = Some(items);
 	}
 }
 
 impl Enum
 {
-	pub fn new_ref(name: &str, items: Vec<(uint,String)>) -> EnumRef
+	pub fn new_ref(name: &str) -> EnumRef
 	{
-		Rc::new( Enum {
+		Rc::new(RefCell::new( Enum {
 			name: name.to_string(),
-			items: items,
-			} )
+			items: None,
+			} ))
+	}
+	
+	pub fn is_populated(&self) -> bool
+	{
+		return self.items.is_some();
+	}
+	pub fn set_items(&mut self, items: Vec<(uint,String)>)
+	{
+		assert!( self.items.is_none() );
+		self.items = Some(items);
 	}
 }
 

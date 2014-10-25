@@ -409,11 +409,7 @@ impl<'ast> ParseState<'ast>
 		tok @ _ => {
 			self.lex.put_back(tok);
 			if name.as_slice() == "" { syntax_error!("Nameless union with no definition"); }
-			match self.ast.get_union(name.as_slice())
-			{
-			Some(er) => Ok(er),
-			None => syntax_error!("No union by the name '{}'", name),
-			}
+			Ok( self.ast.get_union(name.as_slice()) )
 			}
 		}
 	}
@@ -442,6 +438,9 @@ impl<'ast> ParseState<'ast>
 		Ok( items )
 	}
 	
+	// ---
+	// enums
+	// ---
 	fn get_enum(&mut self) -> ParseResult<::types::EnumRef>
 	{
 		let name = try!(self._get_ident_or_blank());
@@ -464,11 +463,7 @@ impl<'ast> ParseState<'ast>
 		tok @ _ => {
 			self.lex.put_back(tok);
 			if name.as_slice() == "" { syntax_error!("Nameless enum with no definition"); }
-			match self.ast.get_enum(name.as_slice())
-			{
-			Some(er) => Ok(er),
-			None => syntax_error!("No enum by the name '{}'", name),
-			}
+			Ok( self.ast.get_enum(name.as_slice()) )
 			}
 		}
 	}
@@ -691,6 +686,7 @@ impl<'ast> ParseState<'ast>
 	/// Parse a single line in a block
 	fn parse_block_line(&mut self) -> ParseResult<Option<::ast::Node>>
 	{
+		// Attempt to get a type, returns None if no type was present
 		Ok(match try!(self.get_base_type_opt())
 		{
 		Some(basetype) => {
@@ -787,21 +783,18 @@ impl<'ast> ParseState<'ast>
 					Some(i) => i as uint,
 					None => syntax_error!("Case value is not literal"),
 					};
-				let last = if peek_token!(self.lex, lex::TokVargs) {
-						Some( match try!(self.parse_expr_0()).literal_integer()
+				if peek_token!(self.lex, lex::TokVargs) {
+					let last = match try!(self.parse_expr_0()).literal_integer()
 						{
 						Some(i) => i as uint,
 						None => syntax_error!("Case value is not literal"),
-						})
-					} else {
-						None
-					};
-				syntax_assert!(self.lex : lex::TokColon);
-				match last
-				{
-				Some(last) => code.push( ::ast::NodeCaseRange(first, last) ),
-				None => code.push( ::ast::NodeCaseSingle(first) ),
+						};
+					code.push( ::ast::NodeCaseRange(first, last) );
 				}
+				else {
+					code.push( ::ast::NodeCaseSingle(first) );
+				}
+				syntax_assert!(self.lex : lex::TokColon);
 				},
 			t @ _ => {
 				self.lex.put_back(t);

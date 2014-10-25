@@ -67,51 +67,63 @@ impl Program
 		}
 	}
 	
-	pub fn get_union(&mut self, name: &str) -> Option<::types::UnionRef> {
+	pub fn get_union(&mut self, name: &str) -> ::types::UnionRef
+	{
 		if name == "" {
-			None
+			::types::Union::new_ref(name)
 		}
 		else {
-			self.unions.find(&name.to_string()).map(|v| v.clone())
+			match self.unions.entry(name.to_string())
+			{
+			::std::collections::hashmap::Occupied(s) => s.get().clone(),
+			::std::collections::hashmap::Vacant(h) => {
+				h.set(::types::Union::new_ref(name)).clone()
+				}
+			}
 		}
 	}
 	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::UnionRef,()> {
-		if name == "" {
-			Ok( ::types::Union::new_ref(name, items) )
+		let ur = self.get_union(name);
+		let ispop = ur.borrow().is_populated();
+		
+		if ispop {
+			Err( () )
 		}
 		else {
-			let key = name.to_string();
-			match self.unions.entry(key)
-			{
-			::std::collections::hashmap::Occupied(_) => Err( () ),
-			::std::collections::hashmap::Vacant(e) => Ok( e.set(::types::Union::new_ref(name, items)).clone() ),
-			}
+			// Set items in enum
+			ur.borrow_mut().set_items(items);
+			Ok( ur )
 		}
 	}
 	
-	pub fn get_enum(&mut self, name: &str) -> Option<::types::EnumRef>
+	pub fn get_enum(&mut self, name: &str) -> ::types::EnumRef
 	{
 		if name == "" {
-			None
+			::types::Enum::new_ref(name)
 		}
 		else {
-			self.enums.find(&name.to_string()).map(|v| v.clone())
+			match self.enums.entry(name.to_string())
+			{
+			::std::collections::hashmap::Occupied(s) => s.get().clone(),
+			::std::collections::hashmap::Vacant(h) => {
+				h.set(::types::Enum::new_ref(name)).clone()
+				}
+			}
 		}
 	}
 	pub fn make_enum(&mut self, name: &str, items: Vec<(uint,String)>) -> Result<::types::EnumRef,Option<String>> {
-		// Insert 'items' into the global constant scope
+		let er = self.get_enum(name);
+		let ispop = er.borrow().is_populated();
 		
-		
-		if name == "" {
-			Ok( ::types::Enum::new_ref(name, items) )
+		if ispop {
+			Err(None)
 		}
 		else {
-			let key = name.to_string();
-			match self.enums.entry(key)
-			{
-			::std::collections::hashmap::Occupied(_) => Err( None ),
-			::std::collections::hashmap::Vacant(e) => Ok( e.set(::types::Enum::new_ref(name, items)).clone() ),
-			}
+			// Insert 'items' into the global constant scope
+			error!("TODO: Insert enum values");
+			// Set items in enum
+			er.borrow_mut().set_items(items);
+			Ok( er )
 		}
 	}
 }
