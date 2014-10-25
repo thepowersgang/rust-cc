@@ -120,21 +120,33 @@ impl Program
 pub enum Node
 {
 	NodeBlock(Vec<Node>),
+	NodeStmtList(Vec<Node>),	// Comma operator
+	NodeDefVar(::types::TypeRef,String,Option<Box<Node>>),
 	
 	NodeIdentifier(String),
 	NodeString(String),
 	NodeInteger(u64),
 	NodeFloat(f64),
 	
+	NodeIfStatement(Box<Node>, Box<Node>, Option<Box<Node>>),
+	NodeWhileLoop(Box<Node>, Box<Node>),
+	NodeDoWhileLoop(Box<Node>, Box<Node>),
+	NodeForLoop(Box<Node>, Box<Node>, Box<Node>, Box<Node>),
+	
 	NodeFcnCall(Box<Node>, Vec<Box<Node>>),
 	
-	NodeReturn(Box<Node>),
+	NodeReturn(Option<Box<Node>>),
 	
 	NodeAssign(Box<Node>, Box<Node>),
+	NodeAssignOp(BinOp, Box<Node>, Box<Node>),
 	
 	NodeTernary(Box<Node>,Box<Node>,Box<Node>),
 	NodeUniOp(UniOp, Box<Node>),
 	NodeBinOp(BinOp, Box<Node>, Box<Node>),
+	
+	NodeIndex(Box<Node>, Box<Node>),
+	NodeDerefMember(Box<Node>, String),
+	NodeMember(Box<Node>, String),
 }
 
 #[deriving(Show)]
@@ -162,11 +174,15 @@ pub enum BinOp
 	
 	BinOpMul,
 	BinOpDiv,
+	BinOpMod,
 }
 
 #[deriving(Show)]
 pub enum UniOp
 {
+	UniOpNeg,
+	UniOpBitNot,
+	UniOpLogicNot,
 	UniOpPreInc,
 	UniOpPreDec,
 	UniOpPostInc,
@@ -182,6 +198,11 @@ impl Node
 		match self
 		{
 		&NodeInteger(v) => Some(v),
+		&NodeUniOp(ref op,ref a) => match (op,a.literal_integer())
+			{
+			(&UniOpNeg,Some(a)) => Some(-a),
+			_ => None,
+			},
 		&NodeBinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
 			{
 			(&BinOpSub,Some(a),Some(b)) => Some(a-b),
