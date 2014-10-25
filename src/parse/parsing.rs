@@ -683,7 +683,6 @@ impl<'ast> ParseState<'ast>
 			Some(stmt) => statements.push(stmt),
 			None => {},
 			}
-			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 		}
 		
 		Ok( ::ast::NodeBlock(statements) )
@@ -698,44 +697,48 @@ impl<'ast> ParseState<'ast>
 			debug!("parse_block_line - basetype={}", basetype);
 			// Definition!
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-			if ident.as_slice() != ""
-			{
-				// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
-				if peek_token!(self.lex, lex::TokBraceOpen)
+			let rv = if ident.as_slice() != ""
 				{
-					// NOTE: The following would need changes for C++11 array literals
-					parse_todo!("Nested functions");
+					// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
+					if peek_token!(self.lex, lex::TokBraceOpen)
+					{
+						// NOTE: The following would need changes for C++11 array literals
+						parse_todo!("Nested functions");
+					}
+					else
+					{
+						// TODO: Create local
+						let init = if peek_token!(self.lex, lex::TokAssign) {
+								Some(box try!(self.parse_expr()))
+							}
+							else {
+								None
+							};
+						let rv = ::ast::NodeDefVar(typeid, ident, init);
+						while peek_token!(self.lex, lex::TokComma)
+						{
+							parse_todo!("Multiple local variables");
+						}
+						Some( rv )
+					}
 				}
 				else
 				{
-					// TODO: Create local
-					let init = if peek_token!(self.lex, lex::TokAssign) {
-							Some(box try!(self.parse_expr()))
-						}
-						else {
-							None
-						};
-					let rv = ::ast::NodeDefVar(typeid, ident, init);
-					while peek_token!(self.lex, lex::TokComma)
-					{
-						parse_todo!("Multiple local variables");
-					}
-					Some( rv )
-				}
-			}
-			else
-			{
-				None
-			}
+					None
+				};
+			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+			rv
 			},
 		None => Some(match try!(self.lex.get_token())
 			{
 			lex::TokSemicolon => return Ok(None),
+			lex::TokBraceOpen => try!(self.parse_block()),
 			lex::TokRword_return => if peek_token!(self.lex, lex::TokSemicolon) {
-					self.lex.put_back(lex::TokSemicolon);
 					::ast::NodeReturn( None )
 				} else {
-					::ast::NodeReturn( Some(box try!(self.parse_expr())) )
+					let rv = ::ast::NodeReturn( Some(box try!(self.parse_expr())) );
+					syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+					rv
 				},
 			lex::TokRword_while => {
 				let cnd = box try!(self.parse_expr());
@@ -752,13 +755,64 @@ impl<'ast> ParseState<'ast>
 					};
 				::ast::NodeIfStatement(cnd,tcode,fcode)
 				},
+			lex::TokRword_switch => try!(self.parse_switch_statement()),
 			// Expression
 			t @ _ => {
 				self.lex.put_back(t);
-				try!(self.parse_expr())
+				let rv = try!(self.parse_expr());
+				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+				rv
 				}
 			}), 
 		})
+	}
+	
+	fn parse_switch_statement(&mut self) -> ParseResult<::ast::Node>
+	{
+		let cnd = box try!(self.parse_expr());
+		let mut code = Vec::new();
+		syntax_assert!(self.lex : lex::TokBraceOpen);
+		loop
+		{
+			match try!(self.lex.get_token())
+			{
+			lex::TokBraceClose => break,
+			lex::TokRword_default => {
+				code.push( ::ast::NodeCaseDefault );
+				syntax_assert!(self.lex : lex::TokColon);
+				},
+			lex::TokRword_case => {
+				let first = match try!(self.parse_expr_0()).literal_integer()
+					{
+					Some(i) => i as uint,
+					None => syntax_error!("Case value is not literal"),
+					};
+				let last = if peek_token!(self.lex, lex::TokVargs) {
+						Some( match try!(self.parse_expr_0()).literal_integer()
+						{
+						Some(i) => i as uint,
+						None => syntax_error!("Case value is not literal"),
+						})
+					} else {
+						None
+					};
+				syntax_assert!(self.lex : lex::TokColon);
+				match last
+				{
+				Some(last) => code.push( ::ast::NodeCaseRange(first, last) ),
+				None => code.push( ::ast::NodeCaseSingle(first) ),
+				}
+				},
+			t @ _ => {
+				self.lex.put_back(t);
+				match try!(self.parse_block_line()) {
+				Some(n) => code.push(n),
+				None => {},
+				}
+				}
+			}
+		}
+		Ok( ::ast::NodeSwitch(cnd, code) )
 	}
 	
 	fn parse_variable_list(&mut self, basetype: ::types::TypeRef) -> ParseResult<()>
@@ -883,6 +937,7 @@ impl<'ast> ParseState<'ast>
 	/// Expression #4 - Comparison Operators
 	parse_left_assoc!(self, parse_expr_4, parse_expr_5, rv, {
 		lex::TokEquality => ::ast::NodeBinOp(::ast::BinOpCmpEqu, box rv, box try!(self.parse_expr_5())),
+		lex::TokNotEquals => ::ast::NodeBinOp(::ast::BinOpCmpNEqu, box rv, box try!(self.parse_expr_5())),
 		lex::TokLt  => ::ast::NodeBinOp(::ast::BinOpCmpLt,  box rv, box try!(self.parse_expr_5())),
 		lex::TokLtE => ::ast::NodeBinOp(::ast::BinOpCmpLtE, box rv, box try!(self.parse_expr_5())),
 		lex::TokGt  => ::ast::NodeBinOp(::ast::BinOpCmpGt,  box rv, box try!(self.parse_expr_5())),
@@ -924,6 +979,7 @@ impl<'ast> ParseState<'ast>
 		lex::TokExclamation => ::ast::NodeUniOp(::ast::UniOpLogicNot, box try!(self.parse_expr_9())),
 		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpPreInc,   box try!(self.parse_expr_9())),
 		lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpPreDec,   box try!(self.parse_expr_9())),
+		lex::TokAmpersand   => ::ast::NodeUniOp(::ast::UniOpAddress, box try!(self.parse_expr_member())),	// different, as double addr is inval
 		t @ _ => {
 			self.lex.put_back(t);
 			try!(self.parse_expr_member())
@@ -941,6 +997,21 @@ impl<'ast> ParseState<'ast>
 				syntax_assert!(self.lex : lex::TokSquareClose);
 				::ast::NodeIndex(box rv, idx)
 				},
+		lex::TokParenOpen => {
+			let mut args = Vec::new();
+			if ! peek_token!(self.lex, lex::TokParenClose)
+			{
+				loop
+				{
+					args.push( try!(self.parse_expr()) );
+					if peek_token!(self.lex, lex::TokParenClose) {
+						break;
+					}
+					syntax_assert!(self.lex : lex::TokComma);
+				}
+			}
+			::ast::NodeFcnCall(box rv, args)
+			},
 	})
 	
 	/// Expression - Parens

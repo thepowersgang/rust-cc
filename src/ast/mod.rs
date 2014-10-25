@@ -133,7 +133,12 @@ pub enum Node
 	NodeDoWhileLoop(Box<Node>, Box<Node>),
 	NodeForLoop(Box<Node>, Box<Node>, Box<Node>, Box<Node>),
 	
-	NodeFcnCall(Box<Node>, Vec<Box<Node>>),
+	NodeSwitch(Box<Node>, Vec<Node>),
+	NodeCaseDefault,
+	NodeCaseSingle(uint),
+	NodeCaseRange(uint, uint),
+	
+	NodeFcnCall(Box<Node>, Vec<Node>),
 	
 	NodeReturn(Option<Box<Node>>),
 	

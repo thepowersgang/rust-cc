@@ -53,6 +53,7 @@ pub enum Token
 	TokShiftLeft,
 	
 	TokEquality,
+	TokNotEquals,
 	TokLt,
 	TokGt,
 	TokLtE,
@@ -108,11 +109,14 @@ pub enum Token
 	TokRword_while,
 	TokRword_do,
 	TokRword_for,
+	TokRword_switch,
 	// - Flow
 	TokRword_goto,
 	TokRword_continue,
 	TokRword_break,
 	TokRword_return,
+	TokRword_case,
+	TokRword_default,
 	// - Meta
 	TokRword_gcc_attribute,
 }
@@ -205,7 +209,7 @@ impl Lexer
 		loop
 		{
 			let ch = try_eof!(self.getc(), name);
-			if !(isalnum(ch) || ch == '_') {
+			if !(isalnum(ch) || ch == '_' || ch == '$') {
 				self.ungetc(ch);
 				break;
 			}
@@ -272,7 +276,9 @@ impl Lexer
 		'\n' => TokNewline,
 		'#' => TokHash,
 		'~' => TokTilde,
-		'!' => TokExclamation,
+		'!' => match_ch!(self, TokExclamation,
+			'=' => TokNotEquals,
+			),
 		';' => TokSemicolon,
 		',' => TokComma,
 		'?' => TokQuestionMark,
@@ -392,7 +398,7 @@ impl Lexer
 					} )
 			}
 			},
-		'a'...'z'|'A'...'Z'|'_' => {
+		'a'...'z'|'A'...'Z'|'_'|'$' => {
 			self.ungetc(ch);
 			let ident = try!(self.read_ident());
 			match ident.as_slice()
@@ -422,10 +428,14 @@ impl Lexer
 			"do"    => TokRword_do,
 			"while" => TokRword_while,
 			"for"   => TokRword_for,
+			"switch" => TokRword_switch,
 			
+			"case" => TokRword_case,
+			"default" => TokRword_default,
 			"return" => TokRword_return,
 			"break"  => TokRword_break,
 			"continue" => TokRword_continue,
+			"goto"   => TokRword_goto,
 			
 			"__attribute__" => TokRword_gcc_attribute,
 			_ => TokIdent(ident)

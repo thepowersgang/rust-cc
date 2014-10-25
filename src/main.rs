@@ -32,7 +32,6 @@ fn main()
 		},
 	Ok(_) => {}
 	}
-	println!("Hello, world!")
 }
 
 // vim: ft=rust
