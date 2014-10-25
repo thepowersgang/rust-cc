@@ -10,6 +10,7 @@ use std::cell::RefCell;
 #[deriving(Clone)]
 pub enum IntClass
 {
+	IntClass_Bits(bool,uint),
 	IntClass_Char(bool),
 	IntClass_Short(bool),
 	IntClass_Int(bool),

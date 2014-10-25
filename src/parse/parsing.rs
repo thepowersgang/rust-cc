@@ -49,8 +49,8 @@ macro_rules! syntax_assert(
 		lex::$exp => {},
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		});
-	($tok:expr, lex::$exp:ident($a:ident) => $v:expr) => (match $tok {
-		lex::$exp($a) => $v,
+	($tok:expr, lex::$exp:ident($($a:ident),+) => $v:expr) => (match $tok {
+		lex::$exp($($a),+) => $v,
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		})
 	)
@@ -62,6 +62,7 @@ macro_rules! peek_token( ($lex:expr, $tok:pat) => ({
 	}
 	})
 	)
+macro_rules! parse_todo( ($str:expr) => (return Err(::parse::Todo($str))) )
 
 impl<'ast> ParseState<'ast>
 {
@@ -122,9 +123,17 @@ impl<'ast> ParseState<'ast>
 		}
 	}
 	
+	fn get_base_type(&mut self) -> ParseResult<::types::TypeRef> {
+		match try!(self.get_base_type_opt())
+		{
+		Some(t) => Ok(t),
+		None => syntax_error!("No type provided, got token {}", try!(self.lex.get_token())),
+		}
+	}
+	
 	/// Read a single basic type.
 	/// - Could be a primitive, a verbatim struct/union/enum, or a typedef
-	fn get_base_type(&mut self) -> ParseResult<::types::TypeRef>
+	fn get_base_type_opt(&mut self) -> ParseResult<Option<::types::TypeRef>>
 	{
 		let mut is_const = false;
 		let mut is_volatile = false;
@@ -280,10 +289,17 @@ impl<'ast> ParseState<'ast>
 				::types::TypeInteger( ::types::IntClass_Int(is_signed) )
 			}
 			else {
-				syntax_error!("No type provided, got token {}", try!(self.lex.get_token()));
+				// If any tokens were consumed during this function, we have to error
+				if is_const || is_volatile || storageclass.is_some() {
+					syntax_error!("No type provided, got token {}", try!(self.lex.get_token()));
+				}
+				else {
+					// Otherwise, leave it up to the caller
+					return Ok( None )
+				}
 			};
 		
-		Ok( ::types::Type::new_ref( rv, is_const, is_volatile ) )
+		Ok( Some(::types::Type::new_ref( rv, is_const, is_volatile )) )
 	}
 	
 	fn _get_ident_or_blank(&mut self) -> ParseResult<String> {
@@ -330,18 +346,42 @@ impl<'ast> ParseState<'ast>
 			let basetype = try!(self.get_base_type());
 			debug!("do_definition: basetype={}", basetype);
 			// 2. Get extended type and identifier
-			items.push( try!(self.get_full_type(basetype.clone())) );
+			let (ft, ident) = try!(self.get_full_type(basetype.clone()));
 			
-			while( peek_token!(self.lex, lex::TokComma) )
+			if peek_token!(self.lex, lex::TokColon)
 			{
-				items.push( try!(self.get_full_type(basetype.clone())) );
+				// Ensure that `ft` is the correct type (an integer)
+				let sign = match &ft.basetype
+					{
+					&::types::TypeInteger(::types::IntClass_Int(s)) => s,
+					ft @ _ => syntax_error!("Invalid type for bitfield, expected signed/unsigned, got {}", ft),
+					};
+				let i = syntax_assert!( try!(self.lex.get_token()), lex::TokInteger(i,_class) => i as uint );
+				let bt = ::types::TypeInteger(::types::IntClass_Bits(sign, i));
+				items.push( (::types::Type::new_ref(bt, false, false), ident) );
+				
+				if peek_token!(self.lex, lex::TokComma) { parse_todo!("Comma separated bitfields"); }
+				/*
+				while( peek_token!(self.lex, lex::TokComma) )
+				{
+					items.push( try!(self.get_full_type(basetype.clone())) );
+				}
+				*/
+			}
+			else
+			{
+				items.push( (ft, ident) );
+				while( peek_token!(self.lex, lex::TokComma) )
+				{
+					items.push( try!(self.get_full_type(basetype.clone())) );
+				}
 			}
 			syntax_assert!( try!(self.lex.get_token()), lex::TokSemicolon );
 		}
 		
 		if peek_token!(self.lex, lex::TokRword_gcc_attribute)
 		{
-			return Err( ::parse::Todo("Handle GCC __attribute__ on struct") );
+			parse_todo!("Handle GCC __attribute__ on struct");
 		}
 		
 		structinfo.borrow_mut().set_items( items );
@@ -493,7 +533,7 @@ impl<'ast> ParseState<'ast>
 			debug!("get_full_type: rettype={}, typenode={}", rettype, typenode);
 		}
 		// TODO: Unwrap typenode over basetype
-		return Err(::parse::Todo("get_full_type"));
+		parse_todo!("get_full_type");
 	}
 	
 	/// Handle pointers in types
@@ -625,23 +665,55 @@ impl<'ast> ParseState<'ast>
 		// Opening brace has been eaten
 		let mut statements = Vec::new();
 		
-		loop
+		while !peek_token!(self.lex, lex::TokBraceClose)
 		{
-			statements.push( match try!(self.lex.get_token())
+			match try!(self.parse_block_line())
 			{
-			lex::TokBraceClose => break,
-			lex::TokRword_return => {
-				::ast::NodeReturn( box try!(self.parse_expr()) )
-				},
-			t @ _ => {
-				self.lex.put_back(t);
-				try!(self.parse_expr())
-				}
-			} );
+			Some(stmt) => statements.push(stmt),
+			None => {},
+			}
 			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 		}
 		
 		Ok( ::ast::NodeBlock(statements) )
+	}
+	
+	/// Parse a single line in a block
+	fn parse_block_line(&mut self) -> ParseResult<Option<::ast::Node>>
+	{
+		Ok(match try!(self.get_base_type_opt())
+		{
+		Some(basetype) => {
+			// Definition!
+			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
+			if ident.as_slice() != ""
+			{
+				// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
+				if peek_token!(self.lex, lex::TokBraceOpen)
+				{
+					// NOTE: The following would need changes for C++11 array literals
+					parse_todo!("Nested functions");
+				}
+				else
+				{
+					// TODO: Create local
+					parse_todo!("Create local");
+				}
+			}
+			None
+			},
+		None => match try!(self.lex.get_token())
+			{
+			lex::TokRword_return => {
+				Some( ::ast::NodeReturn( box try!(self.parse_expr()) ) )
+				},
+			// Expression
+			t @ _ => {
+				self.lex.put_back(t);
+				Some( try!(self.parse_expr()) )
+				}
+			}, 
+		})
 	}
 	
 	fn parse_variable_list(&mut self, basetype: ::types::TypeRef) -> ParseResult<()>
@@ -820,7 +892,7 @@ impl<'ast> ParseState<'ast>
 			match try!(self.lex.get_token())
 			{
 			lex::TokParenOpen => {
-					return Err( ::parse::Todo("Paren/Cast") );
+					parse_todo!("Paren/Cast");
 				},
 			t @ _ => {
 				self.lex.put_back(t);
