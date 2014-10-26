@@ -1143,18 +1143,39 @@ impl<'ast> ParseState<'ast>
 		{
 		lex::TokIdent(id) => ::ast::NodeIdentifier(id),
 		lex::TokString(s) => {
-				let mut val = s;
-				loop
-				{
-					match try!(self.lex.get_token()) {
-					lex::TokString(s) => { val.push_str(s.as_slice()); },
-					t @ _ => { self.lex.put_back(t); break; }
-					}
+			let mut val = s;
+			loop
+			{
+				match try!(self.lex.get_token()) {
+				lex::TokString(s) => { val.push_str(s.as_slice()); },
+				t @ _ => { self.lex.put_back(t); break; }
 				}
-				::ast::NodeString(val)
-				},
+			}
+			::ast::NodeString(val)
+			},
 		lex::TokInteger(v,_) => ::ast::NodeInteger(v),
 		lex::TokBraceOpen => try!(self.parse_composite_lit()),
+		lex::TokRword_sizeof => {
+			let expect_paren = peek_token!(self.lex, lex::TokParenOpen);
+			let rv = match try!(self.get_base_type_opt())
+				{
+				Some(t) => {
+					let (tr, name) = try!(self.get_full_type(t));
+					if ! name.is_empty() {
+						syntax_error!("Unexpected name in sizeof");
+					}
+					::ast::NodeSizeofType(tr)
+					},
+				None => {
+					let val = if expect_paren { box try!(self.parse_expr_0()) } else { box try!(self.parse_expr_P()) };
+					::ast::NodeSizeofExpr(val)
+					},
+				};
+			if expect_paren {
+				syntax_assert!(self.lex : lex::TokParenClose);
+			}
+			rv
+			},
 		t @ _ => syntax_error!("Unexpected {}, expected value", t),
 		})
 	}

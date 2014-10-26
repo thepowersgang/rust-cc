@@ -166,6 +166,8 @@ pub enum Node
 	NodeAssignOp(BinOp, Box<Node>, Box<Node>),
 	
 	NodeCast(::types::TypeRef,Box<Node>),
+	NodeSizeofType(::types::TypeRef),
+	NodeSizeofExpr(Box<Node>),
 	
 	NodeTernary(Box<Node>,Box<Node>,Box<Node>),
 	NodeUniOp(UniOp, Box<Node>),
