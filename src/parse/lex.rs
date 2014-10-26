@@ -120,6 +120,7 @@ pub enum Token
 	// - Meta
 	TokRword_sizeof,
 	TokRword_gcc_attribute,
+	TokRword_gcc_va_arg,
 }
 
 pub struct Lexer
@@ -427,9 +428,9 @@ impl Lexer
 			else
 			{
 				// Integer
-				let is_unsigned = if ch == 'u' { ch = try_eof!(self.getc(), intret); true } else { false };
-				let is_long     = if ch == 'l' { ch = try_eof!(self.getc(), intret); true } else { false };
-				let is_longlong = if ch == 'l' { ch = try_eof!(self.getc(), intret); true } else { false };
+				let is_unsigned = if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret); true } else { false };
+				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
+				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
 				self.ungetc(ch);
 				TokInteger( whole, match (is_long,is_longlong) {
 					(false,false) => ::types::IntClass_Int(is_unsigned),
@@ -480,6 +481,7 @@ impl Lexer
 			"goto"   => TokRword_goto,
 			
 			"__attribute__" => TokRword_gcc_attribute,
+			"__builtin_va_arg" => TokRword_gcc_va_arg,
 			_ => TokIdent(ident)
 			}
 			},
