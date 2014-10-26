@@ -65,8 +65,7 @@ impl Preproc
 		{
 			let lexer_h = &mut self.lexers.last_mut().unwrap();
 			let lexer = &mut lexer_h.lexer;
-			let tok = try!(lexer.get_token());
-			match tok
+			match try!(lexer.get_token())
 			{
 			lex::TokNewline => {
 				lexer_h.line += 1;
@@ -103,7 +102,7 @@ impl Preproc
 				debug!("get_token = {}", ret);
 				return Ok( ret );
 				},
-			_ => {
+			tok @ _ => {
 				debug!("get_token = {}", tok);
 				return Ok(tok)
 				}

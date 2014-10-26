@@ -56,6 +56,14 @@ macro_rules! syntax_assert(
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		})
 	)
+macro_rules! peek_token_nc( ($lex:expr, $tok:pat) => ({
+	let lex = &mut $lex;
+	match try!(lex.get_token()) {
+	tok @ $tok => { lex.put_back(tok); true },
+	tok @ _ => { lex.put_back(tok); false }
+	}
+	})
+	)
 macro_rules! peek_token( ($lex:expr, $tok:pat) => ({
 	let lex = &mut $lex;
 	match try!(lex.get_token()) {
@@ -659,11 +667,13 @@ impl<'ast> ParseState<'ast>
 	
 	fn parse_opt_block(&mut self) -> ParseResult<::ast::Node>
 	{
-		Ok(match try!(self.parse_block_line())
-		{
-		Some(n) => n,
-		None => ::ast::NodeBlock(Vec::new()),
-		})
+		let mut exprs = try!(self.parse_block_line());
+		if exprs.len() == 1 {
+			Ok( exprs.remove(0).unwrap() )
+		}
+		else {
+			Ok( ::ast::NodeBlock(exprs) )
+		}
 	}
 	
 	fn parse_block(&mut self) -> ParseResult<::ast::Node>
@@ -673,20 +683,14 @@ impl<'ast> ParseState<'ast>
 		
 		while !peek_token!(self.lex, lex::TokBraceClose)
 		{
-			match try!(self.parse_block_line())
-			{
-			Some(stmt) => statements.push(stmt),
-			None => {},
-			}
+			statements.extend( try!(self.parse_block_line()).into_iter() );
 		}
 		
 		Ok( ::ast::NodeBlock(statements) )
 	}
 	
-	/// Parse a single line in a block
-	fn parse_block_line(&mut self) -> ParseResult<Option<::ast::Node>>
+	fn try_parse_local_var(&mut self) -> ParseResult<Option<Vec<::ast::Node>>>
 	{
-		// Attempt to get a type, returns None if no type was present
 		Ok(match try!(self.get_base_type_opt())
 		{
 		Some(basetype) => {
@@ -710,24 +714,45 @@ impl<'ast> ParseState<'ast>
 							else {
 								None
 							};
-						let rv = ::ast::NodeDefVar(typeid, ident, init);
+						let mut rv = vec![ ::ast::NodeDefVar(typeid, ident, init) ];
 						while peek_token!(self.lex, lex::TokComma)
 						{
-							parse_todo!("Multiple local variables");
+							let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
+							let init = if peek_token!(self.lex, lex::TokAssign) {
+									Some(box try!(self.parse_expr()))
+								}
+								else {
+									None
+								};
+							
+							rv.push( ::ast::NodeDefVar(typeid, ident, init) );
 						}
-						Some( rv )
+						Some(rv)
 					}
 				}
 				else
 				{
-					None
+					Some(vec![])
 				};
-			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 			rv
 			},
-		None => Some(match try!(self.lex.get_token())
+		None => None
+		})
+	}
+	
+	/// Parse a single line in a block
+	fn parse_block_line(&mut self) -> ParseResult<Vec<::ast::Node>>
+	{
+		// Attempt to get a type, returns None if no type was present
+		Ok(match try!(self.try_parse_local_var())
+		{
+		Some(n) => {
+			syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+			n
+			},
+		None => vec![match try!(self.lex.get_token())
 			{
-			lex::TokSemicolon => return Ok(None),
+			lex::TokSemicolon => return Ok(vec![]),
 			lex::TokBraceOpen => try!(self.parse_block()),
 			lex::TokRword_return => if peek_token!(self.lex, lex::TokSemicolon) {
 					::ast::NodeReturn( None )
@@ -736,11 +761,32 @@ impl<'ast> ParseState<'ast>
 					syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 					rv
 				},
+			lex::TokRword_break => {
+				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+				::ast::NodeBreak
+				},
+			lex::TokRword_continue => {
+				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+				::ast::NodeContinue
+				},
+			lex::TokRword_goto => {
+				let dest = syntax_assert!(self.lex : lex::TokIdent(s) => s);
+				syntax_assert!(self.lex : lex::TokSemicolon);
+				::ast::NodeGoto(dest)
+				},
 			lex::TokRword_while => {
 				let cnd = box try!(self.parse_expr());
 				let code = box try!(self.parse_opt_block());
 				::ast::NodeWhileLoop(cnd,code)
 				},
+			lex::TokRword_do => {
+				let code = box try!(self.parse_opt_block());
+				syntax_assert!(self.lex : lex::TokRword_while);
+				let cnd = box try!(self.parse_expr());
+				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+				::ast::NodeDoWhileLoop(cnd,code)
+				},
+			lex::TokRword_for => try!(self.parse_for_loop()),
 			lex::TokRword_if => {
 				let cnd = box try!(self.parse_expr());
 				let tcode = box try!(self.parse_opt_block());
@@ -752,6 +798,26 @@ impl<'ast> ParseState<'ast>
 				::ast::NodeIfStatement(cnd,tcode,fcode)
 				},
 			lex::TokRword_switch => try!(self.parse_switch_statement()),
+			
+			t @ lex::TokIdent(_) => {
+				self.lex.put_back(t);
+				let rv = try!(self.parse_expr());
+				if let ::ast::NodeIdentifier(i) = rv
+				{
+					if peek_token!(self.lex, lex::TokColon) {
+						::ast::NodeLabel(i)
+					}
+					else {
+						syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+						::ast::NodeIdentifier(i)
+					}
+				}
+				else {
+					syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
+					rv
+				}
+				},
+			
 			// Expression
 			t @ _ => {
 				self.lex.put_back(t);
@@ -759,8 +825,43 @@ impl<'ast> ParseState<'ast>
 				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 				rv
 				}
-			}), 
+			}], 
 		})
+	}
+	
+	/// Parse a for loop
+	// ('for' has been eaten)
+	fn parse_for_loop(&mut self) -> ParseResult<::ast::Node>
+	{
+		syntax_assert!(self.lex : lex::TokParenOpen);
+		debug!("parse_for_loop");
+		let init = if peek_token_nc!(self.lex, lex::TokSemicolon) {
+				None
+			} else {
+				match try!(self.try_parse_local_var())
+				{
+				Some(n) => Some(box ::ast::NodeStmtList(n)),
+				None => Some(box try!(self.parse_expr())),
+				}
+			};
+		syntax_assert!(self.lex : lex::TokSemicolon);
+		debug!("parse_for_loop: init = {}", init);
+		let cnd = if peek_token_nc!(self.lex, lex::TokSemicolon) {
+				None
+			} else {
+				Some(box try!(self.parse_expr()))
+			};
+		syntax_assert!(self.lex : lex::TokSemicolon);
+		debug!("parse_for_loop: cnd = {}", cnd);
+		let inc = if peek_token_nc!(self.lex, lex::TokParenClose) {
+				None
+			} else {
+				Some(box try!(self.parse_expr()))
+			};
+		syntax_assert!(self.lex : lex::TokParenClose);
+		debug!("parse_for_loop: inc = {}", inc);
+		let code = box try!(self.parse_opt_block());
+		Ok( ::ast::NodeForLoop(init,cnd,inc,code) )
 	}
 	
 	fn parse_switch_statement(&mut self) -> ParseResult<::ast::Node>
@@ -798,10 +899,7 @@ impl<'ast> ParseState<'ast>
 				},
 			t @ _ => {
 				self.lex.put_back(t);
-				match try!(self.parse_block_line()) {
-				Some(n) => code.push(n),
-				None => {},
-				}
+				code.extend( try!(self.parse_block_line()).into_iter() );
 				}
 			}
 		}
@@ -884,6 +982,8 @@ impl<'ast> ParseState<'ast>
 		lex::TokAssign => ::ast::NodeAssign(box rv, box try!(self.parse_expr_0())),
 		lex::TokAssignBitAnd => ::ast::NodeAssignOp(::ast::BinOpBitAnd, box rv, box try!(self.parse_expr_0())),
 		lex::TokAssignBitOr  => ::ast::NodeAssignOp(::ast::BinOpBitOr,  box rv, box try!(self.parse_expr_0())),
+		lex::TokAssignAdd  => ::ast::NodeAssignOp(::ast::BinOpAdd,  box rv, box try!(self.parse_expr_0())),
+		lex::TokAssignSub  => ::ast::NodeAssignOp(::ast::BinOpSub,  box rv, box try!(self.parse_expr_0())),
 		t @ _ => {
 			self.lex.put_back(t);
 			rv
@@ -972,6 +1072,7 @@ impl<'ast> ParseState<'ast>
 		lex::TokExclamation => ::ast::NodeUniOp(::ast::UniOpLogicNot, box try!(self.parse_expr_9())),
 		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpPreInc,   box try!(self.parse_expr_9())),
 		lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpPreDec,   box try!(self.parse_expr_9())),
+		lex::TokStar        => ::ast::NodeUniOp(::ast::UniOpDeref,    box try!(self.parse_expr_9())),
 		lex::TokAmpersand   => ::ast::NodeUniOp(::ast::UniOpAddress, box try!(self.parse_expr_member())),	// different, as double addr is inval
 		t @ _ => {
 			self.lex.put_back(t);
@@ -1015,7 +1116,14 @@ impl<'ast> ParseState<'ast>
 		// - Either a cast, or a grouped expression
 		lex::TokParenOpen => match try!(self.get_base_type_opt())
 			{
-			Some(basetype) => parse_todo!("Cast"),
+			Some(basetype) => {
+				let (fulltype, ident) = try!(self.get_full_type(basetype));
+				if ident.as_slice() != "" {
+					syntax_error!("Unexpected identifier in cast");
+				}
+				syntax_assert!(self.lex : lex::TokParenClose);
+				::ast::NodeCast(fulltype, box try!(self.parse_expr_P()))
+				},
 			None => {
 					let rv = try!(self.parse_expr_0());
 					syntax_assert!(try!(self.lex.get_token()), lex::TokParenClose);
@@ -1031,13 +1139,88 @@ impl<'ast> ParseState<'ast>
 	/// Expression - Leaf nodes
 	fn parse_expr_Z(&mut self) -> ParseResult<::ast::Node>
 	{
-		match try!(self.lex.get_token())
+		Ok(match try!(self.lex.get_token())
 		{
-		lex::TokIdent(id) => Ok( ::ast::NodeIdentifier(id) ),
-		lex::TokString(s) => Ok( ::ast::NodeString(s) ),
-		lex::TokInteger(v,_) => Ok( ::ast::NodeInteger(v) ),
-		t @ _ => Err( ::parse::SyntaxError(format!("Unexpected {}, expected value", t)) ),
+		lex::TokIdent(id) => ::ast::NodeIdentifier(id),
+		lex::TokString(s) => {
+				let mut val = s;
+				loop
+				{
+					match try!(self.lex.get_token()) {
+					lex::TokString(s) => { val.push_str(s.as_slice()); },
+					t @ _ => { self.lex.put_back(t); break; }
+					}
+				}
+				::ast::NodeString(val)
+				},
+		lex::TokInteger(v,_) => ::ast::NodeInteger(v),
+		lex::TokBraceOpen => try!(self.parse_composite_lit()),
+		t @ _ => syntax_error!("Unexpected {}, expected value", t),
+		})
+	}
+	
+	fn parse_composite_lit(&mut self) -> ParseResult<::ast::Node>
+	{
+		Ok(match try!(self.lex.get_token())
+		{
+		lex::TokBraceClose => {
+			::ast::NodeListLiteral(vec![])
+			},
+		t @ lex::TokPeriod => {
+			self.lex.put_back(t);
+			try!(self.parse_struct_lit())
+			},
+		t @ lex::TokSquareOpen => {
+			self.lex.put_back(t);
+			try!(self.parse_array_lit())
+			},
+		t @ _ => {
+			self.lex.put_back(t);
+			try!(self.parse_list_lit())
+			},
+		})
+	}
+	
+	fn parse_list_lit(&mut self) -> ParseResult<::ast::Node>
+	{
+		let mut items = Vec::new();
+		loop
+		{
+			let val = try!(self.parse_expr());
+			items.push(val);
+			if ! peek_token!(self.lex, lex::TokComma) {
+				break;
+			}
 		}
+		syntax_assert!(self.lex : lex::TokBraceClose);
+		
+		Ok( ::ast::NodeListLiteral(items) )
+	}
+	
+	fn parse_struct_lit(&mut self) -> ParseResult<::ast::Node>
+	{
+		let mut items = Vec::new();
+		loop
+		{
+			syntax_assert!(self.lex : lex::TokPeriod);
+			let name = syntax_assert!(self.lex : lex::TokIdent(i) => i);
+			syntax_assert!(self.lex : lex::TokAssign);
+			let val = try!(self.parse_expr());
+			
+			items.push( (name,val) );
+			
+			if ! peek_token!(self.lex, lex::TokComma) {
+				break;
+			}
+		}
+		syntax_assert!(self.lex : lex::TokBraceClose);
+		
+		Ok( ::ast::NodeStructLiteral(items) )
+	}
+	
+	fn parse_array_lit(&mut self) -> ParseResult<::ast::Node>
+	{
+		parse_todo!("indexed array literals");
 	}
 }
 

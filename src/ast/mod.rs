@@ -139,11 +139,19 @@ pub enum Node
 	NodeString(String),
 	NodeInteger(u64),
 	NodeFloat(f64),
+	NodeListLiteral(Vec<Node>),	// {a, b, c}
+	NodeArrayLiteral(Vec<(uint,Node)>),	// {[0] = a, [1] = b, [2] = c}
+	NodeStructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
 	
 	NodeIfStatement(Box<Node>, Box<Node>, Option<Box<Node>>),
 	NodeWhileLoop(Box<Node>, Box<Node>),
 	NodeDoWhileLoop(Box<Node>, Box<Node>),
-	NodeForLoop(Box<Node>, Box<Node>, Box<Node>, Box<Node>),
+	NodeForLoop(Option<Box<Node>>, Option<Box<Node>>, Option<Box<Node>>, Box<Node>),
+	
+	NodeLabel(String),
+	NodeGoto(String),
+	NodeContinue,
+	NodeBreak,
 	
 	NodeSwitch(Box<Node>, Vec<Node>),
 	NodeCaseDefault,
@@ -156,6 +164,8 @@ pub enum Node
 	
 	NodeAssign(Box<Node>, Box<Node>),
 	NodeAssignOp(BinOp, Box<Node>, Box<Node>),
+	
+	NodeCast(::types::TypeRef,Box<Node>),
 	
 	NodeTernary(Box<Node>,Box<Node>,Box<Node>),
 	NodeUniOp(UniOp, Box<Node>),

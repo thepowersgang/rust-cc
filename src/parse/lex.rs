@@ -118,6 +118,7 @@ pub enum Token
 	TokRword_case,
 	TokRword_default,
 	// - Meta
+	TokRword_sizeof,
 	TokRword_gcc_attribute,
 }
 
@@ -237,6 +238,21 @@ impl Lexer
 		}
 		return Ok(val);
 	}
+	
+	fn read_escape(&mut self) -> ParseResult<Option<char>>
+	{
+		Ok(match try!(self.getc())
+		{
+		'\\' => Some('\\'),
+		'"' => Some('"'),
+		'n' => Some('\n'),
+		'r' => Some('\r'),
+		'0' => Some('\0'),
+		'\n' => None,
+		c @ _ => fail!("Unexpected escape code in string '\\{}'", c)
+		})
+	}
+	
 	// Read a double-quoted string
 	// - NOTE: has no EOF processing, as an EOF in a double-quoted string is invalid
 	fn read_string(&mut self) -> ParseResult<String>
@@ -249,14 +265,10 @@ impl Lexer
 				break;
 			}
 			if ch == '\\' {
-				let codechar = try!(self.getc());
-				match codechar {
-				'\\' => ret.push('\\'),
-				'"' => ret.push('"'),
-				'n' => ret.push('\n'),
-				'r' => ret.push('\r'),
-				'\n' => (),
-				_ => fail!("Unexpected escape code in string '\\{}'", codechar)
+				match try!(self.read_escape())
+				{
+				Some(c) => ret.push(c),
+				None => {},
 				}
 			}
 			else {
@@ -264,6 +276,34 @@ impl Lexer
 			}
 		}
 		return Ok(ret);
+	}
+	// Read a single-quoted character constant
+	fn read_charconst(&mut self) -> ParseResult<u64>
+	{
+		let mut ret = String::new();
+		loop
+		{
+			let ch = try!(self.getc());
+			if ch == '\'' {
+				break;
+			}
+			if ch == '\\' {
+				match try!(self.read_escape())
+				{
+				Some(c) => ret.push(c),
+				None => {},
+				}
+			}
+			else {
+				ret.push( ch );
+			}
+		}
+		match ret.len()
+		{
+		0 => Err( ::parse::SyntaxError(format!("Empty chracter constant")) ),
+		1 => Ok( ret.as_slice().char_at(0) as u64 ),
+		_ => Err( ::parse::SyntaxError(format!("Over-long character constant")) ),
+		}
 	}
 	// Read a single token from the stream
 	pub fn get_token(&mut self) -> ParseResult<Token>
@@ -354,6 +394,7 @@ impl Lexer
 			),
 
 		'"' => TokString( try!(self.read_string()) ),
+		'\'' => TokInteger( try!(self.read_charconst()), ::types::IntClass_Int(false) ),
 		
 		'0' ... '9' => {
 			let (base, whole) = if ch == '0' {
@@ -419,6 +460,7 @@ impl Lexer
 			"int"   => TokRword_int,
 			"long"   => TokRword_long,
 			
+			"sizeof" => TokRword_sizeof,
 			"enum"   => TokRword_enum,
 			"union"  => TokRword_union,
 			"struct" => TokRword_struct,
