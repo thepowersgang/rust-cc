@@ -1,10 +1,10 @@
 /*
  */
-
 #![feature(macro_rules)]
+#![feature(box_syntax)]
 
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+#[macro_use] extern crate log;
+extern crate env_logger;
 
 extern crate getopts;
 extern crate collections;
@@ -21,14 +21,14 @@ fn main()
 		];
 	let args = match getopts::getopts(std::os::args().as_slice(), opts) {
 		Ok(m) => m,
-		Err(f) => fail!(f.to_string()),
+		Err(f) => panic!(f.to_string()),
 		};
 	
 	let mut program = ::ast::Program::new();
 	match ::parse::parse(&mut program, args.free[1].as_slice())
 	{
 	Err(e) => {
-		fail!("Error parsing file: {}", e);
+		panic!("Error parsing file: {}", e);
 		},
 	Ok(_) => {}
 	}

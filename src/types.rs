@@ -5,9 +5,9 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 #[allow(non_camel_case_types)]
-#[deriving(Show)]
-#[deriving(PartialEq)]
-#[deriving(Clone)]
+#[derive(Debug)]
+#[derive(PartialEq)]
+#[derive(Clone)]
 pub enum IntClass
 {
 	IntClass_Bits(bool,uint),
@@ -19,9 +19,9 @@ pub enum IntClass
 }
 
 #[allow(non_camel_case_types)]
-#[deriving(Show)]
-#[deriving(PartialEq)]
-#[deriving(Clone)]
+#[derive(Debug)]
+#[derive(PartialEq)]
+#[derive(Clone)]
 pub enum FloatClass
 {
 	FloatClass_Float,
@@ -42,7 +42,7 @@ pub type StructRef = Rc<RefCell<Struct>>;
 pub type UnionRef  = Rc<RefCell<Union>>;
 pub type EnumRef   = Rc<RefCell<Enum>>;
 
-#[deriving(PartialEq)]
+#[derive(PartialEq)]
 pub struct Type
 {
 	pub basetype: BaseType,
@@ -50,8 +50,8 @@ pub struct Type
 	pub is_volatile: bool,
 }
 
-#[deriving(Clone)]
-#[deriving(PartialEq)]
+#[derive(Clone)]
+#[derive(PartialEq)]
 pub enum BaseType
 {
 	TypeVoid,
@@ -67,31 +67,31 @@ pub enum BaseType
 	TypeFunction(Rc<Type>,Vec<(Rc<Type>,String)>),
 }
 
-#[deriving(Show)]
-#[deriving(PartialEq)]
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Struct
 {
 	name: String,
 	items:	Vec<(TypeRef,String)>,
 }
 
-#[deriving(Show)]
-#[deriving(PartialEq)]
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Union
 {
 	name: String,
 	items: Option<Vec<(TypeRef,String)>>,
 }
 
-#[deriving(Show)]
-#[deriving(PartialEq)]
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Enum
 {
 	name: String,
 	items: Option<Vec<(uint,String)>>,
 }
 
-impl ::std::fmt::Show for Type
+impl ::std::fmt::Debug for Type
 {
 	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::FormatError>
 	{
@@ -102,7 +102,7 @@ impl ::std::fmt::Show for Type
 	}
 }
 
-impl ::std::fmt::Show for BaseType
+impl ::std::fmt::Debug for BaseType
 {
 	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::FormatError>
 	{
@@ -123,9 +123,9 @@ impl ::std::fmt::Show for BaseType
 	}
 }
 
-impl ::std::fmt::Show for RefCell<Struct>
+impl ::std::fmt::Debug for RefCell<Struct>
 {
-	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::FormatError>
+	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
 	{
 		match self.try_borrow()
 		{

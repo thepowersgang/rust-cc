@@ -5,8 +5,8 @@ extern crate libc;
 use parse::ParseResult;
 
 #[allow(non_camel_case_types)]
-#[deriving(Show)]
-#[deriving(PartialEq)]
+#[derive(Debug)]
+#[derive(PartialEq)]
 pub enum Token
 {
 	TokInval(char),
@@ -130,18 +130,20 @@ pub struct Lexer
 	lastchar: Option<char>,
 }
 
-macro_rules! try_eof( ($fcn:expr, $eofval:expr) => (
-	match $fcn {
-	Ok(v) => v,
-	Err(e) => match e {
-		::parse::IOError(ioe) => match ioe.kind {
-			::std::io::EndOfFile => return Ok($eofval),
-			_ => return Err(::parse::IOError(ioe)),
+macro_rules! try_eof {
+	($fcn:expr, $eofval:expr) => (
+		match $fcn {
+		Ok(v) => v,
+		Err(e) => match e {
+			::parse::IOError(ioe) => match ioe.kind {
+				::std::io::EndOfFile => return Ok($eofval),
+				_ => return Err(::parse::IOError(ioe)),
+				},
+			_ => return Err(e),
 			},
-		_ => return Err(e),
-		},
-	}
-))
+		}
+		);
+}
 
 macro_rules! match_ch {
 	($_self:ident, $def:expr, $($p:pat => $v:expr),* ) => (
@@ -250,7 +252,7 @@ impl Lexer
 		'r' => Some('\r'),
 		'0' => Some('\0'),
 		'\n' => None,
-		c @ _ => fail!("Unexpected escape code in string '\\{}'", c)
+		c @ _ => panic!("Unexpected escape code in string '\\{}'", c)
 		})
 	}
 	
@@ -423,7 +425,7 @@ impl Lexer
 			if ch == '.'
 			{
 				// Float
-				fail!("TODO: lexing floating point values");
+				panic!("TODO: lexing floating point values");
 			}
 			else
 			{
@@ -436,7 +438,7 @@ impl Lexer
 					(false,false) => ::types::IntClass_Int(is_unsigned),
 					(true, false) => ::types::IntClass_Long(is_unsigned),
 					(true, true ) => ::types::IntClass_LongLong(is_unsigned),
-					(false, true) => fail!("BUGCHECK: LongLong set, but Long unset")
+					(false, true) => panic!("BUGCHECK: LongLong set, but Long unset")
 					} )
 			}
 			},

@@ -2,7 +2,7 @@
  */
 use std::collections::HashMap;
 
-#[deriving(Default)]
+#[derive(Default)]
 pub struct Program
 {
 	typedefs: HashMap<String,::types::TypeRef>,
@@ -128,7 +128,7 @@ impl Program
 	}
 }
 
-#[deriving(Show)]
+#[derive(Debug)]
 pub enum Node
 {
 	NodeBlock(Vec<Node>),
@@ -178,7 +178,7 @@ pub enum Node
 	NodeMember(Box<Node>, String),
 }
 
-#[deriving(Show)]
+#[derive(Debug)]
 pub enum BinOp
 {
 	BinOpLogicAnd,
@@ -206,7 +206,7 @@ pub enum BinOp
 	BinOpMod,
 }
 
-#[deriving(Show)]
+#[derive(Debug)]
 pub enum UniOp
 {
 	UniOpNeg,

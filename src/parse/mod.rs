@@ -6,7 +6,7 @@ mod lex;
 mod preproc;
 mod parsing;
 
-#[deriving(Show)]
+#[derive(Debug)]
 enum Error
 {
 	Todo(&'static str),

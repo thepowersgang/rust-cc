@@ -16,10 +16,10 @@ struct LexHandle
 	line: uint,
 }
 
-macro_rules! syntax_assert( ($tok:expr, $pat:pat => $val:expr) => ({ let v = try!($tok); match v {
+macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try!($tok); match v {
 	$pat => $val,
-	_ => fail!("TODO: Syntax errors, assert {}, got {}", stringify!($pat), v)
-	}}))
+	_ => panic!("TODO: Syntax errors, assert {}, got {}", stringify!($pat), v)
+	}})}
 
 impl Preproc
 {
@@ -76,7 +76,7 @@ impl Preproc
 				match try!(lexer.get_token())
 				{
 				lex::TokIdent(name) => {
-					fail!("TODO: Preprocessor '{}'", name);
+					panic!("TODO: Preprocessor '{}'", name);
 					},
 				lex::TokInteger(line, _) => {
 					let file = syntax_assert!(lexer.get_token(), lex::TokString(s) => s);
@@ -89,13 +89,13 @@ impl Preproc
 					debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
 					},
 				_ => {
-					fail!("TODO: Syntax errors");
+					panic!("TODO: Syntax errors");
 					},
 				}
 				},
 			lex::TokIdent(v) => {
 				match self.macros.find(&v) {
-				Some(macro) => fail!("TODO: Macro expansion"),
+				Some(macro_def) => panic!("TODO: Macro expansion"),
 				_ => {}
 				}
 				let ret = lex::TokIdent(v);

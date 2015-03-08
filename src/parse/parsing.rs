@@ -31,7 +31,7 @@ pub fn parse(ast: &mut ::ast::Program, filename: &str) -> ParseResult<()>
 	}
 }
 
-#[deriving(Show)]
+#[derive(Debug)]
 enum TypeNode
 {
 	TypeNodeLeaf(String),
@@ -40,13 +40,13 @@ enum TypeNode
 	TypeNodeArray(Box<TypeNode>, Option<::ast::Node>),
 }
 
-macro_rules! syntax_error(
+macro_rules! syntax_error{
 	($msg:expr) => ({ return Err(::parse::SyntaxError(format!("{}",$msg))) });
 	($fmt:expr, $($arg:tt)*) => ({ return Err(::parse::SyntaxError(format!($fmt, $($arg)*))) });
-	)
-macro_rules! syntax_assert(
-	($lex:expr : lex::$exp:ident) => (syntax_assert!(try!($lex.get_token()), lex::$exp));
-	($lex:expr : lex::$exp:ident($($a:ident),+) => $v:expr) => (syntax_assert!(try!($lex.get_token()), lex::$exp($($a),+) => $v));
+	}
+macro_rules! syntax_assert{
+	($lex:expr => lex::$exp:ident) => (syntax_assert!(try!($lex.get_token()), lex::$exp));
+	($lex:expr => lex::$exp:ident($($a:ident),+) @ $v:expr) => (syntax_assert!(try!($lex.get_token()), lex::$exp($($a),+) => $v));
 	($tok:expr, lex::$exp:ident) => (match $tok {
 		lex::$exp => {},
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
@@ -55,24 +55,24 @@ macro_rules! syntax_assert(
 		lex::$exp($($a),+) => $v,
 		tok @ _ => syntax_error!("Unexpected token {}, expected {}", tok, stringify!($exp)),
 		})
-	)
-macro_rules! peek_token_nc( ($lex:expr, $tok:pat) => ({
+	}
+macro_rules! peek_token_nc{ ($lex:expr, $tok:pat) => ({
 	let lex = &mut $lex;
 	match try!(lex.get_token()) {
 	tok @ $tok => { lex.put_back(tok); true },
 	tok @ _ => { lex.put_back(tok); false }
 	}
 	})
-	)
-macro_rules! peek_token( ($lex:expr, $tok:pat) => ({
+	}
+macro_rules! peek_token{ ($lex:expr, $tok:pat) => ({
 	let lex = &mut $lex;
 	match try!(lex.get_token()) {
 	$tok => true,
 	tok @ _ => { lex.put_back(tok); false }
 	}
 	})
-	)
-macro_rules! parse_todo( ($str:expr) => (return Err(::parse::Todo($str))) )
+	}
+macro_rules! parse_todo{ ($str:expr) => (return Err(::parse::Todo($str))) }
 
 impl<'ast> ParseState<'ast>
 {
@@ -293,7 +293,7 @@ impl<'ast> ParseState<'ast>
 				2 => ::types::IntClass_Int(is_signed),
 				3 => ::types::IntClass_Long(is_signed),
 				4 => ::types::IntClass_LongLong(is_signed),
-				_ => fail!("BUGCHECK")
+				_ => panic!("BUGCHECK")
 				})
 			}
 			else if seen_sign {
@@ -770,8 +770,8 @@ impl<'ast> ParseState<'ast>
 				::ast::NodeContinue
 				},
 			lex::TokRword_goto => {
-				let dest = syntax_assert!(self.lex : lex::TokIdent(s) => s);
-				syntax_assert!(self.lex : lex::TokSemicolon);
+				let dest = syntax_assert!(self.lex => lex::TokIdent(s) @ s);
+				syntax_assert!(self.lex => lex::TokSemicolon);
 				::ast::NodeGoto(dest)
 				},
 			lex::TokRword_while => {
@@ -781,7 +781,7 @@ impl<'ast> ParseState<'ast>
 				},
 			lex::TokRword_do => {
 				let code = box try!(self.parse_opt_block());
-				syntax_assert!(self.lex : lex::TokRword_while);
+				syntax_assert!(self.lex => lex::TokRword_while);
 				let cnd = box try!(self.parse_expr_list());
 				syntax_assert!(try!(self.lex.get_token()), lex::TokSemicolon);
 				::ast::NodeDoWhileLoop(cnd,code)
@@ -833,7 +833,7 @@ impl<'ast> ParseState<'ast>
 	// ('for' has been eaten)
 	fn parse_for_loop(&mut self) -> ParseResult<::ast::Node>
 	{
-		syntax_assert!(self.lex : lex::TokParenOpen);
+		syntax_assert!(self.lex => lex::TokParenOpen);
 		debug!("parse_for_loop");
 		let init = if peek_token_nc!(self.lex, lex::TokSemicolon) {
 				None
@@ -844,21 +844,21 @@ impl<'ast> ParseState<'ast>
 				None => Some(box try!(self.parse_expr_list())),
 				}
 			};
-		syntax_assert!(self.lex : lex::TokSemicolon);
+		syntax_assert!(self.lex => lex::TokSemicolon);
 		debug!("parse_for_loop: init = {}", init);
 		let cnd = if peek_token_nc!(self.lex, lex::TokSemicolon) {
 				None
 			} else {
 				Some(box try!(self.parse_expr_list()))
 			};
-		syntax_assert!(self.lex : lex::TokSemicolon);
+		syntax_assert!(self.lex => lex::TokSemicolon);
 		debug!("parse_for_loop: cnd = {}", cnd);
 		let inc = if peek_token_nc!(self.lex, lex::TokParenClose) {
 				None
 			} else {
 				Some(box try!(self.parse_expr_list()))
 			};
-		syntax_assert!(self.lex : lex::TokParenClose);
+		syntax_assert!(self.lex => lex::TokParenClose);
 		debug!("parse_for_loop: inc = {}", inc);
 		let code = box try!(self.parse_opt_block());
 		Ok( ::ast::NodeForLoop(init,cnd,inc,code) )
@@ -868,7 +868,7 @@ impl<'ast> ParseState<'ast>
 	{
 		let cnd = box try!(self.parse_expr());
 		let mut code = Vec::new();
-		syntax_assert!(self.lex : lex::TokBraceOpen);
+		syntax_assert!(self.lex => lex::TokBraceOpen);
 		loop
 		{
 			match try!(self.lex.get_token())
@@ -876,7 +876,7 @@ impl<'ast> ParseState<'ast>
 			lex::TokBraceClose => break,
 			lex::TokRword_default => {
 				code.push( ::ast::NodeCaseDefault );
-				syntax_assert!(self.lex : lex::TokColon);
+				syntax_assert!(self.lex => lex::TokColon);
 				},
 			lex::TokRword_case => {
 				let first = match try!(self.parse_expr_0()).literal_integer()
@@ -895,7 +895,7 @@ impl<'ast> ParseState<'ast>
 				else {
 					code.push( ::ast::NodeCaseSingle(first) );
 				}
-				syntax_assert!(self.lex : lex::TokColon);
+				syntax_assert!(self.lex => lex::TokColon);
 				},
 			t @ _ => {
 				self.lex.put_back(t);
@@ -943,7 +943,7 @@ impl<'ast> ParseState<'ast>
 }
 
 // Parse, left associative
-macro_rules! parse_left_assoc(
+macro_rules! parse_left_assoc{
 	($_self:ident, $name:ident, $next:ident, $rv:ident, { $($patterns:pat => $vals:expr),*, }) => {
 		fn $name(&mut $_self) -> ParseResult<::ast::Node> {
 			let mut $rv = try!($_self.$next());
@@ -961,7 +961,7 @@ macro_rules! parse_left_assoc(
 			Ok($rv)
 		}
 	}
-)
+}
 
 impl<'ast> ParseState<'ast>
 {
@@ -1035,52 +1035,52 @@ impl<'ast> ParseState<'ast>
 	}
 	
 	/// Expression #2 - Boolean AND/OR
-	parse_left_assoc!(self, parse_expr_2, parse_expr_3, rv, {
+	parse_left_assoc!{self, parse_expr_2, parse_expr_3, rv, {
 		lex::TokDoublePipe      => ::ast::NodeBinOp(::ast::BinOpLogicOr,  box rv, box try!(self.parse_expr_3())),
 		lex::TokDoubleAmpersand => ::ast::NodeBinOp(::ast::BinOpLogicAnd, box rv, box try!(self.parse_expr_3())),
-	})
+	}}
 	
 	/// Expresission #3 - Bitwise
-	parse_left_assoc!(self, parse_expr_3, parse_expr_4, rv, {
+	parse_left_assoc!{self, parse_expr_3, parse_expr_4, rv, {
 		lex::TokPipe      => ::ast::NodeBinOp(::ast::BinOpBitOr , box rv, box try!(self.parse_expr_4())),
 		lex::TokAmpersand => ::ast::NodeBinOp(::ast::BinOpBitAnd, box rv, box try!(self.parse_expr_4())),
 		lex::TokCaret     => ::ast::NodeBinOp(::ast::BinOpBitXor, box rv, box try!(self.parse_expr_4())),
-	})
+	}}
 	
 	/// Expression #4 - Comparison Operators
-	parse_left_assoc!(self, parse_expr_4, parse_expr_5, rv, {
+	parse_left_assoc!{self, parse_expr_4, parse_expr_5, rv, {
 		lex::TokEquality => ::ast::NodeBinOp(::ast::BinOpCmpEqu, box rv, box try!(self.parse_expr_5())),
 		lex::TokNotEquals => ::ast::NodeBinOp(::ast::BinOpCmpNEqu, box rv, box try!(self.parse_expr_5())),
 		lex::TokLt  => ::ast::NodeBinOp(::ast::BinOpCmpLt,  box rv, box try!(self.parse_expr_5())),
 		lex::TokLtE => ::ast::NodeBinOp(::ast::BinOpCmpLtE, box rv, box try!(self.parse_expr_5())),
 		lex::TokGt  => ::ast::NodeBinOp(::ast::BinOpCmpGt,  box rv, box try!(self.parse_expr_5())),
 		lex::TokGtE => ::ast::NodeBinOp(::ast::BinOpCmpGtE, box rv, box try!(self.parse_expr_5())),
-	})
+	}}
 	
 	/// Expression #5 - Bit Shifts
-	parse_left_assoc!(self, parse_expr_5, parse_expr_6, rv, {
+	parse_left_assoc!{self, parse_expr_5, parse_expr_6, rv, {
 		lex::TokShiftLeft  => ::ast::NodeBinOp(::ast::BinOpShiftLeft,  box rv, box try!(self.parse_expr_6())),
 		lex::TokShiftRight => ::ast::NodeBinOp(::ast::BinOpShiftRight, box rv, box try!(self.parse_expr_6())),
-	})
-		
+	}}
+	
 	/// Expresion #6 - Arithmatic
-	parse_left_assoc!(self, parse_expr_6, parse_expr_7, rv, {
+	parse_left_assoc!{self, parse_expr_6, parse_expr_7, rv, {
 		lex::TokPlus  => ::ast::NodeBinOp(::ast::BinOpAdd, box rv, box try!(self.parse_expr_7())),
 		lex::TokMinus => ::ast::NodeBinOp(::ast::BinOpSub, box rv, box try!(self.parse_expr_7())),
-	})
+	}}
 	
 	/// Expression #7 - Multiply/Divide
-	parse_left_assoc!(self, parse_expr_7, parse_expr_8, rv, {
+	parse_left_assoc!{self, parse_expr_7, parse_expr_8, rv, {
 		lex::TokStar  => ::ast::NodeBinOp(::ast::BinOpMul, box rv, box try!(self.parse_expr_8())),
 		lex::TokSlash => ::ast::NodeBinOp(::ast::BinOpDiv, box rv, box try!(self.parse_expr_8())),
 		lex::TokPercent => ::ast::NodeBinOp(::ast::BinOpMod, box rv, box try!(self.parse_expr_8())),
-	})
+	}}
 	
 	/// Expression #8 - Unary Righthand
-	parse_left_assoc!(self, parse_expr_8, parse_expr_9, rv, {
+	parse_left_assoc!{self, parse_expr_8, parse_expr_9, rv, {
 		lex::TokDoublePlus  => ::ast::NodeUniOp(::ast::UniOpPostInc, box rv),
 		lex::TokDoubleMinus => ::ast::NodeUniOp(::ast::UniOpPostDec, box rv),
-	})
+	}}
 	
 	/// Expression #9 - Unary left
 	fn parse_expr_9(&mut self) -> ParseResult<::ast::Node>
@@ -1103,12 +1103,12 @@ impl<'ast> ParseState<'ast>
 	
 	
 	/// Expression - Member access
-	parse_left_assoc!(self, parse_expr_member, parse_expr_P, rv, {
-		lex::TokDerefMember => ::ast::NodeDerefMember(box rv, syntax_assert!(self.lex : lex::TokIdent(i) => i)),
-		lex::TokPeriod      => ::ast::NodeMember(     box rv, syntax_assert!(self.lex : lex::TokIdent(i) => i)),
+	parse_left_assoc!{self, parse_expr_member, parse_expr_P, rv, {
+		lex::TokDerefMember => ::ast::NodeDerefMember(box rv, syntax_assert!(self.lex => lex::TokIdent(i) @ i)),
+		lex::TokPeriod      => ::ast::NodeMember(     box rv, syntax_assert!(self.lex => lex::TokIdent(i) @ i)),
 		lex::TokSquareOpen => {
 				let idx = box try!(self.parse_expr());
-				syntax_assert!(self.lex : lex::TokSquareClose);
+				syntax_assert!(self.lex => lex::TokSquareClose);
 				::ast::NodeIndex(box rv, idx)
 				},
 		lex::TokParenOpen => {
@@ -1121,12 +1121,12 @@ impl<'ast> ParseState<'ast>
 					if peek_token!(self.lex, lex::TokParenClose) {
 						break;
 					}
-					syntax_assert!(self.lex : lex::TokComma);
+					syntax_assert!(self.lex => lex::TokComma);
 				}
 			}
 			::ast::NodeFcnCall(box rv, args)
 			},
-	})
+	}}
 	
 	/// Expression - Parens
 	fn parse_expr_P(&mut self) -> ParseResult<::ast::Node>
@@ -1141,7 +1141,7 @@ impl<'ast> ParseState<'ast>
 				if ident.as_slice() != "" {
 					syntax_error!("Unexpected identifier in cast");
 				}
-				syntax_assert!(self.lex : lex::TokParenClose);
+				syntax_assert!(self.lex => lex::TokParenClose);
 				::ast::NodeCast(fulltype, box try!(self.parse_expr_P()))
 				},
 			None => {
@@ -1192,7 +1192,7 @@ impl<'ast> ParseState<'ast>
 					},
 				};
 			if expect_paren {
-				syntax_assert!(self.lex : lex::TokParenClose);
+				syntax_assert!(self.lex => lex::TokParenClose);
 			}
 			rv
 			},
@@ -1236,7 +1236,8 @@ impl<'ast> ParseState<'ast>
 				break;
 			}
 		}
-		syntax_assert!(self.lex : lex::TokBraceClose);
+		syntax_assert!(self.lex => lex::TokBraceClose);
+
 		
 		Ok( ::ast::NodeListLiteral(items) )
 	}
@@ -1249,9 +1250,9 @@ impl<'ast> ParseState<'ast>
 			if peek_token_nc!(self.lex, lex::TokBraceClose) {
 				break;
 			}
-			syntax_assert!(self.lex : lex::TokPeriod);
-			let name = syntax_assert!(self.lex : lex::TokIdent(i) => i);
-			syntax_assert!(self.lex : lex::TokAssign);
+			syntax_assert!(self.lex => lex::TokPeriod);
+			let name = syntax_assert!(self.lex => lex::TokIdent(i) @ i);
+			syntax_assert!(self.lex => lex::TokAssign);
 			let val = try!(self.parse_expr());
 			
 			items.push( (name,val) );
@@ -1260,7 +1261,7 @@ impl<'ast> ParseState<'ast>
 				break;
 			}
 		}
-		syntax_assert!(self.lex : lex::TokBraceClose);
+		syntax_assert!(self.lex => lex::TokBraceClose);
 		
 		Ok( ::ast::NodeStructLiteral(items) )
 	}
@@ -1273,15 +1274,15 @@ impl<'ast> ParseState<'ast>
 			if peek_token_nc!(self.lex, lex::TokBraceClose) {
 				break;
 			}
-			syntax_assert!(self.lex : lex::TokSquareOpen);
+			syntax_assert!(self.lex => lex::TokSquareOpen);
 			let idx_expr = try!(self.parse_expr());
 			let idx = match idx_expr.literal_integer()
 				{
 				Some(i) => i as uint,
 				None => syntax_error!("Non-constant expression {} used for array initialise index", idx_expr),
 				};
-			syntax_assert!(self.lex : lex::TokSquareClose);
-			syntax_assert!(self.lex : lex::TokAssign);
+			syntax_assert!(self.lex => lex::TokSquareClose);
+			syntax_assert!(self.lex => lex::TokAssign);
 			let val = try!(self.parse_expr());
 			
 			items.push( (idx,val) );
@@ -1290,7 +1291,7 @@ impl<'ast> ParseState<'ast>
 				break;
 			}
 		}
-		syntax_assert!(self.lex : lex::TokBraceClose);
+		syntax_assert!(self.lex => lex::TokBraceClose);
 		
 		Ok( ::ast::NodeArrayLiteral(items) )
 	}
