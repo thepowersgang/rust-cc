@@ -1,12 +1,15 @@
 /*
  */
 use parse::lex;
+use std::collections::HashMap;
+use std::default::Default;
 
+#[derive(Default)]
 pub struct Preproc
 {
 	lexers: ::std::vec::Vec<LexHandle>,
 	saved_tok: Option<::parse::lex::Token>,
-	macros: ::std::collections::TreeMap<String,Vec<lex::Token>>
+	macros: HashMap<String,Vec<lex::Token>>
 }
 
 struct LexHandle
@@ -18,33 +21,33 @@ struct LexHandle
 
 macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try!($tok); match v {
 	$pat => $val,
-	_ => panic!("TODO: Syntax errors, assert {}, got {}", stringify!($pat), v)
+	_ => panic!("TODO: Syntax errors, assert {}, got {:?}", stringify!($pat), v)
 	}})}
 
 impl Preproc
 {
 	pub fn new(filename: &str) -> ::parse::ParseResult<Preproc>
 	{
-		let file_stream = if filename == "-"
+		use std::io::Read;
+		let lexer = if filename == "-"
 			{
-				box ::std::io::stdio::stdin() as Box<Reader>
+				::parse::lex::Lexer::new(box ::std::io::stdin().chars())
 			}
 			else
 			{
-				box match ::std::io::File::open(&::std::path::Path::new(filename))
-				{
-				Ok(f) => f,
-				Err(e) => return Err(::parse::IOError(e)),
-				} as Box<Reader>
+				::parse::lex::Lexer::new(box match ::std::fs::File::open(filename)
+					{
+					Ok(f) => f.chars(),
+					Err(e) => return Err(::parse::Error::IOError(e)),
+					})
 			};
 		Ok(Preproc {
 			lexers: vec![ LexHandle {
-				lexer: ::parse::lex::Lexer::new(file_stream),
+				lexer: lexer,
 				filename: filename.to_string(),
 				line: 1,
 				} ],
-			saved_tok: None,
-			macros: ::std::collections::TreeMap::new(),
+			.. Default::default()
 		})
 	}
 
@@ -58,7 +61,7 @@ impl Preproc
 		if self.saved_tok.is_some()
 		{
 			let tok = self.saved_tok.take().unwrap();
-			debug!("get_token = {} (saved)", tok);
+			debug!("get_token = {:?} (saved)", tok);
 			return Ok( tok );
 		}
 		loop
@@ -67,22 +70,22 @@ impl Preproc
 			let lexer = &mut lexer_h.lexer;
 			match try!(lexer.get_token())
 			{
-			lex::TokNewline => {
+			lex::Token::Newline => {
 				lexer_h.line += 1;
 				},
-			lex::TokLineComment(_) => {},
-			lex::TokBlockComment(_) => {},
-			lex::TokHash => {
+			lex::Token::LineComment(_) => {},
+			lex::Token::BlockComment(_) => {},
+			lex::Token::Hash => {
 				match try!(lexer.get_token())
 				{
-				lex::TokIdent(name) => {
+				lex::Token::Ident(name) => {
 					panic!("TODO: Preprocessor '{}'", name);
 					},
-				lex::TokInteger(line, _) => {
-					let file = syntax_assert!(lexer.get_token(), lex::TokString(s) => s);
+				lex::Token::Integer(line, _) => {
+					let file = syntax_assert!(lexer.get_token(), lex::Token::String(s) => s);
 					lexer_h.filename = file;
 					lexer_h.line = line as uint;
-					while try!(lexer.get_token()) != lex::TokNewline
+					while try!(lexer.get_token()) != lex::Token::Newline
 					{
 					}
 					
@@ -93,17 +96,17 @@ impl Preproc
 					},
 				}
 				},
-			lex::TokIdent(v) => {
-				match self.macros.find(&v) {
+			lex::Token::Ident(v) => {
+				match self.macros.get(&v) {
 				Some(macro_def) => panic!("TODO: Macro expansion"),
 				_ => {}
 				}
-				let ret = lex::TokIdent(v);
-				debug!("get_token = {}", ret);
+				let ret = lex::Token::Ident(v);
+				debug!("get_token = {:?}", ret);
 				return Ok( ret );
 				},
 			tok @ _ => {
-				debug!("get_token = {}", tok);
+				debug!("get_token = {:?}", tok);
 				return Ok(tok)
 				}
 			}
@@ -111,9 +114,9 @@ impl Preproc
 	}
 }
 
-impl ::std::fmt::Show for Preproc
+impl ::std::fmt::Display for Preproc
 {
-	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> Result<(),::std::fmt::FormatError>
+	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
 	{
 		let h = self.lexers.last().unwrap();
 		write!(f, "{}:{}: ", h.filename, h.line)

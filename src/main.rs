@@ -19,7 +19,7 @@ fn main()
         let opts = [
 		getopts::optflag("h", "help", "Print help text"),
 		];
-	let args = match getopts::getopts(std::os::args().as_slice(), opts) {
+	let args = match getopts::getopts(std::os::args().as_slice(), &opts) {
 		Ok(m) => m,
 		Err(f) => panic!(f.to_string()),
 		};
@@ -28,7 +28,7 @@ fn main()
 	match ::parse::parse(&mut program, args.free[1].as_slice())
 	{
 	Err(e) => {
-		panic!("Error parsing file: {}", e);
+		panic!("Error parsing file: {:?}", e);
 		},
 	Ok(_) => {}
 	}

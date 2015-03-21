@@ -10,12 +10,12 @@ use std::cell::RefCell;
 #[derive(Clone)]
 pub enum IntClass
 {
-	IntClass_Bits(bool,uint),
-	IntClass_Char(bool),
-	IntClass_Short(bool),
-	IntClass_Int(bool),
-	IntClass_Long(bool),
-	IntClass_LongLong(bool),
+	Bits(bool,u8),
+	Char(bool),
+	Short(bool),
+	Int(bool),
+	Long(bool),
+	LongLong(bool),
 }
 
 #[allow(non_camel_case_types)]
@@ -24,17 +24,17 @@ pub enum IntClass
 #[derive(Clone)]
 pub enum FloatClass
 {
-	FloatClass_Float,
-	FloatClass_Double,
-	FloatClass_LongDouble,
+	Float,
+	Double,
+	LongDouble,
 }
 
 pub enum StorageClass
 {
-	StorageAuto,
-	StorageExtern,
-	StorageStatic,
-	StorageRegister,
+	Auto,
+	Extern,
+	Static,
+	Register,
 }
 
 pub type TypeRef = Rc<Type>;
@@ -54,17 +54,17 @@ pub struct Type
 #[derive(PartialEq)]
 pub enum BaseType
 {
-	TypeVoid,
-	TypeBool,
-	TypeStruct(StructRef),
-	TypeEnum(EnumRef),
-	TypeUnion(UnionRef),
-	TypeFloat(FloatClass),
-	TypeInteger(IntClass),
+	Void,
+	Bool,
+	Struct(StructRef),
+	Enum(EnumRef),
+	Union(UnionRef),
+	Float(FloatClass),
+	Integer(IntClass),
 	
-	TypePointer(Rc<Type>),
-	TypeArray(Rc<Type>),	// TODO: Should the array include the size? How to handle non-literal sizes?
-	TypeFunction(Rc<Type>,Vec<(Rc<Type>,String)>),
+	Pointer(Rc<Type>),
+	Array(Rc<Type>),	// TODO: Should the array include the size? How to handle non-literal sizes?
+	Function(Rc<Type>,Vec<(Rc<Type>,String)>),
 }
 
 #[derive(Debug)]
@@ -88,14 +88,14 @@ pub struct Union
 pub struct Enum
 {
 	name: String,
-	items: Option<Vec<(uint,String)>>,
+	items: Option<Vec<(u64,String)>>,
 }
 
 impl ::std::fmt::Debug for Type
 {
-	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::FormatError>
+	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::Error>
 	{
-		write!(fmt, "{}{}{}",
+		write!(fmt, "{}{}{:?}",
 			if self.is_const    { "const " } else { "" },
 			if self.is_volatile { "volatile " } else { "" },
 			self.basetype)
@@ -104,33 +104,21 @@ impl ::std::fmt::Debug for Type
 
 impl ::std::fmt::Debug for BaseType
 {
-	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::FormatError>
+	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::Error>
 	{
-		match *self
+		match self
 		{
-		TypeVoid => write!(fmt, "void"),
-		TypeBool => write!(fmt, "_Bool"),
-		TypeStruct(ref sr) => write!(fmt, "struct {}", sr.borrow().name),
-		TypeUnion(ref ur)  => write!(fmt, "union {}",  ur.borrow().name),
-		TypeEnum(ref er)   => write!(fmt, "enum {}",   er.borrow().name),
-		TypeFloat(fc) => write!(fmt, "{}", fc),
-		TypeInteger(ic) => write!(fmt, "{}", ic),
+		&BaseType::Void => write!(fmt, "void"),
+		&BaseType::Bool => write!(fmt, "_Bool"),
+		&BaseType::Struct(ref sr) => write!(fmt, "struct {:?}", sr.borrow().name),
+		&BaseType::Union(ref ur)  => write!(fmt, "union {:?}",  ur.borrow().name),
+		&BaseType::Enum(ref er)   => write!(fmt, "enum {:?}",   er.borrow().name),
+		&BaseType::Float(ref fc) => write!(fmt, "{:?}", fc),
+		&BaseType::Integer(ref ic) => write!(fmt, "{:?}", ic),
 		
-		TypeArray(ref typeref) => write!(fmt, "{}[]", typeref),
-		TypePointer(ref typeref) => write!(fmt, "*{}", typeref),
-		TypeFunction(ref ret, ref args) => write!(fmt, "Fcn({}, {})", ret, args),
-		}
-	}
-}
-
-impl ::std::fmt::Debug for RefCell<Struct>
-{
-	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
-	{
-		match self.try_borrow()
-		{
-		Some(x) => write!(fmt, "{}", x),
-		None => write!(fmt, "Struct[INUSE]")
+		&BaseType::Array(ref typeref) => write!(fmt, "{:?}[]", typeref),
+		&BaseType::Pointer(ref typeref) => write!(fmt, "*{:?}", typeref),
+		&BaseType::Function(ref ret, ref args) => write!(fmt, "Fcn({:?}, {:?})", ret, args),
 		}
 	}
 }
@@ -203,7 +191,7 @@ impl Enum
 	{
 		return self.items.is_some();
 	}
-	pub fn set_items(&mut self, items: Vec<(uint,String)>)
+	pub fn set_items(&mut self, items: Vec<(u64,String)>)
 	{
 		assert!( self.items.is_none() );
 		self.items = Some(items);

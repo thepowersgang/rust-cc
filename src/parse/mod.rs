@@ -7,16 +7,17 @@ mod preproc;
 mod parsing;
 
 #[derive(Debug)]
-enum Error
+pub enum Error
 {
 	Todo(&'static str),
-	IOError(::std::io::IoError),
+	EOF,
+	IOError(::std::io::Error),
 	BadCharacter(char),
 	SyntaxError(String),
 }
 
 #[must_use]
-type ParseResult<T> = Result<T,Error>;
+pub type ParseResult<T> = Result<T,Error>;
 
 // vim: ft=rust
 

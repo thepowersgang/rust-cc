@@ -9,124 +9,125 @@ use parse::ParseResult;
 #[derive(PartialEq)]
 pub enum Token
 {
-	TokInval(char),
-	TokEOF,
+	Inval(char),
+	EOF,
 	
 	// Ignored Tokens
-	TokLineComment(String),
-	TokBlockComment(String),
-	TokNewline,
+	LineComment(String),
+	BlockComment(String),
+	Newline,
 
 	// Leaves
-	TokInteger(u64, ::types::IntClass),
-	TokFloat(f64),
-	TokChar(u32),
-	TokString(String),
-	TokIdent(String),
+	Integer(u64, ::types::IntClass),
+	Float(f64),
+	Char(u32),
+	String(String),
+	Ident(String),
 	
 	// Symbols
-	TokHash,
-	TokTilde,
-	TokExclamation,
-	TokPeriod,
-	TokDerefMember,
-	TokComma,
-	TokSemicolon,
-	TokStar,
-	TokSlash,
-	TokVargs,
-	TokQuestionMark,
-	TokColon,
+	Hash,
+	Tilde,
+	Exclamation,
+	Period,
+	DerefMember,
+	Comma,
+	Semicolon,
+	Star,
+	Slash,
+	Vargs,
+	QuestionMark,
+	Colon,
 	
-	TokAssign,
-	TokAssignAdd,
-	TokAssignSub,
-	TokAssignMul,
-	TokAssignDiv,
-	TokAssignMod,
-	TokAssignLogicOr,
-	TokAssignLogicAnd,
-	TokAssignBitOr,
-	TokAssignBitAnd,
+	Assign,
+	AssignAdd,
+	AssignSub,
+	AssignMul,
+	AssignDiv,
+	AssignMod,
+	AssignLogicOr,
+	AssignLogicAnd,
+	AssignBitOr,
+	AssignBitAnd,
 	
-	TokShiftRight,
-	TokShiftLeft,
+	ShiftRight,
+	ShiftLeft,
 	
-	TokEquality,
-	TokNotEquals,
-	TokLt,
-	TokGt,
-	TokLtE,
-	TokGtE,
+	Equality,
+	NotEquals,
+	Lt,
+	Gt,
+	LtE,
+	GtE,
 	
-	TokPercent,
-	TokPlus,
-	TokMinus,
-	TokDoublePlus,	// ungood (bad joke, sorry)
-	TokDoubleMinus,
+	Percent,
+	Plus,
+	Minus,
+	DoublePlus,	// ungood (bad joke, sorry)
+	DoubleMinus,
 	
-	TokAmpersand,
-	TokPipe,
-	TokCaret,
-	TokDoubleAmpersand,
-	TokDoublePipe,
+	Ampersand,
+	Pipe,
+	Caret,
+	DoubleAmpersand,
+	DoublePipe,
 	
 	//
-	TokBraceOpen,
-	TokBraceClose,
-	TokParenOpen,
-	TokParenClose,
-	TokSquareOpen,
-	TokSquareClose,
+	BraceOpen,
+	BraceClose,
+	ParenOpen,
+	ParenClose,
+	SquareOpen,
+	SquareClose,
 	
 	// Reserved Words
-	TokRword_typedef,
-	TokRword_auto,
-	TokRword_extern,
-	TokRword_static,
-	TokRword_register,
-	TokRword_inline,
-	TokRword_const,
-	TokRword_volatile,
+	Rword_typedef,
+	Rword_auto,
+	Rword_extern,
+	Rword_static,
+	Rword_register,
+	Rword_inline,
+	Rword_const,
+	Rword_volatile,
 	// - Types
-	TokRword_void,
-	TokRword_Bool,
-	TokRword_signed,
-	TokRword_unsigned,
-	TokRword_char,
-	TokRword_short,
-	TokRword_int,
-	TokRword_long,
-	TokRword_float,
-	TokRword_double,
+	Rword_void,
+	Rword_Bool,
+	Rword_signed,
+	Rword_unsigned,
+	Rword_char,
+	Rword_short,
+	Rword_int,
+	Rword_long,
+	Rword_float,
+	Rword_double,
 	// - Composites
-	TokRword_enum,
-	TokRword_union,
-	TokRword_struct,
+	Rword_enum,
+	Rword_union,
+	Rword_struct,
 	// - Blocks
-	TokRword_if,
-	TokRword_else,
-	TokRword_while,
-	TokRword_do,
-	TokRword_for,
-	TokRword_switch,
+	Rword_if,
+	Rword_else,
+	Rword_while,
+	Rword_do,
+	Rword_for,
+	Rword_switch,
 	// - Flow
-	TokRword_goto,
-	TokRword_continue,
-	TokRword_break,
-	TokRword_return,
-	TokRword_case,
-	TokRword_default,
+	Rword_goto,
+	Rword_continue,
+	Rword_break,
+	Rword_return,
+	Rword_case,
+	Rword_default,
 	// - Meta
-	TokRword_sizeof,
-	TokRword_gcc_attribute,
-	TokRword_gcc_va_arg,
+	Rword_sizeof,
+	Rword_gcc_attribute,
+	Rword_gcc_va_arg,
 }
+
+pub type LexerInput = Box< ::std::iter::Iterator<Item=Result<char,::std::io::CharsError>> + 'static >;
 
 pub struct Lexer
 {
-	instream: Box<Reader+'static>,
-
+	instream: LexerInput,
 	lastchar: Option<char>,
 }
 
@@ -134,13 +135,8 @@ macro_rules! try_eof {
 	($fcn:expr, $eofval:expr) => (
 		match $fcn {
 		Ok(v) => v,
-		Err(e) => match e {
-			::parse::IOError(ioe) => match ioe.kind {
-				::std::io::EndOfFile => return Ok($eofval),
-				_ => return Err(::parse::IOError(ioe)),
-				},
-			_ => return Err(e),
-			},
+		Err(::parse::Error::EOF) => return Ok($eofval),
+		Err(e) => return Err(e),
 		}
 		);
 }
@@ -157,24 +153,32 @@ macro_rules! match_ch {
 
 impl Lexer
 {
-	pub fn new(instream: Box<Reader+'static>) -> Lexer {
+	pub fn new(instream: LexerInput) -> Lexer {
 		Lexer {
 			instream: instream,
-			
 			lastchar: None,
 		}
 	}
 	
-	fn getc(&mut self) -> ParseResult<char> {
-		let ret = match self.lastchar {
-			Some(ch) => ch,
-			None => (match self.instream.read_byte() {
-				Ok(ch) => ch,
-				Err(e) => return Err(::parse::IOError(e))
-				} as char)
-			};
-		self.lastchar = None;
-		return Ok(ret)
+	fn getc(&mut self) -> ParseResult<char>
+	{
+		if let Some(ch) = self.lastchar.take()
+		{
+			Ok(ch)
+		}
+		else if let Some(r) = self.instream.next()
+		{
+			match r
+			{
+			Ok(ch) => Ok(ch),
+			Err(::std::io::CharsError::NotUtf8) => Err(::parse::Error::BadCharacter('\0')),
+			Err(::std::io::CharsError::Other(e)) => Err(::parse::Error::IOError(e)),
+			}
+		}
+		else
+		{
+			Err(::parse::Error::EOF)
+		}
 	}
 	fn ungetc(&mut self, ch: char) {
 		self.lastchar = Some(ch)
@@ -222,7 +226,7 @@ impl Lexer
 		return Ok(name);
 	}
 	// Read a number from the input stream
-	fn read_number(&mut self, base: uint) -> ParseResult<u64>
+	fn read_number(&mut self, base: u32) -> ParseResult<u64>
 	{
 		let mut val = 0;
 		loop
@@ -303,87 +307,87 @@ impl Lexer
 		}
 		match ret.len()
 		{
-		0 => Err( ::parse::SyntaxError(format!("Empty chracter constant")) ),
+		0 => Err( ::parse::Error::SyntaxError(format!("Empty chracter constant")) ),
 		1 => Ok( ret.as_slice().char_at(0) as u64 ),
-		_ => Err( ::parse::SyntaxError(format!("Over-long character constant")) ),
+		_ => Err( ::parse::Error::SyntaxError(format!("Over-long character constant")) ),
 		}
 	}
 	// Read a single token from the stream
 	pub fn get_token(&mut self) -> ParseResult<Token>
 	{
-		try_eof!(self.eat_whitespace(), TokEOF);
+		try_eof!(self.eat_whitespace(), Token::EOF);
 	
-		let mut ch = try_eof!(self.getc(), TokEOF);
+		let mut ch = try_eof!(self.getc(), Token::EOF);
 		let ret = match ch
 		{
-		'\n' => TokNewline,
-		'#' => TokHash,
-		'~' => TokTilde,
-		'!' => match_ch!(self, TokExclamation,
-			'=' => TokNotEquals,
+		'\n' => Token::Newline,
+		'#' => Token::Hash,
+		'~' => Token::Tilde,
+		'!' => match_ch!(self, Token::Exclamation,
+			'=' => Token::NotEquals,
 			),
-		';' => TokSemicolon,
-		',' => TokComma,
-		'?' => TokQuestionMark,
-		':' => TokColon,
-		'.' => match_ch!(self, TokPeriod,
+		';' => Token::Semicolon,
+		',' => Token::Comma,
+		'?' => Token::QuestionMark,
+		':' => Token::Colon,
+		'.' => match_ch!(self, Token::Period,
 			'.' => {
-				if try_eof!(self.getc(), TokPeriod) != '.' {
+				if try_eof!(self.getc(), Token::Period) != '.' {
 					error!("Lex error '..' hit");
-					return Err( ::parse::BadCharacter('.') );
+					return Err( ::parse::Error::BadCharacter('.') );
 				}
-				TokVargs
+				Token::Vargs
 				},
 			),
-		'=' => match_ch!(self, TokAssign,
-			'=' => TokEquality,
+		'=' => match_ch!(self, Token::Assign,
+			'=' => Token::Equality,
 			),
-		'+' => match_ch!(self, TokPlus,
-			'+' => TokDoublePlus,
-			'=' => TokAssignAdd,
+		'+' => match_ch!(self, Token::Plus,
+			'+' => Token::DoublePlus,
+			'=' => Token::AssignAdd,
 			),
-		'-' => match_ch!(self, TokMinus,
-			'-' => TokDoubleMinus,
-			'=' => TokAssignSub,
-			'>' => TokDerefMember,
+		'-' => match_ch!(self, Token::Minus,
+			'-' => Token::DoubleMinus,
+			'=' => Token::AssignSub,
+			'>' => Token::DerefMember,
 			),
-		'>' => match_ch!(self, TokGt,
-			'>' => TokShiftRight,
-			'=' => TokGtE,
+		'>' => match_ch!(self, Token::Gt,
+			'>' => Token::ShiftRight,
+			'=' => Token::GtE,
 			),
-		'<' => match_ch!(self, TokLt,
-			'<' => TokShiftLeft,
-			'=' => TokLtE,
+		'<' => match_ch!(self, Token::Lt,
+			'<' => Token::ShiftLeft,
+			'=' => Token::LtE,
 			),
-		'|' => match_ch!(self, TokPipe,
-			'|' => match_ch!(self, TokDoublePipe,
-				'=' => TokAssignLogicOr,
+		'|' => match_ch!(self, Token::Pipe,
+			'|' => match_ch!(self, Token::DoublePipe,
+				'=' => Token::AssignLogicOr,
 				),
-			'=' => TokAssignBitOr,
+			'=' => Token::AssignBitOr,
 			),
-		'&' => match_ch!(self, TokAmpersand,
-			'&' => match_ch!(self, TokDoubleAmpersand,
-				'=' => TokAssignLogicAnd,
+		'&' => match_ch!(self, Token::Ampersand,
+			'&' => match_ch!(self, Token::DoubleAmpersand,
+				'=' => Token::AssignLogicAnd,
 				),
-			'=' => TokAssignBitAnd,
+			'=' => Token::AssignBitAnd,
 			),
-		'(' => TokParenOpen,	')' => TokParenClose,
-		'{' => TokBraceOpen,	'}' => TokBraceClose,
-		'[' => TokSquareOpen,	']' => TokSquareClose,
-		'%' => match_ch!(self, TokPercent,
-			'=' => TokAssignMod,
+		'(' => Token::ParenOpen,	')' => Token::ParenClose,
+		'{' => Token::BraceOpen,	'}' => Token::BraceClose,
+		'[' => Token::SquareOpen,	']' => Token::SquareClose,
+		'%' => match_ch!(self, Token::Percent,
+			'=' => Token::AssignMod,
 			),
-		'*' => match_ch!(self, TokStar,
-			'=' => TokAssignMul,
+		'*' => match_ch!(self, Token::Star,
+			'=' => Token::AssignMul,
 			),
-		'/' => match_ch!(self, TokSlash,
-			'/' => TokLineComment(try!(self.read_to_eol())),
+		'/' => match_ch!(self, Token::Slash,
+			'/' => Token::LineComment(try!(self.read_to_eol())),
 			'*' => {
 				let mut comment = String::new();
 				loop {
-					match try_eof!(self.getc(), TokBlockComment(comment)) {
+					match try_eof!(self.getc(), Token::BlockComment(comment)) {
 					'*' => {
-						match try_eof!(self.getc(), TokBlockComment(comment)) {
+						match try_eof!(self.getc(), Token::BlockComment(comment)) {
 						'/' => break,
 						'*' => self.ungetc('*'),	// Handles '**/'
 						c @ _ => comment.push(c)
@@ -392,16 +396,16 @@ impl Lexer
 					c @ _ => comment.push(c)
 					}
 				}
-				TokBlockComment(comment)
+				Token::BlockComment(comment)
 				},
 			),
 
-		'"' => TokString( try!(self.read_string()) ),
-		'\'' => TokInteger( try!(self.read_charconst()), ::types::IntClass_Int(false) ),
+		'"' => Token::String( try!(self.read_string()) ),
+		'\'' => Token::Integer( try!(self.read_charconst()), ::types::IntClass::Int(false) ),
 		
 		'0' ... '9' => {
 			let (base, whole) = if ch == '0' {
-					let ch2 = try_eof!(self.getc(), TokInteger(0,::types::IntClass_Int(false)));
+					let ch2 = try_eof!(self.getc(), Token::Integer(0,::types::IntClass::Int(false)));
 					match ch2 {
 					'1' ... '7' => {
 						self.ungetc(ch2);
@@ -420,7 +424,7 @@ impl Lexer
 					(10, try!(self.read_number(10)))
 				};
 			// Check for a decimal point
-			let intret = TokInteger(whole, ::types::IntClass_Int(false));
+			let intret = Token::Integer(whole, ::types::IntClass::Int(false));
 			ch = try_eof!(self.getc(), intret);
 			if ch == '.'
 			{
@@ -434,10 +438,10 @@ impl Lexer
 				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
 				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
 				self.ungetc(ch);
-				TokInteger( whole, match (is_long,is_longlong) {
-					(false,false) => ::types::IntClass_Int(is_unsigned),
-					(true, false) => ::types::IntClass_Long(is_unsigned),
-					(true, true ) => ::types::IntClass_LongLong(is_unsigned),
+				Token::Integer( whole, match (is_long,is_longlong) {
+					(false,false) => ::types::IntClass::Int(is_unsigned),
+					(true, false) => ::types::IntClass::Long(is_unsigned),
+					(true, true ) => ::types::IntClass::LongLong(is_unsigned),
 					(false, true) => panic!("BUGCHECK: LongLong set, but Long unset")
 					} )
 			}
@@ -447,52 +451,52 @@ impl Lexer
 			let ident = try!(self.read_ident());
 			match ident.as_slice()
 			{
-			"typedef" => TokRword_typedef,
-			"static"  => TokRword_static,
-			"extern"  => TokRword_extern,
-			"inline"  => TokRword_inline,
+			"typedef" => Token::Rword_typedef,
+			"static"  => Token::Rword_static,
+			"extern"  => Token::Rword_extern,
+			"inline"  => Token::Rword_inline,
 			
-			"const"    => TokRword_const,
-			"volatile" => TokRword_volatile,
-			"signed"   => TokRword_signed,
-			"unsigned" => TokRword_unsigned,
-			"void"  => TokRword_void,
-			"_Bool" => TokRword_Bool,
-			"char"  => TokRword_char,
-			"short" => TokRword_short,
-			"int"   => TokRword_int,
-			"long"   => TokRword_long,
+			"const"    => Token::Rword_const,
+			"volatile" => Token::Rword_volatile,
+			"signed"   => Token::Rword_signed,
+			"unsigned" => Token::Rword_unsigned,
+			"void"  => Token::Rword_void,
+			"_Bool" => Token::Rword_Bool,
+			"char"  => Token::Rword_char,
+			"short" => Token::Rword_short,
+			"int"   => Token::Rword_int,
+			"long"   => Token::Rword_long,
 			
-			"sizeof" => TokRword_sizeof,
-			"enum"   => TokRword_enum,
-			"union"  => TokRword_union,
-			"struct" => TokRword_struct,
+			"sizeof" => Token::Rword_sizeof,
+			"enum"   => Token::Rword_enum,
+			"union"  => Token::Rword_union,
+			"struct" => Token::Rword_struct,
 			
-			"if"    => TokRword_if,
-			"else"  => TokRword_else,
-			"do"    => TokRword_do,
-			"while" => TokRword_while,
-			"for"   => TokRword_for,
-			"switch" => TokRword_switch,
+			"if"    => Token::Rword_if,
+			"else"  => Token::Rword_else,
+			"do"    => Token::Rword_do,
+			"while" => Token::Rword_while,
+			"for"   => Token::Rword_for,
+			"switch" => Token::Rword_switch,
 			
-			"case" => TokRword_case,
-			"default" => TokRword_default,
-			"return" => TokRword_return,
-			"break"  => TokRword_break,
-			"continue" => TokRword_continue,
-			"goto"   => TokRword_goto,
+			"case" => Token::Rword_case,
+			"default" => Token::Rword_default,
+			"return" => Token::Rword_return,
+			"break"  => Token::Rword_break,
+			"continue" => Token::Rword_continue,
+			"goto"   => Token::Rword_goto,
 			
-			"__attribute__" => TokRword_gcc_attribute,
-			"__builtin_va_arg" => TokRword_gcc_va_arg,
-			_ => TokIdent(ident)
+			"__attribute__" => Token::Rword_gcc_attribute,
+			"__builtin_va_arg" => Token::Rword_gcc_va_arg,
+			_ => Token::Ident(ident)
 			}
 			},
 		_ => {
 			error!("Bad character #{} hit", ch as u32);
-			return Err(::parse::BadCharacter(ch))
+			return Err(::parse::Error::BadCharacter(ch))
 			}
 		};
-		debug!("get_token: {}", ret);
+		debug!("get_token: {:?}", ret);
 		Ok(ret)
 	}
 }

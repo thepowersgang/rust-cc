@@ -1,6 +1,7 @@
 /*
  */
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 #[derive(Default)]
 pub struct Program
@@ -29,41 +30,42 @@ impl Program
 	
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Node>)
 	{
-		error!("TODO: Define variable '{}': '{}' = {}", name, typeid, value);
+		error!("TODO: Define variable '{}': '{:?}' = {:?}", name, typeid, value);
 	}
 	
 	pub fn set_typedef(&mut self, name: String, typeid: ::types::TypeRef) -> bool
 	{
-		self.typedefs.insert(name, typeid)
+		self.typedefs.insert(name, typeid).is_none()
 	}
 	pub fn get_typedef(&self, name: &str) -> Option<::types::TypeRef>
 	{
 		// HACK! Define __builtin_va_list (a GCC internal) to be void
 		// TODO: It should be its own type
 		if name == "__builtin_va_list" {
-			return Some( ::types::Type::new_ref(::types::TypeVoid, false, false) );
+			return Some( ::types::Type::new_ref(::types::BaseType::Void, false, false) );
 		}
-		return match self.typedefs.find( &name.to_string() )
-			{
-			Some(x) => Some(x.clone()),
-			None => None
-			};
+		
+		match self.typedefs.get( &name.to_string() )
+		{
+		Some(x) => Some(x.clone()),
+		None => None
+		}
 	}
 	
 	pub fn get_struct(&mut self, name: &str) -> ::types::StructRef
 	{
 		if name == ""
 		{
-			return ::types::Struct::new_ref("");
+			::types::Struct::new_ref("")
 		}
 		else
 		{
 			let key = name.to_string();
-			if ! self.structs.contains_key(&key)
+			match self.structs.entry(key)
 			{
-				self.structs.insert(key.clone(), ::types::Struct::new_ref(name));
+			Entry::Vacant(e) => e.insert(::types::Struct::new_ref(name)).clone(),
+			Entry::Occupied(e) => e.get().clone(),
 			}
-			return self.structs.find(&key).unwrap().clone();
 		}
 	}
 	
@@ -75,10 +77,8 @@ impl Program
 		else {
 			match self.unions.entry(name.to_string())
 			{
-			::std::collections::hashmap::Occupied(s) => s.get().clone(),
-			::std::collections::hashmap::Vacant(h) => {
-				h.set(::types::Union::new_ref(name)).clone()
-				}
+			Entry::Occupied(s) => s.get().clone(),
+			Entry::Vacant(h) => h.insert(::types::Union::new_ref(name)).clone(),
 			}
 		}
 	}
@@ -104,14 +104,12 @@ impl Program
 		else {
 			match self.enums.entry(name.to_string())
 			{
-			::std::collections::hashmap::Occupied(s) => s.get().clone(),
-			::std::collections::hashmap::Vacant(h) => {
-				h.set(::types::Enum::new_ref(name)).clone()
-				}
+			Entry::Occupied(s) => s.get().clone(),
+			Entry::Vacant(h) => h.insert(::types::Enum::new_ref(name)).clone()
 			}
 		}
 	}
-	pub fn make_enum(&mut self, name: &str, items: Vec<(uint,String)>) -> Result<::types::EnumRef,Option<String>> {
+	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,String)>) -> Result<::types::EnumRef,Option<String>> {
 		let er = self.get_enum(name);
 		let ispop = er.borrow().is_populated();
 		
@@ -131,93 +129,93 @@ impl Program
 #[derive(Debug)]
 pub enum Node
 {
-	NodeBlock(Vec<Node>),
-	NodeStmtList(Vec<Node>),	// Comma operator
-	NodeDefVar(::types::TypeRef,String,Option<Box<Node>>),
+	Block(Vec<Node>),
+	StmtList(Vec<Node>),	// Comma operator
+	DefVar(::types::TypeRef,String,Option<Box<Node>>),
 	
-	NodeIdentifier(String),
-	NodeString(String),
-	NodeInteger(u64),
-	NodeFloat(f64),
-	NodeListLiteral(Vec<Node>),	// {a, b, c}
-	NodeArrayLiteral(Vec<(uint,Node)>),	// {[0] = a, [1] = b, [2] = c}
-	NodeStructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
+	Identifier(String),
+	String(String),
+	Integer(u64),
+	Float(f64),
+	ListLiteral(Vec<Node>),	// {a, b, c}
+	ArrayLiteral(Vec<(usize,Node)>),	// {[0] = a, [1] = b, [2] = c}
+	StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
 	
-	NodeIfStatement(Box<Node>, Box<Node>, Option<Box<Node>>),
-	NodeWhileLoop(Box<Node>, Box<Node>),
-	NodeDoWhileLoop(Box<Node>, Box<Node>),
-	NodeForLoop(Option<Box<Node>>, Option<Box<Node>>, Option<Box<Node>>, Box<Node>),
+	IfStatement(Box<Node>, Box<Node>, Option<Box<Node>>),
+	WhileLoop(Box<Node>, Box<Node>),
+	DoWhileLoop(Box<Node>, Box<Node>),
+	ForLoop(Option<Box<Node>>, Option<Box<Node>>, Option<Box<Node>>, Box<Node>),
 	
-	NodeLabel(String),
-	NodeGoto(String),
-	NodeContinue,
-	NodeBreak,
+	Label(String),
+	Goto(String),
+	Continue,
+	Break,
 	
-	NodeSwitch(Box<Node>, Vec<Node>),
-	NodeCaseDefault,
-	NodeCaseSingle(uint),
-	NodeCaseRange(uint, uint),
+	Switch(Box<Node>, Vec<Node>),
+	CaseDefault,
+	CaseSingle(u64),
+	CaseRange(u64, u64),
 	
-	NodeFcnCall(Box<Node>, Vec<Node>),
+	FcnCall(Box<Node>, Vec<Node>),
 	
-	NodeReturn(Option<Box<Node>>),
+	Return(Option<Box<Node>>),
 	
-	NodeAssign(Box<Node>, Box<Node>),
-	NodeAssignOp(BinOp, Box<Node>, Box<Node>),
+	Assign(Box<Node>, Box<Node>),
+	AssignOp(BinOp, Box<Node>, Box<Node>),
 	
-	NodeCast(::types::TypeRef,Box<Node>),
-	NodeSizeofType(::types::TypeRef),
-	NodeSizeofExpr(Box<Node>),
+	Cast(::types::TypeRef,Box<Node>),
+	SizeofType(::types::TypeRef),
+	SizeofExpr(Box<Node>),
 	
-	NodeTernary(Box<Node>,Box<Node>,Box<Node>),
-	NodeUniOp(UniOp, Box<Node>),
-	NodeBinOp(BinOp, Box<Node>, Box<Node>),
+	Ternary(Box<Node>,Box<Node>,Box<Node>),
+	UniOp(UniOp, Box<Node>),
+	BinOp(BinOp, Box<Node>, Box<Node>),
 	
-	NodeIndex(Box<Node>, Box<Node>),
-	NodeDerefMember(Box<Node>, String),
-	NodeMember(Box<Node>, String),
+	Index(Box<Node>, Box<Node>),
+	DerefMember(Box<Node>, String),
+	Member(Box<Node>, String),
 }
 
 #[derive(Debug)]
 pub enum BinOp
 {
-	BinOpLogicAnd,
-	BinOpLogicOr,
+	LogicAnd,
+	LogicOr,
 	
-	BinOpBitAnd,
-	BinOpBitOr,
-	BinOpBitXor,
+	BitAnd,
+	BitOr,
+	BitXor,
 	
-	BinOpShiftLeft,
-	BinOpShiftRight,
+	ShiftLeft,
+	ShiftRight,
 	
-	BinOpCmpEqu,
-	BinOpCmpNEqu,
-	BinOpCmpLt,
-	BinOpCmpLtE,
-	BinOpCmpGt,
-	BinOpCmpGtE,
+	CmpEqu,
+	CmpNEqu,
+	CmpLt,
+	CmpLtE,
+	CmpGt,
+	CmpGtE,
 	
-	BinOpAdd,
-	BinOpSub,
+	Add,
+	Sub,
 	
-	BinOpMul,
-	BinOpDiv,
-	BinOpMod,
+	Mul,
+	Div,
+	Mod,
 }
 
 #[derive(Debug)]
 pub enum UniOp
 {
-	UniOpNeg,
-	UniOpBitNot,
-	UniOpLogicNot,
-	UniOpPreInc,
-	UniOpPreDec,
-	UniOpPostInc,
-	UniOpPostDec,
-	UniOpAddress,
-	UniOpDeref,
+	Neg,
+	BitNot,
+	LogicNot,
+	PreInc,
+	PreDec,
+	PostInc,
+	PostDec,
+	Address,
+	Deref,
 }
 
 impl Node
@@ -226,15 +224,15 @@ impl Node
 	{
 		match self
 		{
-		&NodeInteger(v) => Some(v),
-		&NodeUniOp(ref op,ref a) => match (op,a.literal_integer())
+		&Node::Integer(v) => Some(v),
+		&Node::UniOp(ref op,ref a) => match (op,a.literal_integer())
 			{
-			(&UniOpNeg,Some(a)) => Some(-a),
+			(&UniOp::Neg,Some(a)) => Some(-a),
 			_ => None,
 			},
-		&NodeBinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
+		&Node::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
 			{
-			(&BinOpSub,Some(a),Some(b)) => Some(a-b),
+			(&BinOp::Sub,Some(a),Some(b)) => Some(a-b),
 			_ => None,
 			},
 		_ => None,
