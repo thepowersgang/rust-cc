@@ -4,6 +4,15 @@ use parse::lex;
 use std::collections::HashMap;
 use std::default::Default;
 
+trait ReadExt: ::std::io::Read {
+	fn chars(self) -> ::utf8reader::UTF8Reader<Self> where Self: Sized;
+}
+impl<T: ::std::io::Read> ReadExt for T {
+	fn chars(self) -> ::utf8reader::UTF8Reader<Self> {
+		::utf8reader::UTF8Reader::new(self)
+	}
+}
+
 #[derive(Default)]
 pub struct Preproc
 {
@@ -16,7 +25,7 @@ struct LexHandle
 {
 	lexer: ::parse::lex::Lexer,
 	filename: String,
-	line: uint,
+	line: usize,
 }
 
 macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try!($tok); match v {
@@ -26,25 +35,25 @@ macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try
 
 impl Preproc
 {
-	pub fn new(filename: &str) -> ::parse::ParseResult<Preproc>
+	pub fn new(filename: Option<&::std::path::Path>) -> ::parse::ParseResult<Preproc>
 	{
 		use std::io::Read;
-		let lexer = if filename == "-"
-			{
-				::parse::lex::Lexer::new(box ::std::io::stdin().chars())
-			}
-			else
+		let lexer = if let Some(filename) = filename
 			{
 				::parse::lex::Lexer::new(box match ::std::fs::File::open(filename)
 					{
 					Ok(f) => f.chars(),
 					Err(e) => return Err(::parse::Error::IOError(e)),
 					})
+			}
+			else
+			{
+				::parse::lex::Lexer::new(box ::std::io::stdin().chars())
 			};
 		Ok(Preproc {
 			lexers: vec![ LexHandle {
 				lexer: lexer,
-				filename: filename.to_string(),
+				filename: filename.map(|x| x.display().to_string()).unwrap_or_else(|| "-".to_string()),
 				line: 1,
 				} ],
 			.. Default::default()
@@ -84,7 +93,7 @@ impl Preproc
 				lex::Token::Integer(line, _) => {
 					let file = syntax_assert!(lexer.get_token(), lex::Token::String(s) => s);
 					lexer_h.filename = file;
-					lexer_h.line = line as uint;
+					lexer_h.line = line as usize;
 					while try!(lexer.get_token()) != lex::Token::Newline
 					{
 					}

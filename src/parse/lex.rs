@@ -1,7 +1,5 @@
 /*
  */
-extern crate libc;
-
 use parse::ParseResult;
 
 #[allow(non_camel_case_types)]
@@ -123,7 +121,7 @@ pub enum Token
 	Rword_gcc_va_arg,
 }
 
-pub type LexerInput = Box< ::std::iter::Iterator<Item=Result<char,::std::io::CharsError>> + 'static >;
+pub type LexerInput = Box< ::std::iter::Iterator<Item=::std::io::Result<char>> + 'static >;
 
 pub struct Lexer
 {
@@ -171,8 +169,7 @@ impl Lexer
 			match r
 			{
 			Ok(ch) => Ok(ch),
-			Err(::std::io::CharsError::NotUtf8) => Err(::parse::Error::BadCharacter('\0')),
-			Err(::std::io::CharsError::Other(e)) => Err(::parse::Error::IOError(e)),
+			Err(e) => Err(::parse::Error::IOError(e)),
 			}
 		}
 		else
@@ -190,7 +187,7 @@ impl Lexer
 		loop
 		{
 			let ch = try!(self.getc());
-			if !isspace(ch) || ch == '\n' {
+			if !ch.is_ascii_whitespace() || ch == '\n' {
 				self.ungetc(ch);
 				break;
 			}
@@ -217,7 +214,7 @@ impl Lexer
 		loop
 		{
 			let ch = try_eof!(self.getc(), name);
-			if !(isalnum(ch) || ch == '_' || ch == '$') {
+			if !(ch.is_alphanumeric() || ch == '_' || ch == '$') {
 				self.ungetc(ch);
 				break;
 			}
@@ -308,7 +305,7 @@ impl Lexer
 		match ret.len()
 		{
 		0 => Err( ::parse::Error::SyntaxError(format!("Empty chracter constant")) ),
-		1 => Ok( ret.as_slice().char_at(0) as u64 ),
+		1 => Ok( ret.chars().next().unwrap() as u64 ),
 		_ => Err( ::parse::Error::SyntaxError(format!("Over-long character constant")) ),
 		}
 	}
@@ -330,6 +327,7 @@ impl Lexer
 		',' => Token::Comma,
 		'?' => Token::QuestionMark,
 		':' => Token::Colon,
+		'^' => Token::Caret,
 		'.' => match_ch!(self, Token::Period,
 			'.' => {
 				if try_eof!(self.getc(), Token::Period) != '.' {
@@ -382,6 +380,7 @@ impl Lexer
 			),
 		'/' => match_ch!(self, Token::Slash,
 			'/' => Token::LineComment(try!(self.read_to_eol())),
+			'=' => Token::AssignDiv,
 			'*' => {
 				let mut comment = String::new();
 				loop {
@@ -409,13 +408,13 @@ impl Lexer
 					match ch2 {
 					'1' ... '7' => {
 						self.ungetc(ch2);
-						(8u, try!(self.read_number( 8)))
+						(8, try!(self.read_number( 8)))
 						},
-					'x' => (16u, try!(self.read_number(16))),
-					'b' => ( 2u, try!(self.read_number( 2))),
+					'x' => (16, try!(self.read_number(16))),
+					'b' => ( 2, try!(self.read_number( 2))),
 					_ => {
 						self.ungetc(ch2);
-						(10u, 0)
+						(10, 0)
 						}
 					}
 				}
@@ -429,6 +428,7 @@ impl Lexer
 			if ch == '.'
 			{
 				// Float
+				let _ = base;
 				panic!("TODO: lexing floating point values");
 			}
 			else
@@ -449,7 +449,7 @@ impl Lexer
 		'a'...'z'|'A'...'Z'|'_'|'$' => {
 			self.ungetc(ch);
 			let ident = try!(self.read_ident());
-			match ident.as_slice()
+			match &ident[..]
 			{
 			"typedef" => Token::Rword_typedef,
 			"static"  => Token::Rword_static,
@@ -458,6 +458,8 @@ impl Lexer
 			
 			"const"    => Token::Rword_const,
 			"volatile" => Token::Rword_volatile,
+			"auto"     => Token::Rword_auto,
+			"register" => Token::Rword_register,
 			"signed"   => Token::Rword_signed,
 			"unsigned" => Token::Rword_unsigned,
 			"void"  => Token::Rword_void,
@@ -465,7 +467,9 @@ impl Lexer
 			"char"  => Token::Rword_char,
 			"short" => Token::Rword_short,
 			"int"   => Token::Rword_int,
-			"long"   => Token::Rword_long,
+			"long"  => Token::Rword_long,
+			"float"  => Token::Rword_float,
+			"double" => Token::Rword_double,
 			
 			"sizeof" => Token::Rword_sizeof,
 			"enum"   => Token::Rword_enum,
@@ -498,17 +502,6 @@ impl Lexer
 		};
 		debug!("get_token: {:?}", ret);
 		Ok(ret)
-	}
-}
-
-fn isspace(ch: char) -> bool {
-	unsafe {
-		return libc::funcs::c95::ctype::isspace(ch as i32) != 0
-	}
-}
-fn isalnum(ch: char) -> bool {
-	unsafe {
-		return libc::funcs::c95::ctype::isalnum(ch as i32) != 0
 	}
 }
 

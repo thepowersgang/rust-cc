@@ -2,8 +2,10 @@
 
 name = "cc"
 version = "0.0.1"
-authors = ["John Hodge (sonata) <tpg@mutabah.net>"]
+authors = ["John Hodge <tpg@mutabah.net>"]
 
 [dependencies]
-log = "*"
-env_logger = "*"
+log = "0.4"
+env_logger = "0.5"
+structopt = "0.2"
+utf8reader = "*"

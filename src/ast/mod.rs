@@ -227,7 +227,7 @@ impl Node
 		&Node::Integer(v) => Some(v),
 		&Node::UniOp(ref op,ref a) => match (op,a.literal_integer())
 			{
-			(&UniOp::Neg,Some(a)) => Some(-a),
+			(&UniOp::Neg,Some(a)) => Some(!a + 1),
 			_ => None,
 			},
 		&Node::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())

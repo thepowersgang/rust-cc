@@ -1,7 +1,5 @@
 /*
  */
-
-use parse::lex;
 use parse::lex::Token;
 use parse::ParseResult;
 
@@ -11,11 +9,11 @@ struct ParseState<'ast>
 	lex: ::parse::preproc::Preproc,
 }
 
-pub fn parse(ast: &mut ::ast::Program, filename: &str) -> ParseResult<()>
+pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path) -> ParseResult<()>
 {
 	let mut self_ = ParseState {
 		ast: ast,
-		lex: try!(::parse::preproc::Preproc::new(filename))
+		lex: try!(::parse::preproc::Preproc::new( Some(filename) ))
 		};
 	
 	match self_.parseroot()
@@ -113,7 +111,7 @@ impl<'ast> ParseState<'ast>
 		// 2. Get extended type and identifier
 		let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 		// - Ignore empty ident
-		if ident.as_slice() != ""
+		if ident != ""
 		{
 			// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
 			match try!(self.lex.get_token())
@@ -151,13 +149,11 @@ impl<'ast> ParseState<'ast>
 		let mut storageclass = None;
 		
 		let mut typeid = None;
-		let mut is_primitive = false;	// Set on any primitive specifier
-		let mut is_signed = true;
-		let mut seen_sign = false;
+		//let mut is_primitive = false;	// Set on any primitive specifier
+		let mut is_signed: Option<bool> = None;	// 
 		let mut intsize: Option<u8> = None;
 		let mut int_seen = false;
 		let mut double_seen = false;
-		let mut is_unsigned = false;
 		// 1. Storage classes (extern, static, auto, register)
 		loop
 		{
@@ -183,8 +179,8 @@ impl<'ast> ParseState<'ast>
 			Token::Rword_const    => {is_const    = true; },
 			Token::Rword_volatile => {is_volatile = true; },
 			// Primitives (Integer and Double)
-			Token::Rword_signed   => {is_signed = true ; seen_sign = true; },
-			Token::Rword_unsigned => {is_signed = false; seen_sign = true; },
+			Token::Rword_signed   => {is_signed = Some(true ); },
+			Token::Rword_unsigned => {is_signed = Some(false); },
 			Token::Rword_int => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				if int_seen { syntax_error!("Multiple 'int' keywords in type") }
@@ -262,7 +258,7 @@ impl<'ast> ParseState<'ast>
 					self.lex.put_back( Token::Ident(n) );
 					break;
 				}
-				match self.ast.get_typedef( n.as_slice() )
+				match self.ast.get_typedef( &n )
 				{
 				Some(v) => {
 					typeid = Some(v.basetype.clone());
@@ -289,15 +285,15 @@ impl<'ast> ParseState<'ast>
 			}
 			else if intsize.is_some() {
 				::types::BaseType::Integer( match intsize.unwrap() {
-				0 => ::types::IntClass::Char(is_signed),
-				1 => ::types::IntClass::Short(is_signed),
-				2 => ::types::IntClass::Int(is_signed),
-				3 => ::types::IntClass::Long(is_signed),
-				4 => ::types::IntClass::LongLong(is_signed),
+				0 => ::types::IntClass::Char(is_signed.unwrap_or(true)),	// TODO: `char` is neither signed nor unsigned
+				1 => ::types::IntClass::Short(is_signed.unwrap_or(true)),
+				2 => ::types::IntClass::Int(is_signed.unwrap_or(true)),
+				3 => ::types::IntClass::Long(is_signed.unwrap_or(true)),
+				4 => ::types::IntClass::LongLong(is_signed.unwrap_or(true)),
 				_ => panic!("BUGCHECK")
 				})
 			}
-			else if seen_sign {
+			else if let Some(is_signed) = is_signed {
 				::types::BaseType::Integer( ::types::IntClass::Int(is_signed) )
 			}
 			else {
@@ -329,7 +325,7 @@ impl<'ast> ParseState<'ast>
 	{
 		let structname = try!(self._get_ident_or_blank());
 		
-		let ret = self.ast.get_struct(structname.as_slice());
+		let ret = self.ast.get_struct(&structname);
 		// Check for defining the structure's contents
 		match try!(self.lex.get_token())
 		{
@@ -339,7 +335,7 @@ impl<'ast> ParseState<'ast>
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
-			if structname.as_slice() == "" { syntax_error!("Nameless struct with no definition"); }
+			if structname == "" { syntax_error!("Nameless struct with no definition"); }
 			}
 		}
 		Ok( ret )
@@ -374,7 +370,7 @@ impl<'ast> ParseState<'ast>
 				
 				if peek_token!(self.lex, Token::Comma) { parse_todo!("Comma separated bitfields"); }
 				/*
-				while( peek_token!(self.lex, Token::Comma) )
+				while peek_token!(self.lex, Token::Comma)
 				{
 					items.push( try!(self.get_full_type(basetype.clone())) );
 				}
@@ -383,7 +379,7 @@ impl<'ast> ParseState<'ast>
 			else
 			{
 				items.push( (ft, ident) );
-				while( peek_token!(self.lex, Token::Comma) )
+				while peek_token!(self.lex, Token::Comma)
 				{
 					items.push( try!(self.get_full_type(basetype.clone())) );
 				}
@@ -409,7 +405,7 @@ impl<'ast> ParseState<'ast>
 		{
 		Token::BraceOpen => {
 			let fields = try!(self.populate_union());
-			match self.ast.make_union(name.as_slice(), fields)
+			match self.ast.make_union(&name, fields)
 			{
 			Ok(er) => Ok(er),
 			Err( () ) => syntax_error!("Multiple definitions of union '{}'", name),
@@ -417,8 +413,8 @@ impl<'ast> ParseState<'ast>
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
-			if name.as_slice() == "" { syntax_error!("Nameless union with no definition"); }
-			Ok( self.ast.get_union(name.as_slice()) )
+			if name == "" { syntax_error!("Nameless union with no definition"); }
+			Ok( self.ast.get_union(&name) )
 			}
 		}
 	}
@@ -437,7 +433,7 @@ impl<'ast> ParseState<'ast>
 			// 2. Get extended type and identifier
 			items.push( try!(self.get_full_type(basetype.clone())) );
 			
-			while( peek_token!(self.lex, Token::Comma) )
+			while peek_token!(self.lex, Token::Comma)
 			{
 				items.push( try!(self.get_full_type(basetype.clone())) );
 			}
@@ -459,7 +455,7 @@ impl<'ast> ParseState<'ast>
 		{
 		Token::BraceOpen => {
 			let fields = try!(self.populate_enum());
-			match self.ast.make_enum(name.as_slice(), fields)
+			match self.ast.make_enum(&name, fields)
 			{
 			Ok(er) => Ok(er),
 			Err(opt_str) => match opt_str
@@ -471,8 +467,8 @@ impl<'ast> ParseState<'ast>
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
-			if name.as_slice() == "" { syntax_error!("Nameless enum with no definition"); }
-			Ok( self.ast.get_enum(name.as_slice()) )
+			if name == "" { syntax_error!("Nameless enum with no definition"); }
+			Ok( self.ast.get_enum(&name) )
 			}
 		}
 	}
@@ -698,7 +694,7 @@ impl<'ast> ParseState<'ast>
 			debug!("parse_block_line - basetype={:?}", basetype);
 			// Definition!
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-			let rv = if ident.as_slice() != ""
+			let rv = if ident != ""
 				{
 					// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
 					if peek_token!(self.lex, Token::BraceOpen)
@@ -1104,7 +1100,7 @@ impl<'ast> ParseState<'ast>
 	
 	
 	/// Expression - Member access
-	parse_left_assoc!{self, parse_expr_member, parse_expr_P, rv, {
+	parse_left_assoc!{self, parse_expr_member, parse_expr_p, rv, {
 		Token::DerefMember => ::ast::Node::DerefMember(box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)),
 		Token::Period      => ::ast::Node::Member(     box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)),
 		Token::SquareOpen => {
@@ -1130,7 +1126,7 @@ impl<'ast> ParseState<'ast>
 	}}
 	
 	/// Expression - Parens
-	fn parse_expr_P(&mut self) -> ParseResult<::ast::Node>
+	fn parse_expr_p(&mut self) -> ParseResult<::ast::Node>
 	{
 		Ok(match try!(self.lex.get_token())
 		{
@@ -1139,11 +1135,11 @@ impl<'ast> ParseState<'ast>
 			{
 			Some(basetype) => {
 				let (fulltype, ident) = try!(self.get_full_type(basetype));
-				if ident.as_slice() != "" {
+				if ident != "" {
 					syntax_error!("Unexpected identifier in cast");
 				}
 				syntax_assert!(self.lex => Token::ParenClose);
-				::ast::Node::Cast(fulltype, box try!(self.parse_expr_P()))
+				::ast::Node::Cast(fulltype, box try!(self.parse_expr_p()))
 				},
 			None => {
 					let rv = try!(self.parse_expr());
@@ -1153,12 +1149,12 @@ impl<'ast> ParseState<'ast>
 			},
 		t @ _ => {
 			self.lex.put_back(t);
-			try!(self.parse_expr_Z())
+			try!(self.parse_expr_z())
 			}
 		})
 	}
 	/// Expression - Leaf nodes
-	fn parse_expr_Z(&mut self) -> ParseResult<::ast::Node>
+	fn parse_expr_z(&mut self) -> ParseResult<::ast::Node>
 	{
 		Ok(match try!(self.lex.get_token())
 		{
@@ -1168,7 +1164,7 @@ impl<'ast> ParseState<'ast>
 			loop
 			{
 				match try!(self.lex.get_token()) {
-				Token::String(s) => { val.push_str(s.as_slice()); },
+				Token::String(s) => { val.push_str(&s); },
 				t @ _ => { self.lex.put_back(t); break; }
 				}
 			}
@@ -1188,7 +1184,7 @@ impl<'ast> ParseState<'ast>
 					::ast::Node::SizeofType(tr)
 					},
 				None => {
-					let val = if expect_paren { box try!(self.parse_expr_0()) } else { box try!(self.parse_expr_P()) };
+					let val = if expect_paren { box try!(self.parse_expr_0()) } else { box try!(self.parse_expr_p()) };
 					::ast::Node::SizeofExpr(val)
 					},
 				};
