@@ -284,17 +284,18 @@ impl<'ast> ParseState<'ast>
 				typeid.unwrap()
 			}
 			else if intsize.is_some() {
+				let signedness = ::types::Signedness::from_bool_signed(is_signed.unwrap_or(true));
 				::types::BaseType::Integer( match intsize.unwrap() {
-				0 => ::types::IntClass::Char(is_signed.unwrap_or(true)),	// TODO: `char` is neither signed nor unsigned
-				1 => ::types::IntClass::Short(is_signed.unwrap_or(true)),
-				2 => ::types::IntClass::Int(is_signed.unwrap_or(true)),
-				3 => ::types::IntClass::Long(is_signed.unwrap_or(true)),
-				4 => ::types::IntClass::LongLong(is_signed.unwrap_or(true)),
+				0 => ::types::IntClass::Char(is_signed.map(|_| signedness)),
+				1 => ::types::IntClass::Short(signedness),
+				2 => ::types::IntClass::Int(signedness),
+				3 => ::types::IntClass::Long(signedness),
+				4 => ::types::IntClass::LongLong(signedness),
 				_ => panic!("BUGCHECK")
 				})
 			}
 			else if let Some(is_signed) = is_signed {
-				::types::BaseType::Integer( ::types::IntClass::Int(is_signed) )
+				::types::BaseType::Integer( ::types::IntClass::Int( ::types::Signedness::from_bool_signed(is_signed) ) )
 			}
 			else {
 				// If any tokens were consumed during this function, we have to error
@@ -1171,6 +1172,7 @@ impl<'ast> ParseState<'ast>
 			::ast::Node::String(val)
 			},
 		Token::Integer(v,_) => ::ast::Node::Integer(v),
+		Token::Float(v,_) => ::ast::Node::Float(v),
 		Token::BraceOpen => try!(self.parse_composite_lit()),
 		Token::Rword_sizeof => {
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);

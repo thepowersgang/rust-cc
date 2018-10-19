@@ -4,24 +4,43 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
-#[allow(non_camel_case_types)]
-#[derive(Debug)]
-#[derive(PartialEq)]
-#[derive(Clone)]
+#[derive(Debug,PartialEq,Clone,Copy)]
+pub enum Signedness
+{
+	Signed,
+	Unsigned,
+}
+pub use self::Signedness::*;
+impl Signedness {
+	pub fn from_bool_signed(s: bool) -> Self {
+		if s {
+			Signedness::Signed
+		}
+		else {
+			Signedness::Unsigned
+		}
+	}
+}
+
+#[derive(Debug,PartialEq,Clone)]
 pub enum IntClass
 {
-	Bits(bool,u8),
-	Char(bool),
-	Short(bool),
-	Int(bool),
-	Long(bool),
-	LongLong(bool),
+	Bits(Signedness,u8),
+	Char(Option<Signedness>),
+	Short(Signedness),
+	Int(Signedness),
+	Long(Signedness),
+	LongLong(Signedness),
+}
+impl IntClass {
+	pub fn char() -> Self { IntClass::Char(None) }
+	//pub fn uchar() -> Self { IntClass::Char(Some(Unsigned)) }
+	//pub fn schar() -> Self { IntClass::Char(Some(Signed)) }
+	pub fn int() -> Self { IntClass::Int(Signed) }
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug)]
-#[derive(PartialEq)]
-#[derive(Clone)]
+#[derive(Debug,PartialEq,Clone)]
 pub enum FloatClass
 {
 	Float,

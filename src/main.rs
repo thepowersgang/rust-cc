@@ -24,6 +24,8 @@ struct Options
 
 fn main()
 {
+	env_logger::init();
+
 	// 1. Parse command line arguments
 	let args: Options = ::structopt::StructOpt::from_args();
 	

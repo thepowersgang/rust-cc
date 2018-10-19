@@ -37,7 +37,6 @@ impl Preproc
 {
 	pub fn new(filename: Option<&::std::path::Path>) -> ::parse::ParseResult<Preproc>
 	{
-		use std::io::Read;
 		let lexer = if let Some(filename) = filename
 			{
 				::parse::lex::Lexer::new(box match ::std::fs::File::open(filename)

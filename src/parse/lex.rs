@@ -7,7 +7,7 @@ use parse::ParseResult;
 #[derive(PartialEq)]
 pub enum Token
 {
-	Inval(char),
+	//Inval(char),
 	EOF,
 	
 	// Ignored Tokens
@@ -17,8 +17,7 @@ pub enum Token
 
 	// Leaves
 	Integer(u64, ::types::IntClass),
-	Float(f64),
-	Char(u32),
+	Float(f64, ::types::FloatClass),
 	String(String),
 	Ident(String),
 	
@@ -400,15 +399,15 @@ impl Lexer
 			),
 
 		'"' => Token::String( try!(self.read_string()) ),
-		'\'' => Token::Integer( try!(self.read_charconst()), ::types::IntClass::Int(false) ),
+		'\'' => Token::Integer( try!(self.read_charconst()), ::types::IntClass::char() ),
 		
 		'0' ... '9' => {
 			let (base, whole) = if ch == '0' {
-					let ch2 = try_eof!(self.getc(), Token::Integer(0,::types::IntClass::Int(false)));
+					let ch2 = try_eof!(self.getc(), Token::Integer(0, ::types::IntClass::int()));
 					match ch2 {
 					'1' ... '7' => {
 						self.ungetc(ch2);
-						(8, try!(self.read_number( 8)))
+						(8, self.read_number( 8)?)
 						},
 					'x' => (16, try!(self.read_number(16))),
 					'b' => ( 2, try!(self.read_number( 2))),
@@ -423,7 +422,7 @@ impl Lexer
 					(10, try!(self.read_number(10)))
 				};
 			// Check for a decimal point
-			let intret = Token::Integer(whole, ::types::IntClass::Int(false));
+			let intret = Token::Integer(whole, ::types::IntClass::int());
 			ch = try_eof!(self.getc(), intret);
 			if ch == '.'
 			{
@@ -434,7 +433,7 @@ impl Lexer
 			else
 			{
 				// Integer
-				let is_unsigned = if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret); true } else { false };
+				let is_unsigned = ::types::Signedness::from_bool_signed(if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret); true } else { false });
 				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
 				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
 				self.ungetc(ch);
