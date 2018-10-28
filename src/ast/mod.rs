@@ -1,22 +1,40 @@
-/*
+/*!
+ * Representation of the C source in a tree
  */
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+pub mod pretty_print;
+
 #[derive(Default)]
 pub struct Program
 {
-	typedefs: HashMap<String,::types::TypeRef>,
+	// - TODO: Store type definition order too.
+	item_order: Vec<ItemRef>,
+
+	typedefs: HashMap<String, ::types::TypeRef>,
 	structs: HashMap<String, ::types::StructRef>,
 	unions: HashMap<String, ::types::UnionRef>,
 	enums: HashMap<String, ::types::EnumRef>,
-	symbols: ::std::vec::Vec<Symbol>,
+	// Aka global variables/functions
+	symbols: HashMap<String, Symbol>,
+}
+enum ItemRef
+{
+	ValueDecl(String),
+	Value(String),
+
+	Typedef(String),
+	Struct(String),
+	Union(String),
+	Enum(String),
 }
 
 struct Symbol
 {
 	name: String,
 	symtype: ::types::TypeRef,
+	value: Option<Node>,
 }
 
 impl Program
@@ -30,59 +48,107 @@ impl Program
 	
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Node>)
 	{
+		if value.is_some() {
+			self.item_order.push(ItemRef::Value(name.clone()));
+		}
+		else {
+			self.item_order.push(ItemRef::ValueDecl(name.clone()));
+		}
 		error!("TODO: Define variable '{}': '{:?}' = {:?}", name, typeid, value);
+		match self.symbols.entry(name.clone())
+		{
+		Entry::Occupied(mut e) => {
+			if e.get().symtype != typeid {
+				// ERROR: Conflicting declarations
+			}
+			else if e.get().value.is_some() {
+				if value.is_some() {
+					// ERROR: Duplicated definition
+				}
+				else {
+					// WARN: Trailing declaration
+				}
+			}
+			else {
+				e.get_mut().value = value;
+			}
+			},
+		Entry::Vacant(e) => {
+			e.insert(Symbol {
+				name: name,
+				symtype: typeid,
+				value: value,
+				});
+			},
+		}
 	}
 	
 	pub fn set_typedef(&mut self, name: String, typeid: ::types::TypeRef) -> bool
 	{
+		self.item_order.push(ItemRef::Typedef(name.clone()));
 		self.typedefs.insert(name, typeid).is_none()
 	}
 	pub fn get_typedef(&self, name: &str) -> Option<::types::TypeRef>
 	{
-		// HACK! Define __builtin_va_list (a GCC internal) to be void
-		// TODO: It should be its own type
+		// HACK! Define __builtin_va_list (a GCC internal) to be a magic type
 		if name == "__builtin_va_list" {
-			return Some( ::types::Type::new_ref(::types::BaseType::Void, false, false) );
+			return Some( ::types::Type::new_ref_bare(::types::BaseType::MagicType(::types::MagicType::VaList)) );
 		}
 		
-		match self.typedefs.get( &name.to_string() )
-		{
-		Some(x) => Some(x.clone()),
-		None => None
-		}
+		self.typedefs.get(name)
+			.map(::std::rc::Rc::clone)
 	}
 	
 	pub fn get_struct(&mut self, name: &str) -> ::types::StructRef
 	{
-		if name == ""
-		{
+		if name == "" {
 			::types::Struct::new_ref("")
 		}
-		else
-		{
-			let key = name.to_string();
-			match self.structs.entry(key)
-			{
-			Entry::Vacant(e) => e.insert(::types::Struct::new_ref(name)).clone(),
-			Entry::Occupied(e) => e.get().clone(),
-			}
+		else {
+			self.structs.entry(name.to_string())
+				.or_insert_with(|| ::types::Struct::new_ref(name))
+				.clone()
 		}
 	}
-	
 	pub fn get_union(&mut self, name: &str) -> ::types::UnionRef
 	{
 		if name == "" {
-			::types::Union::new_ref(name)
+			::types::Union::new_ref("")
 		}
 		else {
-			match self.unions.entry(name.to_string())
-			{
-			Entry::Occupied(s) => s.get().clone(),
-			Entry::Vacant(h) => h.insert(::types::Union::new_ref(name)).clone(),
-			}
+			self.unions.entry(name.to_string())
+				.or_insert_with(|| ::types::Union::new_ref(name))
+				.clone()
+		}
+	}
+	pub fn get_enum(&mut self, name: &str) -> ::types::EnumRef
+	{
+		if name == "" {
+			::types::Enum::new_ref("")
+		}
+		else {
+			self.enums.entry(name.to_string())
+				.or_insert_with(|| ::types::Enum::new_ref(name))
+				.clone()
+		}
+	}
+
+	pub fn make_struct(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::StructRef,()> {
+		self.item_order.push(ItemRef::Struct(name.to_owned()));
+		let sr = self.get_struct(name);
+		let ispop = sr.borrow().is_populated();
+		
+		if ispop {
+			Err( () )
+		}
+		else {
+			// Set items in enum
+			sr.borrow_mut().set_items(items);
+			Ok( sr )
 		}
 	}
 	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::UnionRef,()> {
+		self.item_order.push(ItemRef::Union(name.to_owned()));
 		let ur = self.get_union(name);
 		let ispop = ur.borrow().is_populated();
 		
@@ -95,21 +161,8 @@ impl Program
 			Ok( ur )
 		}
 	}
-	
-	pub fn get_enum(&mut self, name: &str) -> ::types::EnumRef
-	{
-		if name == "" {
-			::types::Enum::new_ref(name)
-		}
-		else {
-			match self.enums.entry(name.to_string())
-			{
-			Entry::Occupied(s) => s.get().clone(),
-			Entry::Vacant(h) => h.insert(::types::Enum::new_ref(name)).clone()
-			}
-		}
-	}
 	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,String)>) -> Result<::types::EnumRef,Option<String>> {
+		self.item_order.push(ItemRef::Enum(name.to_owned()));
 		let er = self.get_enum(name);
 		let ispop = er.borrow().is_populated();
 		
@@ -220,6 +273,7 @@ pub enum UniOp
 
 impl Node
 {
+	/// Attempt to interpret the node as a trivally constant integer
 	pub fn literal_integer(&self) -> Option<u64>
 	{
 		match self

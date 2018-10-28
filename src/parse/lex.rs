@@ -83,8 +83,10 @@ pub enum Token
 	Rword_static,
 	Rword_register,
 	Rword_inline,
+	// - Qualifiers
 	Rword_const,
 	Rword_volatile,
+	Rword_restrict,
 	// - Types
 	Rword_void,
 	Rword_Bool,
@@ -222,24 +224,29 @@ impl Lexer
 		return Ok(name);
 	}
 	// Read a number from the input stream
-	fn read_number(&mut self, base: u32) -> ParseResult<u64>
+	fn read_number_with_len(&mut self, base: u32) -> ParseResult<(u64,usize)>
 	{
 		let mut val = 0;
+		let mut len = 0;
 		loop
 		{
-			let ch = try_eof!(self.getc(), val);
+			let ch = try_eof!( self.getc(), (val,len) );
 			match ch.to_digit(base) {
 			Some(d) => {
 				val *= base as u64;
-				val += d as u64
+				val += d as u64;
+				len += 1;
 				},
 			None => {
 				self.ungetc(ch);
-				break;
+				return Ok( (val, len) );
 				}
 			}
 		}
-		return Ok(val);
+	}
+	fn read_number(&mut self, base: u32) -> ParseResult<u64>
+	{
+		Ok( self.read_number_with_len(base)?.0 )
 	}
 	
 	fn read_escape(&mut self) -> ParseResult<Option<char>>
@@ -424,11 +431,49 @@ impl Lexer
 			// Check for a decimal point
 			let intret = Token::Integer(whole, ::types::IntClass::int());
 			ch = try_eof!(self.getc(), intret);
-			if ch == '.'
+			if ch == '.' || (base == 10 && (ch == 'e' || ch == 'E')) || (base == 16 && (ch == 'p' || ch == 'P'))
 			{
-				// Float
-				let _ = base;
-				panic!("TODO: lexing floating point values");
+				// Floating point
+				if base != 10 && base != 16 {
+					syntax_error!("Only hex and decimal floats are supported");
+				}
+				let (frac_value, frac_len) = self.read_number_with_len(base)?;
+				let (exp_is_neg,exponent) = if match self.getc()
+						{
+						Ok('e') | Ok('E') if base != 16 => true,
+						Ok('p') | Ok('P') if base == 16 => true,
+						Ok(ch) => { self.ungetc(ch); false },
+						Err(::parse::Error::EOF) => false,
+						Err(e) => return Err(e),
+						}
+					{
+						// e, E, p or P were seen, parse the exponent (in base 10)
+						let is_neg = match self.getc()
+							{
+							Ok('-') => true,
+							Ok('+') => false,
+							Ok(ch) => { self.ungetc(ch); false },
+							Err(::parse::Error::EOF) => false,
+							Err(e) => return Err(e),
+							};
+						let (ev, el) = self.read_number_with_len(10)?;
+						if el == 0 { syntax_error!("Exponent has no digits"); }
+						(is_neg, ev)
+					}
+					else
+					{
+						(false, 0)
+					};
+
+				let float_val = make_float(base, whole, frac_len, frac_value, exp_is_neg, exponent);
+				let ty = match self.getc()
+					{
+					Ok('f') | Ok('F') => ::types::FloatClass::Float,
+					Ok('l') | Ok('L') => ::types::FloatClass::LongDouble,
+					Ok(_) | Err(::parse::Error::EOF) => ::types::FloatClass::Double,
+					Err(e) => return Err(e),
+					};
+				Token::Float( float_val, ty )
 			}
 			else
 			{
@@ -457,6 +502,8 @@ impl Lexer
 			
 			"const"    => Token::Rword_const,
 			"volatile" => Token::Rword_volatile,
+			"restrict" => Token::Rword_restrict,
+
 			"auto"     => Token::Rword_auto,
 			"register" => Token::Rword_register,
 			"signed"   => Token::Rword_signed,
@@ -502,6 +549,12 @@ impl Lexer
 		debug!("get_token: {:?}", ret);
 		Ok(ret)
 	}
+}
+
+fn make_float(base: u32, whole: u64, frac_len: usize, frac_value: u64, exp_is_neg: bool, exponent: u64) -> f64 //Float32_128
+{
+	// 1. Convert the fraction value into an ecoded fraction. (5 => 0x5 => 0x8, 123 => 0x7B => 0x0214D)
+	panic!("TODO: Create floating point values (base={}, whole={},frac={}:{},exponent={}{}", base, whole, frac_len, frac_value, if exp_is_neg { "-" } else { "" }, exponent);
 }
 
 // vim: ft=rust

@@ -1,9 +1,46 @@
-/*
- */
+//! C types
 
 use std::rc::Rc;
 use std::cell::RefCell;
 
+#[derive(PartialEq)]
+pub struct Type
+{
+	pub basetype: BaseType,
+	pub qualifiers: Qualifiers,
+}
+
+#[derive(PartialEq,Clone)]	/* Debug impl is manual */
+pub enum BaseType
+{
+	Void,
+	Bool,
+	Struct(StructRef),
+	Enum(EnumRef),
+	Union(UnionRef),
+	Float(FloatClass),
+	Integer(IntClass),
+
+	MagicType(MagicType),
+	
+	Pointer(Rc<Type>),
+	Array(Rc<Type>, ArraySize),
+	Function(Rc<Type>,Vec<(Rc<Type>,String)>),
+}
+#[derive(Clone,PartialEq,Debug)]
+pub enum MagicType
+{
+	VaList,
+}
+#[derive(Clone,PartialEq)]
+pub enum ArraySize
+{
+	None,
+	Fixed(u64),
+	//Expr(::ast::Node),
+}
+
+/// Boolean signedness
 #[derive(Debug,PartialEq,Clone,Copy)]
 pub enum Signedness
 {
@@ -20,16 +57,54 @@ impl Signedness {
 			Signedness::Unsigned
 		}
 	}
+	pub fn is_unsigned(&self) -> bool { *self == Signedness::Unsigned }
+}
+/// Qualifiers on a type (const, volatile, restrict)
+// NOTE: `const volatile` is valid and has meaning (code can't change it, but hardware could)
+#[derive(PartialEq,Clone)]
+pub struct Qualifiers {
+	v: u8,
+}
+impl Qualifiers {
+	pub fn new() -> Self { Qualifiers { v: 0 } }
+
+	pub fn set_const(&mut self) -> &mut Self { self.v |= 1; self }
+	pub fn set_volatile(&mut self) -> &mut Self { self.v |= 2; self }
+	pub fn set_restrict(&mut self) -> &mut Self { self.v |= 4; self }
+
+	pub fn is_const(&self) -> bool { self.v & 1 != 0 }
+	pub fn is_volatile(&self) -> bool { self.v & 2 != 0 }
+	pub fn is_restrict(&self) -> bool { self.v & 4 != 0 }
+
+	pub fn merge_from(&mut self, other: &Qualifiers) {
+		self.v |= other.v;
+	}
+}
+impl ::std::fmt::Debug for Qualifiers {
+	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+		write!(f, "{}{}{}",
+			if self.is_const() { "const " } else { "" },
+			if self.is_volatile() { "volatile " } else { "" },
+			if self.is_restrict() { "restrict " } else { "" },
+			)
+	}
 }
 
+/// Various integer types
 #[derive(Debug,PartialEq,Clone)]
 pub enum IntClass
 {
+	/// Fixed-size type
 	Bits(Signedness,u8),
+	/// `char` (three variants: char, signed char, and unsigned char)
 	Char(Option<Signedness>),
+	/// `[un]signed short [int]`
 	Short(Signedness),
+	/// `[un]signed int`
 	Int(Signedness),
+	/// `[un]signed long [int]`
 	Long(Signedness),
+	/// `[un]signed long long [int]`
 	LongLong(Signedness),
 }
 impl IntClass {
@@ -39,7 +114,6 @@ impl IntClass {
 	pub fn int() -> Self { IntClass::Int(Signed) }
 }
 
-#[allow(non_camel_case_types)]
 #[derive(Debug,PartialEq,Clone)]
 pub enum FloatClass
 {
@@ -48,6 +122,7 @@ pub enum FloatClass
 	LongDouble,
 }
 
+#[derive(Debug,PartialEq,Clone)]
 pub enum StorageClass
 {
 	Auto,
@@ -61,52 +136,24 @@ pub type StructRef = Rc<RefCell<Struct>>;
 pub type UnionRef  = Rc<RefCell<Union>>;
 pub type EnumRef   = Rc<RefCell<Enum>>;
 
-#[derive(PartialEq)]
-pub struct Type
-{
-	pub basetype: BaseType,
-	pub is_const: bool,
-	pub is_volatile: bool,
-}
-
-#[derive(Clone)]
-#[derive(PartialEq)]
-pub enum BaseType
-{
-	Void,
-	Bool,
-	Struct(StructRef),
-	Enum(EnumRef),
-	Union(UnionRef),
-	Float(FloatClass),
-	Integer(IntClass),
-	
-	Pointer(Rc<Type>),
-	Array(Rc<Type>),	// TODO: Should the array include the size? How to handle non-literal sizes?
-	Function(Rc<Type>,Vec<(Rc<Type>,String)>),
-}
-
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug,PartialEq)]
 pub struct Struct
 {
-	name: String,
+	pub name: String,
 	items:	Vec<(TypeRef,String)>,
 }
 
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug,PartialEq)]
 pub struct Union
 {
-	name: String,
+	pub name: String,
 	items: Option<Vec<(TypeRef,String)>>,
 }
 
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug,PartialEq)]
 pub struct Enum
 {
-	name: String,
+	pub name: String,
 	items: Option<Vec<(u64,String)>>,
 }
 
@@ -114,10 +161,7 @@ impl ::std::fmt::Debug for Type
 {
 	fn fmt(&self, fmt: &mut ::std::fmt::Formatter) -> Result<(), ::std::fmt::Error>
 	{
-		write!(fmt, "{}{}{:?}",
-			if self.is_const    { "const " } else { "" },
-			if self.is_volatile { "volatile " } else { "" },
-			self.basetype)
+		write!(fmt, "{:?}{:?}", self.qualifiers, self.basetype)
 	}
 }
 
@@ -134,22 +178,38 @@ impl ::std::fmt::Debug for BaseType
 		&BaseType::Enum(ref er)   => write!(fmt, "enum {:?}",   er.borrow().name),
 		&BaseType::Float(ref fc) => write!(fmt, "{:?}", fc),
 		&BaseType::Integer(ref ic) => write!(fmt, "{:?}", ic),
+		&BaseType::MagicType(ref v) => write!(fmt, "/*magic*/ {:?}", v),
 		
-		&BaseType::Array(ref typeref) => write!(fmt, "{:?}[]", typeref),
+		&BaseType::Array(ref typeref, ref size) => write!(fmt, "{:?}{}", typeref, size),
 		&BaseType::Pointer(ref typeref) => write!(fmt, "*{:?}", typeref),
 		&BaseType::Function(ref ret, ref args) => write!(fmt, "Fcn({:?}, {:?})", ret, args),
 		}
 	}
 }
 
+impl ::std::fmt::Display for ArraySize
+{
+	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
+	{
+		match self
+		{
+		&ArraySize::None => f.write_str("[]"),
+		&ArraySize::Fixed(v) => write!(f, "[{}]", v),
+		}
+	}
+}
+
 impl Type
 {
-	pub fn new_ref(basetype: BaseType, is_const: bool, is_volatile: bool) -> TypeRef
+	pub fn new_ref_bare(basetype: BaseType) -> TypeRef
+	{
+		Type::new_ref(basetype, Qualifiers::new())
+	}
+	pub fn new_ref(basetype: BaseType, qualifiers: Qualifiers) -> TypeRef
 	{
 		Rc::new(Type {
 			basetype: basetype,
-			is_const: is_const,
-			is_volatile: is_volatile,
+			qualifiers: qualifiers,
 			})
 	}
 }

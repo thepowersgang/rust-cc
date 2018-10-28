@@ -1,6 +1,7 @@
 /*
  */
 #![feature(box_syntax)]
+#![feature(fnbox)]	// For some pretty-printing hackery
 
 #[macro_use]
 extern crate log;
@@ -37,6 +38,9 @@ fn main()
 		},
 	Ok(_) => {}
 	}
+
+	let stdout = ::std::io::stdout();
+	::ast::pretty_print::write(stdout.lock(), &program);
 }
 
 // vim: ft=rust
