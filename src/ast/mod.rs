@@ -9,7 +9,7 @@ pub mod pretty_print;
 #[derive(Default)]
 pub struct Program
 {
-	// - TODO: Store type definition order too.
+	/// Item definition order
 	item_order: Vec<ItemRef>,
 
 	typedefs: HashMap<String, ::types::TypeRef>,
@@ -90,6 +90,7 @@ impl Program
 	}
 	pub fn get_typedef(&self, name: &str) -> Option<::types::TypeRef>
 	{
+		// TODO: Custom types
 		// HACK! Define __builtin_va_list (a GCC internal) to be a magic type
 		if name == "__builtin_va_list" {
 			return Some( ::types::Type::new_ref_bare(::types::BaseType::MagicType(::types::MagicType::VaList)) );

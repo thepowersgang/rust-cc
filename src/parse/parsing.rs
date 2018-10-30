@@ -1,4 +1,5 @@
 /*
+ * Top-level parser
  */
 use parse::lex::Token;
 use parse::ParseResult;

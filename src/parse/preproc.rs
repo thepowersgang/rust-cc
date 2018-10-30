@@ -1,5 +1,4 @@
-/*
- */
+/// C Pre-processor handling
 use parse::lex;
 use std::collections::HashMap;
 use std::default::Default;
@@ -87,7 +86,13 @@ impl Preproc
 				match try!(lexer.get_token())
 				{
 				lex::Token::Ident(name) => {
-					panic!("TODO: Preprocessor '{}'", name);
+					// Should pass through to the AST?
+					match &*name
+					{
+					"include" => panic!("TODO: #include"),
+					"define" => panic!("TODO: #define"),
+					_ => panic!("TODO: Preprocessor '{}'", name),
+					}
 					},
 				lex::Token::Integer(line, _) => {
 					let file = syntax_assert!(lexer.get_token(), lex::Token::String(s) => s);
@@ -99,8 +104,8 @@ impl Preproc
 					
 					debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
 					},
-				_ => {
-					panic!("TODO: Syntax errors");
+				tok @ _ => {
+					panic!("TODO: Unexpected token after # - {:?}", tok);
 					},
 				}
 				},
