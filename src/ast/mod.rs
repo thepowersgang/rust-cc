@@ -28,13 +28,26 @@ enum ItemRef
 	Struct(String),
 	Union(String),
 	Enum(String),
+
+	//CppDefine {
+	//	name: String,
+	//	args: Vec<String>,
+	//	tokens: Vec<Token>,
+	//},
+	//CppInclude(String),
 }
 
 struct Symbol
 {
 	name: String,
 	symtype: ::types::TypeRef,
-	value: Option<Node>,
+	value: Option<SymbolValue>,
+}
+#[derive(Debug)]
+enum SymbolValue
+{
+	Value(Node),
+	Code(Block),
 }
 
 impl Program
@@ -46,7 +59,15 @@ impl Program
 		}
 	}
 	
+	pub fn define_function(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Block>)
+	{
+		self.define_symbol(typeid, name, value.map(SymbolValue::Code))
+	}
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Node>)
+	{
+		self.define_symbol(typeid, name, value.map(SymbolValue::Value))
+	}
+	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: String, value: Option<SymbolValue>)
 	{
 		if value.is_some() {
 			self.item_order.push(ItemRef::Value(name.clone()));
@@ -54,7 +75,7 @@ impl Program
 		else {
 			self.item_order.push(ItemRef::ValueDecl(name.clone()));
 		}
-		error!("TODO: Define variable '{}': '{:?}' = {:?}", name, typeid, value);
+		info!("Define variable '{}': '{:?}' = {:?}", name, typeid, value);
 		match self.symbols.entry(name.clone())
 		{
 		Entry::Occupied(mut e) => {
@@ -180,39 +201,81 @@ impl Program
 	}
 }
 
+pub type Block = StatementList;
+pub type StatementList = Vec<Statement>;
+pub type VarDefList = Vec<VariableDefinition>;
+/// Block statement
+#[derive(Debug)]
+pub enum Statement
+{
+	Empty,
+	VarDef(VarDefList),
+	Expr(Node),
+
+	Block(Block),
+	IfStatement {
+		cond: ExprOrDef,
+		true_arm: StatementList,
+		else_arm: Option<StatementList>
+	},
+	WhileLoop {
+		cond: ExprOrDef,
+		body: StatementList,
+	},
+	DoWhileLoop {
+		body: StatementList,
+		cond: Node,
+	},
+	ForLoop {
+		init: Option<ExprOrDef>,
+		cond: Option<Node>,
+		inc: Option<Node>,
+		body: StatementList,
+	},
+
+	Continue,
+	Break,
+	Return(Option<Node>),
+
+	Switch(Node, StatementList),
+	CaseDefault,
+	CaseSingle(u64),
+	CaseRange(u64, u64),
+
+	Goto(String),
+	Label(String),
+}
+#[derive(Debug)]
+pub struct VariableDefinition
+{
+	pub ty: ::types::TypeRef,
+	pub name: String,
+	pub value: Option<Node>,
+}
+/// Either a evaluatable expression, or a variable definition
+#[derive(Debug)]
+pub enum ExprOrDef
+{
+	Expr(Node),
+	Definition(VarDefList),
+}
 #[derive(Debug)]
 pub enum Node
 {
-	Block(Vec<Node>),
 	StmtList(Vec<Node>),	// Comma operator
-	DefVar(::types::TypeRef,String,Option<Box<Node>>),
 	
 	Identifier(String),
 	String(String),
 	Integer(u64),
 	Float(f64),
+
+	// TODO: Are these valid in expressions? or just in initializers
 	ListLiteral(Vec<Node>),	// {a, b, c}
 	ArrayLiteral(Vec<(usize,Node)>),	// {[0] = a, [1] = b, [2] = c}
 	StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
 	
-	IfStatement(Box<Node>, Box<Node>, Option<Box<Node>>),
-	WhileLoop(Box<Node>, Box<Node>),
-	DoWhileLoop(Box<Node>, Box<Node>),
-	ForLoop(Option<Box<Node>>, Option<Box<Node>>, Option<Box<Node>>, Box<Node>),
-	
-	Label(String),
-	Goto(String),
-	Continue,
-	Break,
-	
-	Switch(Box<Node>, Vec<Node>),
-	CaseDefault,
-	CaseSingle(u64),
-	CaseRange(u64, u64),
-	
+	// TODO: Specialise this for expression/literal calls?
 	FcnCall(Box<Node>, Vec<Node>),
-	
-	Return(Option<Box<Node>>),
 	
 	Assign(Box<Node>, Box<Node>),
 	AssignOp(BinOp, Box<Node>, Box<Node>),

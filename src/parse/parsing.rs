@@ -61,7 +61,7 @@ impl<'ast> super::ParseState<'ast>
 		debug!("do_definition: basetype={:?}", basetype);
 		// 2. Get extended type and identifier
 		let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-		// - Ignore empty ident
+		// - if the ident is non-empty, parse the variable definition.
 		if ident != ""
 		{
 			// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
@@ -88,40 +88,40 @@ impl<'ast> super::ParseState<'ast>
 	{
 		let code = try!(self.parse_block());
 		debug!("parse_function: code = {:?}", code);
-		self.ast.define_variable(typeid, ident, Some(code));
+		self.ast.define_function(typeid, ident, Some(code));
 		Ok( () )
 	}
 	
-	fn parse_opt_block(&mut self) -> ParseResult<::ast::Node>
+	fn parse_opt_block(&mut self) -> ParseResult<::ast::Block>
 	{
-		let mut exprs = try!(self.parse_block_line());
-		if exprs.len() == 1 {
-			Ok( exprs.remove(0) )
+		let exprs = try!(self.parse_block_line());
+		if let ::ast::Statement::Block(b) = exprs {
+			Ok( b )
 		}
 		else {
-			Ok( ::ast::Node::Block(exprs) )
+			Ok( vec![ exprs ] )
 		}
 	}
 	
-	fn parse_block(&mut self) -> ParseResult<::ast::Node>
+	fn parse_block(&mut self) -> ParseResult<::ast::Block>
 	{
 		// Opening brace has been eaten
 		let mut statements = Vec::new();
 		
 		while !peek_token!(self.lex, Token::BraceClose)
 		{
-			statements.extend( try!(self.parse_block_line()).into_iter() );
+			statements.push( self.parse_block_line()? );
 		}
 		
-		Ok( ::ast::Node::Block(statements) )
+		Ok( statements )
 	}
 	
-	fn try_parse_local_var(&mut self) -> ParseResult<Option<Vec<::ast::Node>>>
+	fn try_parse_local_var(&mut self) -> ParseResult<Option<Vec<::ast::VariableDefinition>>>
 	{
 		Ok(match try!(self.get_base_type_opt())
 		{
 		Some(basetype) => {
-			debug!("parse_block_line - basetype={:?}", basetype);
+			debug!("try_parse_local_var - basetype={:?}", basetype);
 			// Definition!
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 			let rv = if ident != ""
@@ -136,23 +136,23 @@ impl<'ast> super::ParseState<'ast>
 					{
 						// TODO: Create local
 						let init = if peek_token!(self.lex, Token::Assign) {
-								Some(box try!(self.parse_expr()))
+								Some( self.parse_expr()? )
 							}
 							else {
 								None
 							};
-						let mut rv = vec![ ::ast::Node::DefVar(typeid, ident, init) ];
+						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, value: init } ];
 						while peek_token!(self.lex, Token::Comma)
 						{
 							let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 							let init = if peek_token!(self.lex, Token::Assign) {
-									Some(box try!(self.parse_expr()))
+									Some( self.parse_expr()? )
 								}
 								else {
 									None
 								};
 							
-							rv.push( ::ast::Node::DefVar(typeid, ident, init) );
+							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, value: init } );
 						}
 						Some(rv)
 					}
@@ -168,61 +168,71 @@ impl<'ast> super::ParseState<'ast>
 	}
 	
 	/// Parse a single line in a block
-	fn parse_block_line(&mut self) -> ParseResult<Vec<::ast::Node>>
+	fn parse_block_line(&mut self) -> ParseResult<::ast::Statement>
 	{
 		// Attempt to get a type, returns None if no type was present
 		Ok(match try!(self.try_parse_local_var())
 		{
 		Some(n) => {
 			syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-			n
+			::ast::Statement::VarDef(n)
 			},
-		None => vec![match try!(self.lex.get_token())
+		None => match try!(self.lex.get_token())
 			{
-			Token::Semicolon => return Ok(vec![]),
-			Token::BraceOpen => try!(self.parse_block()),
+			Token::Semicolon => ::ast::Statement::Empty,
+			Token::BraceOpen => ::ast::Statement::Block( try!(self.parse_block()) ),
 			Token::Rword_return => if peek_token!(self.lex, Token::Semicolon) {
-					::ast::Node::Return( None )
+					::ast::Statement::Return( None )
 				} else {
-					let rv = ::ast::Node::Return( Some(box try!(self.parse_expr_list())) );
+					let rv = ::ast::Statement::Return( Some(self.parse_expr_list()?) );
 					syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
 					rv
 				},
 			Token::Rword_break => {
 				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-				::ast::Node::Break
+				::ast::Statement::Break
 				},
 			Token::Rword_continue => {
 				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-				::ast::Node::Continue
+				::ast::Statement::Continue
 				},
 			Token::Rword_goto => {
 				let dest = syntax_assert!(self.lex => Token::Ident(s) @ s);
 				syntax_assert!(self.lex => Token::Semicolon);
-				::ast::Node::Goto(dest)
+				::ast::Statement::Goto(dest)
 				},
 			Token::Rword_while => {
-				let cnd = box try!(self.parse_expr_list());
-				let code = box try!(self.parse_opt_block());
-				::ast::Node::WhileLoop(cnd,code)
+				let cnd = self.parse_expr_list()?;
+				let code = self.parse_opt_block()?;
+				::ast::Statement::WhileLoop {
+					cond: ::ast::ExprOrDef::Expr(cnd),
+					body: code,
+					}
 				},
 			Token::Rword_do => {
-				let code = box try!(self.parse_opt_block());
+				let code = self.parse_opt_block()?;
 				syntax_assert!(self.lex => Token::Rword_while);
-				let cnd = box try!(self.parse_expr_list());
+				let cnd = self.parse_expr_list()?;
 				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-				::ast::Node::DoWhileLoop(cnd,code)
+				::ast::Statement::DoWhileLoop {
+					body: code,
+					cond: cnd,
+					}
 				},
 			Token::Rword_for => try!(self.parse_for_loop()),
 			Token::Rword_if => {
-				let cnd = box try!(self.parse_expr());
-				let tcode = box try!(self.parse_opt_block());
+				let cnd = self.parse_expr()?;
+				let tcode = self.parse_opt_block()?;
 				let fcode = if peek_token!(self.lex, Token::Rword_else) {
-						Some( box try!(self.parse_opt_block()) )
+						Some( self.parse_opt_block()? )
 					} else {
 						None
 					};
-				::ast::Node::IfStatement(cnd,tcode,fcode)
+				::ast::Statement::IfStatement {
+					cond: ::ast::ExprOrDef::Expr(cnd),
+					true_arm: tcode,
+					else_arm: fcode,
+					}
 				},
 			Token::Rword_switch => try!(self.parse_switch_statement()),
 			
@@ -232,16 +242,16 @@ impl<'ast> super::ParseState<'ast>
 				if let ::ast::Node::Identifier(i) = rv
 				{
 					if peek_token!(self.lex, Token::Colon) {
-						::ast::Node::Label(i)
+						::ast::Statement::Label(i)
 					}
 					else {
 						syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-						::ast::Node::Identifier(i)
+						::ast::Statement::Expr( ::ast::Node::Identifier(i) )
 					}
 				}
 				else {
 					syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-					rv
+					::ast::Statement::Expr(rv)
 				}
 				},
 			
@@ -250,15 +260,15 @@ impl<'ast> super::ParseState<'ast>
 				self.lex.put_back(t);
 				let rv = try!(self.parse_expr_list());
 				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
-				rv
+				::ast::Statement::Expr(rv)
 				}
-			}], 
+			}, 
 		})
 	}
 	
 	/// Parse a for loop
 	// ('for' has been eaten)
-	fn parse_for_loop(&mut self) -> ParseResult<::ast::Node>
+	fn parse_for_loop(&mut self) -> ParseResult<::ast::Statement>
 	{
 		syntax_assert!(self.lex => Token::ParenOpen);
 		debug!("parse_for_loop");
@@ -267,8 +277,8 @@ impl<'ast> super::ParseState<'ast>
 			} else {
 				match try!(self.try_parse_local_var())
 				{
-				Some(n) => Some(box ::ast::Node::StmtList(n)),
-				None => Some(box try!(self.parse_expr_list())),
+				Some(n) => Some(::ast::ExprOrDef::Definition(n)),
+				None => Some(::ast::ExprOrDef::Expr( self.parse_expr_list()? )),
 				}
 			};
 		syntax_assert!(self.lex => Token::Semicolon);
@@ -276,24 +286,29 @@ impl<'ast> super::ParseState<'ast>
 		let cnd = if peek_token_nc!(self.lex, Token::Semicolon) {
 				None
 			} else {
-				Some(box try!(self.parse_expr_list()))
+				Some(try!(self.parse_expr_list()))
 			};
 		syntax_assert!(self.lex => Token::Semicolon);
 		debug!("parse_for_loop: cnd = {:?}", cnd);
 		let inc = if peek_token_nc!(self.lex, Token::ParenClose) {
 				None
 			} else {
-				Some(box try!(self.parse_expr_list()))
+				Some(try!(self.parse_expr_list()))
 			};
 		syntax_assert!(self.lex => Token::ParenClose);
 		debug!("parse_for_loop: inc = {:?}", inc);
-		let code = box try!(self.parse_opt_block());
-		Ok( ::ast::Node::ForLoop(init,cnd,inc,code) )
+		let code = try!(self.parse_opt_block());
+		Ok( ::ast::Statement::ForLoop {
+			init,
+			cond: cnd,
+			inc,
+			body: code,
+			} )
 	}
 	
-	fn parse_switch_statement(&mut self) -> ParseResult<::ast::Node>
+	fn parse_switch_statement(&mut self) -> ParseResult<::ast::Statement>
 	{
-		let cnd = box try!(self.parse_expr());
+		let cnd = self.parse_expr()?;
 		let mut code = Vec::new();
 		syntax_assert!(self.lex => Token::BraceOpen);
 		loop
@@ -302,7 +317,7 @@ impl<'ast> super::ParseState<'ast>
 			{
 			Token::BraceClose => break,
 			Token::Rword_default => {
-				code.push( ::ast::Node::CaseDefault );
+				code.push( ::ast::Statement::CaseDefault );
 				syntax_assert!(self.lex => Token::Colon);
 				},
 			Token::Rword_case => {
@@ -317,20 +332,20 @@ impl<'ast> super::ParseState<'ast>
 						Some(i) => i as u64,
 						None => syntax_error!("Case value is not literal"),
 						};
-					code.push( ::ast::Node::CaseRange(first, last) );
+					code.push( ::ast::Statement::CaseRange(first, last) );
 				}
 				else {
-					code.push( ::ast::Node::CaseSingle(first) );
+					code.push( ::ast::Statement::CaseSingle(first) );
 				}
 				syntax_assert!(self.lex => Token::Colon);
 				},
 			t @ _ => {
 				self.lex.put_back(t);
-				code.extend( try!(self.parse_block_line()).into_iter() );
+				code.push( self.parse_block_line()? );
 				}
 			}
 		}
-		Ok( ::ast::Node::Switch(cnd, code) )
+		Ok( ::ast::Statement::Switch(cnd, code) )
 	}
 	
 	fn parse_variable_list(&mut self, basetype: ::types::TypeRef) -> ParseResult<()>

@@ -38,9 +38,20 @@ impl<'a> PrettyPrinter<'a>
 	fn write_value(&mut self, sym: &::ast::Symbol)
 	{
 		self.write_type(&sym.symtype, |f| f.write_str(&sym.name));
-		self.write_str(" {\n");
-		self.write_str("\t...\n");
-		self.write_str("}\n");
+		match sym.value
+		{
+		Some(::ast::SymbolValue::Code(ref block)) => {
+			self.write_str("\n");
+			self.write_block(block, 0);
+			self.write_str("\n");
+			},
+		Some(::ast::SymbolValue::Value(ref v)) => {
+			self.write_str(" = ");
+			self.write_node(v);
+			self.write_str(";\n");
+			},
+		None => panic!("Value with no value"),
+		}
 	}
 
 
@@ -186,6 +197,156 @@ impl<'a> PrettyPrinter<'a>
 		}
 	}
 
+	fn write_block(&mut self, block: &super::Block, indent: usize)
+	{
+		self.write_str("{\n");
+		for sn in block
+		{
+			for _ in 0 .. indent {
+				self.write_str("\t");
+			}
+			// Only indent again if the statement is NOT a label
+			match sn
+			{
+			&super::Statement::Label(..) => { },
+			&super::Statement::CaseDefault => { },
+			&super::Statement::CaseSingle(..) => { },
+			&super::Statement::CaseRange(..) => { },
+			_ => self.write_str("\t"),
+			}
+			if self.write_stmt(sn, indent+1) {
+			}
+			else {
+				self.write_str(";\n");
+			}
+		}
+		self.write_str("}\n");
+	}
+	fn write_stmt(&mut self, stmt: &super::Statement, indent: usize) -> bool
+	{
+		use super::Statement;
+		match stmt
+		{
+		&Statement::Empty => { false },
+		&Statement::VarDef(ref vd) => { self.write_vardef(vd); false },
+		&Statement::Expr(ref e) => { self.write_node(e); false },
+		&Statement::Block(ref b) => { self.write_block(b, indent+1); true },
+		&Statement::IfStatement { ref cond, ref true_arm, ref else_arm } => {
+			self.write_str("if( ");
+			self.write_defexpr(cond);
+			self.write_str(" )\n");
+			self.write_block(true_arm, indent+1);
+			if let &Some(ref ea) = else_arm {
+				self.write_str("else\n");
+				self.write_block(ea, indent+1);
+			}
+			true
+			},
+		&Statement::WhileLoop { ref cond, ref body } => {
+			self.write_str("while( ");
+			self.write_defexpr(cond);
+			self.write_str(" )\n");
+			self.write_block(body, indent+1);
+			true
+			},
+		&Statement::DoWhileLoop { ref body, ref cond } => {
+			self.write_str("do\n");
+			self.write_block(body, indent+1);
+			self.write_str("while( ");
+			self.write_node(cond);
+			self.write_str(" )");
+			false
+			},
+		&Statement::ForLoop { ref init, ref cond, ref inc, ref body } => {
+			self.write_str("for( ");
+			if let Some(init) = init {
+				self.write_defexpr(init);
+			}
+			self.write_str("; ");
+			if let Some(cond) = cond {
+				self.write_node(cond);
+			}
+			self.write_str("; ");
+			if let Some(inc) = inc {
+				self.write_node(inc);
+			}
+			self.write_str(" )\n");
+			self.write_block(body, indent+1);
+			true
+			},
+		&Statement::Continue => { self.write_str("continue"); false }
+		&Statement::Break => { self.write_str("continue"); false }
+		&Statement::Return(ref v) => {
+			self.write_str("return");
+			if let Some(ref e) = v {
+				self.write_str(" ");
+				self.write_node(e);
+			}
+			false
+			},
+		&Statement::Goto(ref n) => { write!(self, "goto {}", n); false },
+
+		&Statement::Switch(ref v, ref stmts) => {
+			self.write_str("switch "); self.write_node(v);
+			self.write_block(stmts, indent+1);
+			true
+			},
+
+		// TODO: Labels are usually negatively indented.
+		&Statement::Label(ref n) => { write!(self, "{}:", n); true },
+		&Statement::CaseDefault => { self.write_str("default:"); true },
+		&Statement::CaseSingle(v) => { write!(self, "case {}:", v); true },
+		&Statement::CaseRange(v1, v2) => { write!(self, "case {} ... {}:", v1, v2); true },
+		}
+	}
+	fn write_vardef(&mut self, node: &super::VarDefList)
+	{
+		/* TODO */
+	}
+	fn write_defexpr(&mut self, node: &super::ExprOrDef)
+	{
+		match node
+		{
+		&super::ExprOrDef::Expr(ref v) => self.write_node(v),
+		&super::ExprOrDef::Definition(ref d) => self.write_vardef(d),
+		}
+	}
+	fn write_node(&mut self, node: &super::Node)
+	{
+		use super::Node;
+		match node
+		{
+		&Node::StmtList(ref subnodes) => {
+			self.write_node(&subnodes[0]);
+			for sn in &subnodes[1..] {
+				self.write_str(", ");
+				self.write_node(sn);
+			}
+			},
+
+		&Node::Identifier(ref n) => self.write_str(n),
+		&Node::String(ref s) => write!(self, "{:?}", s),
+		&Node::Integer(v) => write!(self, "{}", v),
+		&Node::Float(v) => write!(self, "{}", v),
+		//&Node::ListLiteral(Vec<Node>),	// {a, b, c}
+		//&Node::ArrayLiteral(Vec<(usize,Node)>),	// {[0] = a, [1] = b, [2] = c}
+		//&Node::StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
+
+		&Node::FcnCall(ref fcn, ref values) => {
+			self.write_node(fcn);
+			self.write_str("(");
+			if values.len() > 0 {
+				self.write_node(&values[0]);
+				for sn in &values[1..] {
+					self.write_str(", ");
+					self.write_node(sn);
+				}
+			}
+			self.write_str(")");
+			},
+		_ => {},
+		}
+	}
 
 	fn write_str(&mut self, s: &str) {
 		self.sink.write_all(s.as_bytes());

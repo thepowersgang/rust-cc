@@ -63,6 +63,21 @@ impl Preproc
 		assert!( self.saved_tok.is_none() );
 		self.saved_tok = Some( tok );
 	}
+
+	fn eat_comments(lexer: &mut lex::Lexer) -> ::parse::ParseResult<lex::Token>
+	{
+		loop
+		{
+			match lexer.get_token()?
+			{
+			lex::Token::Whitespace => {},
+			lex::Token::LineComment(_) => {},
+			lex::Token::BlockComment(_) => {},	// TODO: Line counting?
+			tok => return Ok(tok),
+			}
+		}
+	}
+
 	pub fn get_token(&mut self) -> ::parse::ParseResult<lex::Token>
 	{
 		if self.saved_tok.is_some()
@@ -77,20 +92,87 @@ impl Preproc
 			let lexer = &mut lexer_h.lexer;
 			match try!(lexer.get_token())
 			{
+			lex::Token::Whitespace => {},
 			lex::Token::Newline => {
 				lexer_h.line += 1;
 				},
 			lex::Token::LineComment(_) => {},
 			lex::Token::BlockComment(_) => {},
 			lex::Token::Hash => {
-				match try!(lexer.get_token())
+				match Self::eat_comments(lexer)?
 				{
 				lex::Token::Ident(name) => {
 					// Should pass through to the AST?
 					match &*name
 					{
-					"include" => panic!("TODO: #include"),
-					"define" => panic!("TODO: #define"),
+					"include" => {
+						let path = if let Some(s) = lexer.get_token_includestr()?
+							{
+								// `#include <foo>`
+								s
+							}
+							else
+							{
+								// String literals (maybe with pre-processor expansions)
+								match lexer.get_token()?
+								{
+								lex::Token::String(s) => { s },
+								tok @ _ => panic!("TODO: Syntax error, unexpected {:?}", tok),
+								}
+							};
+						syntax_assert!(Self::eat_comments(lexer), lex::Token::Newline => ());
+						panic!("TODO: #include - {:?}", path);
+						//return lex::Token::Preprocessor_Include(path);
+						},
+					"define" => {
+						let ident = syntax_assert!(Self::eat_comments(lexer), lex::Token::Ident(s) => s);
+						let mut tokens = Vec::new();
+						let (cont, args) =
+							match lexer.get_token()?
+							{
+							lex::Token::Whitespace => (true, None),
+							lex::Token::Newline => (false, None),
+							lex::Token::ParenOpen => {
+								let mut args = Vec::new();
+								loop
+								{
+									match Self::eat_comments(lexer)?
+									{
+									lex::Token::Ident(s) => args.push(s),
+									lex::Token::Vargs => {
+										args.push("".to_owned());
+										syntax_assert!(Self::eat_comments(lexer), lex::Token::ParenClose => ());
+										break
+										},
+									tok @ _ => panic!("TODO: Error, unexpected {:?} in macro argument list", tok),
+									}
+									match Self::eat_comments(lexer)?
+									{
+									lex::Token::ParenClose => break,
+									lex::Token::Comma => {},
+									tok @ _ => panic!("TODO: Error, unexpected {:?} in macro argument list", tok),
+									}
+								}
+								(true, Some(args))
+								},
+							tok @ _ => panic!("TODO: Unexpected {:?} after #define name", tok),
+							};
+						if cont
+						{
+							loop
+							{
+								match lexer.get_token()?
+								{
+								lex::Token::Whitespace => {},
+								lex::Token::LineComment(_) => {},
+								lex::Token::BlockComment(_) => {},
+								lex::Token::Newline => break,
+								tok => tokens.push(tok),
+								}
+							}
+						}
+						error!("TODO: #define {} {:?} => {:?}", ident, args, tokens);
+						},
 					_ => panic!("TODO: Preprocessor '{}'", name),
 					}
 					},

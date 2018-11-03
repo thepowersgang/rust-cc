@@ -11,6 +11,7 @@ pub enum Token
 	EOF,
 	
 	// Ignored Tokens
+	Whitespace,
 	LineComment(String),
 	BlockComment(String),
 	Newline,
@@ -183,8 +184,9 @@ impl Lexer
 	}
 	
 	// Eat as many spaces as possible, returns errors verbatim
-	fn eat_whitespace(&mut self) -> ParseResult<()>
+	fn eat_whitespace(&mut self) -> ParseResult<usize>
 	{
+		let mut n = 0;
 		loop
 		{
 			let ch = try!(self.getc());
@@ -192,8 +194,9 @@ impl Lexer
 				self.ungetc(ch);
 				break;
 			}
+			n += 1;
 		}
-		Ok(())
+		Ok(n)
 	}
 	// Read and return the rest of the line
 	// - Eof is converted to return value
@@ -315,10 +318,37 @@ impl Lexer
 		_ => Err( ::parse::Error::SyntaxError(format!("Over-long character constant")) ),
 		}
 	}
+
+	pub fn get_token_includestr(&mut self) -> ParseResult<Option<String>>
+	{
+		try_eof!(self.eat_whitespace(), None);
+
+		let mut ch = try_eof!(self.getc(), None);
+		if ch == '<'
+		{
+			let mut rv = String::new();
+			loop
+			{
+				ch = self.getc()?;
+				if ch == '>' {
+					break ;
+				}
+				rv.push(ch);
+			}
+			Ok( Some(rv) )
+		}
+		else
+		{
+			self.ungetc(ch);
+			Ok( None )
+		}
+	}
 	// Read a single token from the stream
 	pub fn get_token(&mut self) -> ParseResult<Token>
 	{
-		try_eof!(self.eat_whitespace(), Token::EOF);
+		if try_eof!(self.eat_whitespace(), Token::EOF) > 0 {
+			return Ok(Token::Whitespace);
+		}
 	
 		let mut ch = try_eof!(self.getc(), Token::EOF);
 		let ret = match ch

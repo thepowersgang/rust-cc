@@ -1,4 +1,9 @@
 
+//#include <stdio.h>
+#define/**/ foo(bar) baz
+#define baz
+//foo(_)
+
 extern int printf(const char*, ...);
 int main(int argc, const char* argv[]) {
 	//printf("Hello, %s! float %f", "world", 1.23f);
