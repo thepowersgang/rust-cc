@@ -10,6 +10,11 @@ int main(int argc, const char* argv[]) {
 	//printf("Hello, %s! float %f", "world", 1.23f);
 	printf("Hello, %s!", "world");
 
+	for(int i = 0; i < 10; i ++)
+	{
+		(void)0;
+	}
+
 	return 0;
 }
 

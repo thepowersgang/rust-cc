@@ -296,6 +296,57 @@ pub enum Node
 	DerefMember(Box<Node>, String),
 	Member(Box<Node>, String),
 }
+// Lower precedence is weaker binding
+#[derive(Debug,PartialOrd,PartialEq,Copy,Clone)]
+#[repr(u8)]
+pub enum NodePrecedence
+{
+	/// Parens are never applied
+	Lowest,	// NOTE: has to be first
+	CommaOperator,
+	Assignment,
+	Bitwise,
+	Logic,	// TODO: Is this where it is?
+	Ternary,
+	Comparison,
+	BitShift,
+	MulDivMod,
+	AddSub,
+	Unary,	// TODO: Are there more in here?
+	UnarySuffix,
+	DeRef,
+	MemberAccess,
+	Value,
+	/// Parens are always applied
+	Highest,
+}
+impl NodePrecedence
+{
+	pub fn up(&self) -> Self
+	{
+		if *self < NodePrecedence::Highest {
+			// SAFE: Repr u8, c-like, bounds enforced
+			unsafe {
+				::std::mem::transmute(*self as u8 + 1)
+			}
+		}
+		else {
+			*self
+		}
+	}
+	pub fn down(&self) -> Self
+	{
+		if *self > NodePrecedence::Lowest {
+			// SAFE: Repr u8, c-like, bounds enforced
+			unsafe {
+				::std::mem::transmute(*self as u8 - 1)
+			}
+		}
+		else {
+			*self
+		}
+	}
+}
 
 #[derive(Debug)]
 pub enum BinOp
@@ -358,6 +409,89 @@ impl Node
 			_ => None,
 			},
 		_ => None,
+		}
+	}
+
+	pub fn get_precedence(&self) -> NodePrecedence
+	{
+		match *self
+		{
+		Node::StmtList(_) => NodePrecedence::CommaOperator,
+
+		Node::Identifier(_)
+		| Node::String(_)
+		| Node::Integer(_)
+		| Node::Float(_)
+			=> NodePrecedence::Value,
+
+
+		Node::ListLiteral(_)
+		| Node::ArrayLiteral(_)
+		| Node::StructLiteral(_)
+			=> NodePrecedence::CommaOperator,
+
+		Node::FcnCall(_, _) => NodePrecedence::MemberAccess,
+
+		Node::Assign(_, _)
+		| Node::AssignOp(_, _, _)
+			=> NodePrecedence::Assignment,
+
+		Node::Cast(_, _) => NodePrecedence::Unary,	// TODO: Double-check
+		Node::SizeofType(_) => NodePrecedence::Value,
+		Node::SizeofExpr(_) => NodePrecedence::Value,
+
+		Node::Ternary(_,_,_) => NodePrecedence::Ternary,
+		Node::UniOp(ref op, _) => match *op
+			{
+			UniOp::Neg => NodePrecedence::Unary,
+			UniOp::BitNot   => NodePrecedence::Unary,
+			UniOp::LogicNot => NodePrecedence::Unary,
+			UniOp::PreInc
+			| UniOp::PreDec
+				=> NodePrecedence::Unary,
+			UniOp::PostInc
+			| UniOp::PostDec
+				=> NodePrecedence::UnarySuffix,
+			UniOp::Address
+			| UniOp::Deref
+				=> NodePrecedence::DeRef,
+			},
+		Node::BinOp(ref op, _, _) => match *op
+			{
+			BinOp::LogicAnd
+			| BinOp::LogicOr
+				=> NodePrecedence::Logic,
+
+			BinOp::BitAnd
+			| BinOp::BitOr
+			| BinOp::BitXor
+				=> NodePrecedence::Bitwise,
+
+			BinOp::ShiftLeft
+			| BinOp::ShiftRight
+				=> NodePrecedence::BitShift,
+
+			BinOp::CmpEqu
+			| BinOp::CmpNEqu
+			| BinOp::CmpLt
+			| BinOp::CmpLtE
+			| BinOp::CmpGt
+			| BinOp::CmpGtE
+				=> NodePrecedence::Comparison,
+
+			BinOp::Add
+			| BinOp::Sub
+				=> NodePrecedence::AddSub,
+
+			BinOp::Mul
+			| BinOp::Div
+			| BinOp::Mod
+				=> NodePrecedence::MulDivMod,
+			},
+
+		Node::Index(_, _) => NodePrecedence::MemberAccess,
+		Node::DerefMember(_, _) => NodePrecedence::MemberAccess,
+		Node::Member(_, _) => NodePrecedence::MemberAccess,
 		}
 	}
 }

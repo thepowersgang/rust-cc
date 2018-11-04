@@ -47,7 +47,7 @@ impl<'a> PrettyPrinter<'a>
 			},
 		Some(::ast::SymbolValue::Value(ref v)) => {
 			self.write_str(" = ");
-			self.write_node(v);
+			self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			self.write_str(";\n");
 			},
 		None => panic!("Value with no value"),
@@ -200,6 +200,9 @@ impl<'a> PrettyPrinter<'a>
 
 	fn write_block(&mut self, block: &super::Block, indent: usize)
 	{
+		for _ in 0 .. indent {
+			self.write_str("\t");
+		}
 		self.write_str("{\n");
 		for sn in block
 		{
@@ -215,11 +218,15 @@ impl<'a> PrettyPrinter<'a>
 			&super::Statement::CaseRange(..) => { },
 			_ => self.write_str("\t"),
 			}
-			if self.write_stmt(sn, indent+1) {
+			if self.write_stmt(sn, indent) {
+				// No semicolon+newline needed
 			}
 			else {
 				self.write_str(";\n");
 			}
+		}
+		for _ in 0 .. indent {
+			self.write_str("\t");
 		}
 		self.write_str("}\n");
 	}
@@ -230,7 +237,7 @@ impl<'a> PrettyPrinter<'a>
 		{
 		&Statement::Empty => { false },
 		&Statement::VarDef(ref vd) => { self.write_vardef(vd); false },
-		&Statement::Expr(ref e) => { self.write_node(e); false },
+		&Statement::Expr(ref e) => { self.write_node(e, super::NodePrecedence::Lowest); false },
 		&Statement::Block(ref b) => { self.write_block(b, indent+1); true },
 		&Statement::IfStatement { ref cond, ref true_arm, ref else_arm } => {
 			self.write_str("if( ");
@@ -254,7 +261,7 @@ impl<'a> PrettyPrinter<'a>
 			self.write_str("do\n");
 			self.write_block(body, indent+1);
 			self.write_str("while( ");
-			self.write_node(cond);
+			self.write_node(cond, super::NodePrecedence::Lowest);
 			self.write_str(" )");
 			false
 			},
@@ -265,11 +272,11 @@ impl<'a> PrettyPrinter<'a>
 			}
 			self.write_str("; ");
 			if let Some(cond) = cond {
-				self.write_node(cond);
+				self.write_node(cond, super::NodePrecedence::Lowest);
 			}
 			self.write_str("; ");
 			if let Some(inc) = inc {
-				self.write_node(inc);
+				self.write_node(inc, super::NodePrecedence::Lowest);
 			}
 			self.write_str(" )\n");
 			self.write_block(body, indent+1);
@@ -281,47 +288,68 @@ impl<'a> PrettyPrinter<'a>
 			self.write_str("return");
 			if let Some(ref e) = v {
 				self.write_str(" ");
-				self.write_node(e);
+				self.write_node(e, super::NodePrecedence::Lowest);
 			}
 			false
 			},
 		&Statement::Goto(ref n) => { write!(self, "goto {}", n); false },
 
 		&Statement::Switch(ref v, ref stmts) => {
-			self.write_str("switch "); self.write_node(v);
+			self.write_str("switch "); self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			self.write_block(stmts, indent+1);
 			true
 			},
 
-		// TODO: Labels are usually negatively indented.
+		// NOTE: Labels have negative indentation (handled by caller)
 		&Statement::Label(ref n) => { write!(self, "{}:", n); true },
 		&Statement::CaseDefault => { self.write_str("default:"); true },
 		&Statement::CaseSingle(v) => { write!(self, "case {}:", v); true },
 		&Statement::CaseRange(v1, v2) => { write!(self, "case {} ... {}:", v1, v2); true },
 		}
 	}
-	fn write_vardef(&mut self, node: &super::VarDefList)
+	fn write_vardef(&mut self, defs: &super::VarDefList)
 	{
-		/* TODO */
+		// TODO: Ideally this would re-create the original definition line (with commas)
+		let mut first = true;
+		for def in defs
+		{
+			if !first {
+				// TODO: THIS IS WRONG. It'll break for mutliple definitions in a for loop header
+				self.write_str("; ");
+			}
+			self.write_type(&def.ty, |self_| self_.write_str(&def.name));
+			if let Some(ref v) = def.value
+			{
+				self.write_str(" = ");
+				self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			}
+			first = false;
+		}
 	}
 	fn write_defexpr(&mut self, node: &super::ExprOrDef)
 	{
 		match node
 		{
-		&super::ExprOrDef::Expr(ref v) => self.write_node(v),
+		&super::ExprOrDef::Expr(ref v) => self.write_node(v, super::NodePrecedence::CommaOperator.up()),
 		&super::ExprOrDef::Definition(ref d) => self.write_vardef(d),
 		}
 	}
-	fn write_node(&mut self, node: &super::Node)
+	fn write_node(&mut self, node: &super::Node, max_p: super::NodePrecedence)
 	{
+		let node_p = node.get_precedence();
+		// TODO: Parenthesis around values if precence is lower than a specified minimum
+		if node_p < max_p {
+			self.write_str("(");
+		}
 		use super::Node;
+		use super::{UniOp,BinOp};
 		match node
 		{
 		&Node::StmtList(ref subnodes) => {
-			self.write_node(&subnodes[0]);
+			self.write_node(&subnodes[0], node_p.down());
 			for sn in &subnodes[1..] {
 				self.write_str(", ");
-				self.write_node(sn);
+				self.write_node(sn, node_p.down());
 			}
 			},
 
@@ -329,23 +357,149 @@ impl<'a> PrettyPrinter<'a>
 		&Node::String(ref s) => write!(self, "{:?}", s),
 		&Node::Integer(v) => write!(self, "{}", v),
 		&Node::Float(v) => write!(self, "{}", v),
-		//&Node::ListLiteral(Vec<Node>),	// {a, b, c}
-		//&Node::ArrayLiteral(Vec<(usize,Node)>),	// {[0] = a, [1] = b, [2] = c}
-		//&Node::StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
+
+		&Node::ListLiteral(_)
+		| &Node::ArrayLiteral(_)
+		| &Node::StructLiteral(_)
+			=> panic!("TODO: List/Array/Struct literal printing"),
 
 		&Node::FcnCall(ref fcn, ref values) => {
-			self.write_node(fcn);
+			self.write_node(fcn, node_p);
 			self.write_str("(");
 			if values.len() > 0 {
-				self.write_node(&values[0]);
+				self.write_node(&values[0], super::NodePrecedence::CommaOperator.up());
 				for sn in &values[1..] {
 					self.write_str(", ");
-					self.write_node(sn);
+					self.write_node(sn, super::NodePrecedence::CommaOperator.up());
 				}
 			}
 			self.write_str(")");
 			},
-		_ => {},
+
+		&Node::Assign(ref dst, ref v) => {
+			self.write_node(dst, node_p);
+			self.write_str(" = ");
+			self.write_node(v, node_p);
+			},
+		&Node::AssignOp(ref op, ref dst, ref v) => {
+			self.write_node(dst, node_p);
+			match op
+			{
+			BinOp::LogicAnd => self.write_str(" &&= "),
+			BinOp::LogicOr  => self.write_str(" ||= "),
+
+			BinOp::BitAnd => self.write_str(" &= "),
+			BinOp::BitOr  => self.write_str(" |= "),
+			BinOp::BitXor => self.write_str(" ^= "),
+
+			BinOp::ShiftLeft  => self.write_str(" <<= "),
+			BinOp::ShiftRight => self.write_str(" >>= "),
+
+			BinOp::CmpEqu
+			| BinOp::CmpNEqu
+			| BinOp::CmpLt
+			| BinOp::CmpLtE
+			| BinOp::CmpGt
+			| BinOp::CmpGtE
+				=> panic!(""),
+
+			BinOp::Add => self.write_str(" += "),
+			BinOp::Sub => self.write_str(" -= "),
+
+			BinOp::Mul => self.write_str(" *= "),
+			BinOp::Div => self.write_str(" /= "),
+			BinOp::Mod => self.write_str(" %= "),
+			}
+			self.write_node(v, node_p);
+			},
+
+		&Node::Cast(ref ty, ref v) => {
+			self.write_str("(");
+			self.write_type(ty, |_|{});
+			self.write_str(")");
+			self.write_node(v, node_p);
+			},
+		&Node::SizeofType(ref ty) => {
+			self.write_str("sizeof ");
+			self.write_type(ty, |_|{});
+			},
+		&Node::SizeofExpr(ref v) => {
+			self.write_str("sizeof(");
+			self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			self.write_str(")");
+			},
+
+		&Node::Ternary(ref c, ref t, ref f) => {
+			self.write_node(c, node_p.down());
+			self.write_str("?");
+			self.write_node(t, node_p.down());
+			self.write_str(":");
+			self.write_node(f, node_p);
+			},
+		&Node::UniOp(ref op, ref v) => {
+			match op
+			{
+			&UniOp::Neg => self.write_str("- "),
+			&UniOp::BitNot => self.write_str("~"),
+			&UniOp::LogicNot => self.write_str("!"),
+			&UniOp::PreInc => self.write_str("++"),
+			&UniOp::PreDec => self.write_str("--"),
+			&UniOp::PostInc => { self.write_node(v, node_p); self.write_str("++"); return },
+			&UniOp::PostDec => { self.write_node(v, node_p); self.write_str("--"); return },
+			&UniOp::Address => self.write_str("&"),
+			&UniOp::Deref => self.write_str("*"),
+			}
+			self.write_node(v, node_p);
+			},
+		&Node::BinOp(ref op, ref l, ref r) => {
+			self.write_node(l, node_p);
+			match op
+			{
+			&BinOp::LogicAnd => self.write_str(" && "),
+			&BinOp::LogicOr  => self.write_str(" || "),
+
+			&BinOp::BitAnd => self.write_str(" & "),
+			&BinOp::BitOr  => self.write_str(" | "),
+			&BinOp::BitXor => self.write_str(" ^ "),
+
+			&BinOp::ShiftLeft  => self.write_str(" << "),
+			&BinOp::ShiftRight => self.write_str(" >> "),
+
+			&BinOp::CmpEqu  => self.write_str(" == "),
+			&BinOp::CmpNEqu => self.write_str(" != "),
+			&BinOp::CmpLt  => self.write_str(" < "),
+			&BinOp::CmpLtE => self.write_str(" <= "),
+			&BinOp::CmpGt  => self.write_str(" > "),
+			&BinOp::CmpGtE => self.write_str(" >= "),
+
+			&BinOp::Add => self.write_str(" + "),
+			&BinOp::Sub => self.write_str(" - "),
+
+			&BinOp::Mul => self.write_str(" * "),
+			&BinOp::Div => self.write_str(" / "),
+			&BinOp::Mod => self.write_str(" % "),
+			}
+			self.write_node(r, node_p);
+			},
+		&Node::Index(ref v, ref i) => {
+			self.write_node(v, node_p);
+			self.write_str("[");
+			self.write_node(i, super::NodePrecedence::CommaOperator.up());
+			self.write_str("]");
+			},
+		&Node::DerefMember(ref v, ref n) => {
+			self.write_node(v, node_p);
+			self.write_str("->");
+			self.write_str(n);
+			},
+		&Node::Member(ref v, ref n) => {
+			self.write_node(v, node_p);
+			self.write_str(".");
+			self.write_str(n);
+			},
+		}
+		if node.get_precedence() < max_p {
+			self.write_str(")");
 		}
 	}
 
