@@ -2,7 +2,8 @@
 //#include <stdio.h>
 #define/**/ foo(bar) baz
 #define baz
-//foo(_)
+foo(_)
+baz
 
 extern int printf(const char*, ...);
 int main(int argc, const char* argv[]) {

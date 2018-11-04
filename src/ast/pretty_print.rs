@@ -350,10 +350,10 @@ impl<'a> PrettyPrinter<'a>
 	}
 
 	fn write_str(&mut self, s: &str) {
-		self.sink.write_all(s.as_bytes());
+		let _ = self.sink.write_all(s.as_bytes());
 	}
 	fn write_fmt(&mut self, f: ::std::fmt::Arguments) {
-		self.sink.write_fmt(f);
+		let _ = self.sink.write_fmt(f);
 	}
 }
 

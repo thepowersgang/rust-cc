@@ -1,6 +1,9 @@
-
+/**
+ * Parser
+ */
 
 pub use self::parsing::parse;
+pub use self::token::Token;
 
 macro_rules! syntax_error{
 	($msg:expr) => ({ return Err(::parse::Error::SyntaxError(format!("{}",$msg))) });
@@ -40,6 +43,7 @@ mod lex;
 mod preproc;
 mod parsing;
 mod types;
+mod token;
 
 #[derive(Debug)]
 pub enum Error

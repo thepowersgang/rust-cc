@@ -1,7 +1,7 @@
 /*
  * Top-level parser
  */
-use parse::lex::Token;
+use parse::Token;
 use parse::ParseResult;
 
 pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path) -> ParseResult<()>

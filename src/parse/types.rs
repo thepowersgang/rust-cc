@@ -1,6 +1,6 @@
 //! Parser for types
 use super::ParseResult;
-use super::lex::Token;
+use super::Token;
 
 #[derive(Debug)]
 enum TypeNode
