@@ -16,6 +16,10 @@ pub enum Token
 	BlockComment(String),
 	Newline,
 
+	// Pre-preocessor forwarding (when confiured to do so)
+	Preprocessor_Include(String),
+	//Preprocessor_Define(String, Vec<String>, Vec<Token>),
+
 	// Leaves
 	Integer(u64, ::types::IntClass),
 	Float(f64, ::types::FloatClass),

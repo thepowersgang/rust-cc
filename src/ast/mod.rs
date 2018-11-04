@@ -117,6 +117,10 @@ impl Program
 			return Some( ::types::Type::new_ref_bare(::types::BaseType::MagicType(::types::MagicType::VaList)) );
 		}
 		
+		//if name.len() > 2 && &name[name.len()-2 .. ] == "_t" {
+		//	return Some(::types::Type::new_ref_bare( ::types::BaseType::MagicType(::types::MagicType::Named(name.to_owned())) ))
+		//}
+		
 		self.typedefs.get(name)
 			.map(::std::rc::Rc::clone)
 	}

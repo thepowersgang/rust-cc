@@ -121,8 +121,12 @@ impl Preproc
 								}
 							};
 						syntax_assert!(Self::eat_comments(lexer), lex::Token::Newline => ());
-						panic!("TODO: #include - {:?}", path);
-						//return lex::Token::Preprocessor_Include(path);
+						if false {
+							return Ok(lex::Token::Preprocessor_Include(path));
+						}
+						else {
+							error!("TODO: #include {:?} - Handle", path);
+						}
 						},
 					"define" => {
 						let ident = syntax_assert!(Self::eat_comments(lexer), lex::Token::Ident(s) => s);
@@ -171,7 +175,12 @@ impl Preproc
 								}
 							}
 						}
-						error!("TODO: #define {} {:?} => {:?}", ident, args, tokens);
+						if false {
+							panic!("TODO: #define {} {:?} => {:?} - Propagate", ident, args, tokens);
+						}
+						else {
+							error!("TODO: #define {} {:?} => {:?}", ident, args, tokens);
+						}
 						},
 					_ => panic!("TODO: Preprocessor '{}'", name),
 					}

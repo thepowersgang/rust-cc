@@ -31,6 +31,7 @@ pub enum BaseType
 pub enum MagicType
 {
 	VaList,
+	Named(String),
 }
 #[derive(Clone,PartialEq)]
 pub enum ArraySize

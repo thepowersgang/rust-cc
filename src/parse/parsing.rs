@@ -321,6 +321,7 @@ impl<'ast> super::ParseState<'ast>
 				syntax_assert!(self.lex => Token::Colon);
 				},
 			Token::Rword_case => {
+				// TODO: Allow named constants (from #define)?
 				let first = match try!(self.parse_expr_0()).literal_integer()
 					{
 					Some(i) => i as u64,

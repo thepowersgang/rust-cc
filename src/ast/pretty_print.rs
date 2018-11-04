@@ -139,6 +139,7 @@ impl<'a> PrettyPrinter<'a>
 			use ::types::MagicType;
 			match *m
 			{
+			MagicType::Named(ref n) => { self.write_str(n); self.write_str(" "); },
 			MagicType::VaList => self.write_str("va_list "),
 			}
 			cb(self);
