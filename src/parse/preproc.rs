@@ -77,7 +77,7 @@ enum InnerLexer
 struct LexHandle
 {
 	lexer: ::parse::lex::Lexer,
-	filename: String,
+	filename: Option<::std::path::PathBuf>,
 	line: usize,
 }
 struct MacroExpansion
@@ -107,7 +107,7 @@ impl Preproc
 				::parse::lex::Lexer::new(box ::std::io::stdin().chars())
 			};
 		Ok(Preproc {
-			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.display().to_string()).unwrap_or_else(|| "-".to_string()) ),
+			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.to_owned()) ),
 			start_of_line: true,
 			saved_tok: None,
 			macros: Default::default(),
@@ -164,7 +164,6 @@ impl Preproc
 			Token::LineComment(_) => {},
 			Token::BlockComment(_) => {},
 			Token::Hash if self.start_of_line => {
-				// TODO: only do this handling if just after a newline
 				match self.eat_comments()?
 				{
 				Token::Ident(name) => {
@@ -172,23 +171,28 @@ impl Preproc
 					{
 					// #include
 					"include" => {
-						let path = if let Some(s) = self.inner_get_token_includestr()?
+						let (was_angle, path) = if let Some(s) = self.inner_get_token_includestr()?
 							{
 								// `#include <foo>`
-								s
+								(true, s)
 							}
 							else
 							{
 								// String literals (maybe with pre-processor expansions?)
 								match self.lexers.get_token()?
 								{
-								Token::String(s) => { s },
+								Token::String(s) => { (false, s) },
 								tok @ _ => panic!("TODO: Syntax error, unexpected {:?}", tok),
 								}
 							};
 						syntax_assert!(self.eat_comments(), Token::Newline => ());
 						if self.options.include_handling != Handling::PropagateOnly {
-							error!("TODO: #include {:?} - Handle", path);
+							if was_angle {
+								error!("TODO: #include {:?} - Search include dirs", path);
+							}
+							else {
+								error!("TODO: #include {:?} - Search CWD", path);
+							}
 						}
 						if self.options.include_handling != Handling::InternalOnly {
 							return Ok(Token::PreprocessorInclude(path));
@@ -279,18 +283,18 @@ impl Preproc
 					_ => panic!("TODO: Preprocessor '{}'", name),
 					}
 					},
-				Token::Integer(line, _) => {
-					let file = syntax_assert!(self.lexers.get_token(), Token::String(s) => s);
-					if let InnerLexer::File(lexer_h) = self.lexers.last_mut()
-					{
-						lexer_h.filename = file;
-						lexer_h.line = line as usize;
-						debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
-					}
-					while try!(self.lexers.get_token()) != Token::Newline
-					{
-					}
-					},
+				//Token::Integer(line, _) => {
+				//	let file = syntax_assert!(self.lexers.get_token(), Token::String(s) => s);
+				//	if let InnerLexer::File(lexer_h) = self.lexers.last_mut()
+				//	{
+				//		lexer_h.filename = file;
+				//		lexer_h.line = line as usize;
+				//		debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
+				//	}
+				//	while try!(self.lexers.get_token()) != Token::Newline
+				//	{
+				//	}
+				//	},
 				tok @ _ => {
 					panic!("TODO: Unexpected token after # - {:?}", tok);
 					},
@@ -425,7 +429,14 @@ impl ::std::fmt::Display for Preproc
 		match self.lexers.last()
 		{
 		InnerLexer::File(h) => {
-			write!(f, "{}:{}: ", h.filename, h.line)
+			if let Some(ref p) = h.filename
+			{
+				write!(f, "{}:{}: ", p.display(), h.line)
+			}
+			else
+			{
+				write!(f, "<stdin>:{}: ", h.line)
+			}
 			},
 		InnerLexer::MacroExpansion(_h) => {
 			// TODO: Print something sane for macro expansions
@@ -438,7 +449,7 @@ impl ::std::fmt::Display for Preproc
 
 impl TokenSourceStack
 {
-	fn new(lexer: super::lex::Lexer, filename: String) -> TokenSourceStack
+	fn new(lexer: super::lex::Lexer, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
 	{
 		TokenSourceStack {
 			lexers: vec![ InnerLexer::File(LexHandle {
@@ -457,11 +468,11 @@ impl TokenSourceStack
 	}
 
 	fn last(&self) -> &InnerLexer {
-		assert!( self.lexers.len() > 1 );
+		assert!( self.lexers.len() >= 1 );
 		self.lexers.last().unwrap()
 	}
 	fn last_mut(&mut self) -> &mut InnerLexer {
-		assert!( self.lexers.len() > 1 );
+		assert!( self.lexers.len() >= 1 );
 		self.lexers.last_mut().unwrap()
 	}
 
