@@ -4,6 +4,7 @@
 use parse::Token;
 use parse::ParseResult;
 
+/// Parse a file into the passed AST program representation
 pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>) -> ParseResult<()>
 {
 	let pp_opts = {
