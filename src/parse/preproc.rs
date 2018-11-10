@@ -161,7 +161,7 @@ impl Preproc
 		if self.saved_tok.is_some()
 		{
 			let tok = self.saved_tok.take().unwrap();
-			debug!("get_token = {:?} (saved)", tok);
+			trace!("get_token = {:?} (saved)", tok);
 			return Ok( tok );
 		}
 		loop
@@ -461,6 +461,18 @@ impl Preproc
 							}
 						}
 					},
+				// #pragma
+				Token::Ident(ref name) if name == "pragma" => {
+					let ident = syntax_assert!(self.eat_comments(), Token::Ident(s) => s);
+					match &ident[..]
+					{
+					"once" => {
+						syntax_assert!(self.eat_comments(), Token::Newline => ());
+						// TODO: Ensure single-inclusion of this file
+						},
+					n => panic!("{}: TDOO: Unknown pragma `{}`", self, n),
+					}
+					},
 				// Unknown identifier
 				Token::Ident(name) => panic!("TODO: Preprocessor '{}'", name),
 				
@@ -589,14 +601,14 @@ impl Preproc
 					},
 				_ => {
 					let ret = Token::Ident(v);
-					debug!("get_token = {:?}", ret);
+					trace!("get_token = {:?}", ret);
 					return Ok( ret );
 					}
 				}
 				},
 			tok @ _ => {
 				self.start_of_line = false;
-				debug!("get_token = {:?}", tok);
+				trace!("get_token = {:?}", tok);
 				return Ok(tok)
 				}
 			}
