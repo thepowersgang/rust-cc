@@ -1,4 +1,4 @@
-/// C Pre-processor handling
+//! C Pre-processor handling
 use super::Token;
 use super::token;
 use std::collections::HashMap;

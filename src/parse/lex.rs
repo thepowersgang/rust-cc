@@ -1,4 +1,4 @@
-/**
+/*!
  * Converts a source file into a stream of tokens
  */
 use parse::ParseResult;

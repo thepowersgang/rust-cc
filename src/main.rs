@@ -1,4 +1,5 @@
-/*
+/*!
+ * C parser (and eventual) compiler
  */
 #![feature(box_syntax)]
 #![feature(fnbox)]	// For some pretty-printing hackery

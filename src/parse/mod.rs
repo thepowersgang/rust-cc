@@ -1,4 +1,4 @@
-/**
+/*!
  * C Parser, containing the lexer, pre-processor, and AST generation
  *
  * See `self::parse` for the top-level parser function
