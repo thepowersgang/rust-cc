@@ -90,7 +90,7 @@ enum InnerLexer
 }
 struct LexHandle
 {
-	lexer: ::parse::lex::Lexer,
+	lexer: ::parse::lex::Lexer<'static>,
 	filename: Option<::std::path::PathBuf>,
 	line: usize,
 }
@@ -128,6 +128,27 @@ impl Preproc
 			if_stack: Default::default(),
 			options: options,
 			})
+	}
+
+	pub fn parse_define_str(&mut self, s: &str) -> ::parse::ParseResult<()>
+	{
+		let mut lex = ::parse::lex::Lexer::new(box s.chars().map(Ok));
+
+		let ident = syntax_assert!(lex.get_token(), Token::Ident(n) => n);
+		match lex.get_token()?
+		{
+		Token::EOF => {
+			self.macros.insert(ident, MacroDefinition { arg_names: None, expansion: Vec::new() });
+			Ok( () )
+			},
+		Token::Assign => {
+			panic!("TODO: Define to a value from string");
+			},
+		Token::ParenOpen => {
+			panic!("TODO: Define function-like from a string");
+			},
+		t => panic!("TODO: error for bad token {:?} in define string", t),
+		}
 	}
 
 	pub fn put_back(&mut self, tok: Token)
@@ -396,19 +417,20 @@ impl Preproc
 								{
 									match self.eat_comments()?
 									{
+									Token::ParenClose if args.len() == 0 => break,
 									Token::Ident(s) => args.push(s),
 									Token::Vargs => {
 										args.push("".to_owned());
 										syntax_assert!(self.eat_comments(), Token::ParenClose => ());
 										break
 										},
-									tok @ _ => panic!("TODO: Error, unexpected {:?} in macro argument list", tok),
+									tok @ _ => panic!("{}: TODO: Error, unexpected {:?} in macro argument list", self, tok),
 									}
 									match self.eat_comments()?
 									{
 									Token::ParenClose => break,
 									Token::Comma => {},
-									tok @ _ => panic!("TODO: Error, unexpected {:?} in macro argument list", tok),
+									tok @ _ => panic!("{}: TODO: Error, unexpected {:?} in macro argument list", self, tok),
 									}
 								}
 								(true, Some(args))
@@ -643,6 +665,13 @@ impl Preproc
 				{
 					if let Some(&mut (ref mut pos, me)) = self.macro_expansions.last_mut()
 					{
+						if *pos == 0 && me.expansion.len() == 0
+						{
+							// HACK: Empty macros expand to `1` in #if
+							static TOK_ONE: Token = Token::Integer(1, ::types::IntClass::int());
+							*pos += 1;
+							return Some(&TOK_ONE);
+						}
 						if *pos < me.expansion.len()
 						{
 							*pos += 1;
@@ -726,6 +755,8 @@ impl Preproc
 						Some(Token::LtE) => { self.get_tok(); (v <= next(self)?) as _ },
 						Some(Token::Gt ) => { self.get_tok(); (v >  next(self)?) as _ },
 						Some(Token::GtE) => { self.get_tok(); (v >= next(self)?) as _ },
+						Some(Token::Equality) => { self.get_tok(); (v == next(self)?) as _ },
+						Some(Token::NotEquals) => { self.get_tok(); (v != next(self)?) as _ },
 						_ => return Ok(v),
 						//t @ _ => { debug!("t={:?} v={}", t, v); return Ok(v) },
 						};
@@ -772,7 +803,7 @@ impl ::std::fmt::Display for Preproc
 
 impl TokenSourceStack
 {
-	fn new(lexer: super::lex::Lexer, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
+	fn new(lexer: super::lex::Lexer<'static>, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
 	{
 		TokenSourceStack {
 			lexers: vec![ InnerLexer::File(LexHandle {

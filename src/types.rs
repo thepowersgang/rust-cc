@@ -112,7 +112,7 @@ impl IntClass {
 	pub fn char() -> Self { IntClass::Char(None) }
 	//pub fn uchar() -> Self { IntClass::Char(Some(Unsigned)) }
 	//pub fn schar() -> Self { IntClass::Char(Some(Signed)) }
-	pub fn int() -> Self { IntClass::Int(Signed) }
+	pub const fn int() -> Self { IntClass::Int(Signed) }
 }
 
 #[derive(Debug,PartialEq,Clone)]

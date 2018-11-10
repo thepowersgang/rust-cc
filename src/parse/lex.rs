@@ -5,11 +5,11 @@ use parse::ParseResult;
 
 use super::token::Token;
 
-pub type LexerInput = Box< ::std::iter::Iterator<Item=::std::io::Result<char>> + 'static >;
+pub type LexerInput<'a> = Box< ::std::iter::Iterator<Item=::std::io::Result<char>> + 'a >;
 
-pub struct Lexer
+pub struct Lexer<'a>
 {
-	instream: LexerInput,
+	instream: LexerInput<'a>,
 	lastchar: Option<char>,
 }
 
@@ -33,9 +33,9 @@ macro_rules! match_ch {
 	($_self:ident, $def:expr, $($p:pat => $v:expr),*, ) => (match_ch!($_self,$def,$($p=>$v),*));
 }
 
-impl Lexer
+impl<'a> Lexer<'a>
 {
-	pub fn new(instream: LexerInput) -> Lexer {
+	pub fn new(instream: LexerInput<'a>) -> Lexer {
 		Lexer {
 			instream: instream,
 			lastchar: None,
@@ -465,7 +465,7 @@ impl Lexer
 			return Err(::parse::Error::BadCharacter(ch))
 			}
 		};
-		debug!("get_token: {:?}", ret);
+		trace!("get_token: {:?}", ret);
 		Ok(ret)
 	}
 }

@@ -5,7 +5,7 @@ use parse::Token;
 use parse::ParseResult;
 
 /// Parse a file into the passed AST program representation
-pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>) -> ParseResult<()>
+pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>, defines: &[String]) -> ParseResult<()>
 {
 	let pp_opts = {
 		let mut pp_opts = super::preproc::Options::default();
@@ -17,6 +17,11 @@ pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_pat
 		ast: ast,
 		lex: ::parse::preproc::Preproc::new( Some(filename), pp_opts )?,
 		};
+	
+	for d in defines
+	{
+		self_.lex.parse_define_str(d);
+	}
 	
 	match self_.parseroot()
 	{

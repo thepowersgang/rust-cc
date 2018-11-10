@@ -450,7 +450,22 @@ impl<'ast> super::ParseState<'ast>
 		
 		if peek_token!(self.lex, Token::Rword_gcc_attribute)
 		{
-			parse_todo!("Handle GCC __attribute__ on struct");
+			syntax_assert!( self.lex.get_token()?, Token::ParenOpen );
+			let is_double_wrapped = peek_token!(self.lex, Token::ParenOpen);
+			loop {
+				match &syntax_assert!( self.lex.get_token()?, Token::Ident(n) => n )[..]
+				{
+				"packed" => {},
+				n @ _ => panic!("{}: TODO - Handle GCC __attribute__(({})) on struct", self.lex, n),
+				}
+				if ! peek_token!(self.lex, Token::Comma) {
+					break;
+				}
+			}
+			if is_double_wrapped {
+				syntax_assert!( self.lex.get_token()?, Token::ParenClose );
+			}
+			syntax_assert!( self.lex.get_token()?, Token::ParenClose );
 		}
 		
 		Ok( items )
