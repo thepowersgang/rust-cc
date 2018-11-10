@@ -314,7 +314,7 @@ impl<'a> PrettyPrinter<'a>
 		for def in defs
 		{
 			if !first {
-				// TODO: THIS IS WRONG. It'll break for mutliple definitions in a for loop header
+				// TODO: THIS IS WRONG. It'll break for multiple definitions in a for loop header
 				self.write_str("; ");
 			}
 			self.write_type(&def.ty, |self_| self_.write_str(&def.name));
