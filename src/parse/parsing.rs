@@ -4,11 +4,17 @@
 use parse::Token;
 use parse::ParseResult;
 
-pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path) -> ParseResult<()>
+pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>) -> ParseResult<()>
 {
+	let pp_opts = {
+		let mut pp_opts = super::preproc::Options::default();
+		pp_opts.include_paths = include_paths;
+		pp_opts
+		};
+
 	let mut self_ = super::ParseState {
 		ast: ast,
-		lex: try!(::parse::preproc::Preproc::new( Some(filename) ))
+		lex: ::parse::preproc::Preproc::new( Some(filename), pp_opts )?,
 		};
 	
 	match self_.parseroot()

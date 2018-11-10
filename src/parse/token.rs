@@ -10,23 +10,10 @@ pub enum Token
 	LineComment(String),
 	BlockComment(String),
 	Newline,
+	EscapedNewline,
 
 	// Pre-preocessor forwarding (when confiured to do so)
-	PreprocessorInclude(String),
-	/// A macro definition
-	MacroDefine {
-		name: String,
-		arg_names: Option< Vec<String> >,
-		expansion: Vec<Token>,
-	},
-	/// A macro invocation/expansion
-	/// NOTE: This only gets emitted if macros are being handled by the pre-processor
-	MacroInvocaton {
-		/// Input tokens (with whitespace stripped)
-		input: Vec<Token>,
-		/// Output tokens
-		output: Vec<Token>,
-	},
+	Preprocessor(Preprocessor),
 
 	// -- Expression leaves
 	Integer(u64, ::types::IntClass),
@@ -134,5 +121,49 @@ pub enum Token
 	Rword_sizeof,
 	Rword_gcc_attribute,
 	Rword_gcc_va_arg,
+}
+impl From<Preprocessor> for Token {
+	fn from(v: Preprocessor) -> Token {
+		Token::Preprocessor(v)
+	}
+}
+
+#[derive(Debug,PartialEq,Clone)]
+pub enum Preprocessor
+{
+	/// #include
+	Include {
+		angle_brackets: bool,
+		path: String,
+	},
+	/// EOF in an included file
+	EndOfInclude,
+
+	IfDef {
+		is_not_defined: bool,
+		ident: String,
+	},
+	If {
+		tokens: Vec<Token>,
+	},
+	ElseIf {
+		tokens: Vec<Token>,
+	},
+	Else,
+
+	/// A macro definition
+	MacroDefine {
+		name: String,
+		arg_names: Option< Vec<String> >,
+		expansion: Vec<Token>,
+	},
+	/// A macro invocation/expansion
+	/// NOTE: This only gets emitted if macros are being handled by the pre-processor
+	MacroInvocaton {
+		/// Input tokens (with whitespace stripped)
+		input: Vec<Token>,
+		/// Output tokens
+		output: Vec<Token>,
+	},
 }
 

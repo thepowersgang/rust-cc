@@ -43,7 +43,7 @@ mod lex;
 mod preproc;
 mod parsing;
 mod types;
-mod token;
+pub mod token;
 
 #[derive(Debug)]
 pub enum Error

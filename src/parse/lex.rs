@@ -91,6 +91,7 @@ impl Lexer
 			if ch == '\n' { break; }
 			ret.push( ch );
 		}
+		self.ungetc('\n');
 		return Ok(ret);
 	}
 	// Read and return a sequence of "identifier" characters
@@ -236,6 +237,12 @@ impl Lexer
 		let ret = match ch
 		{
 		'\n' => Token::Newline,
+		'\\' =>
+			match try_eof!(self.getc(), Token::EOF)
+			{
+			'\n' => Token::EscapedNewline,
+			_ => return Err( ::parse::Error::BadCharacter('\\') ),
+			},
 		'#' => Token::Hash,
 		'~' => Token::Tilde,
 		'!' => match_ch!(self, Token::Exclamation,
