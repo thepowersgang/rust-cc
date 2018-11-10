@@ -606,7 +606,130 @@ impl Preproc
 
 	fn parse_if_expr(&self, tokens: &[Token]) -> super::ParseResult<bool>
 	{
-		panic!("{}: TODO: Parse+evaluate a #if/#elif expression - {:?}", self, tokens);
+		// TODO: Pass expansion over the tokens first? (Macro expansion rules aren't trivial)
+		struct Parser<'a>
+		{
+			self_: &'a Preproc,
+			tokens: &'a [Token],
+			macro_expansions: Vec<(usize, &'a MacroDefinition)>,	// TODO: Arguments?
+			
+			tmp: Option<&'a Token>,
+		}
+		impl<'a> Parser<'a>
+		{
+			fn peek_tok(&mut self) -> Option<&'a Token> {
+				if self.tmp.is_none() {
+					self.tmp = self.get_tok();
+				}
+				self.tmp
+			}
+			fn get_tok(&mut self) -> Option<&'a Token> {
+				if self.tmp.is_some() {
+					return self.tmp.take();
+				}
+				loop
+				{
+					if let Some(&mut (ref mut pos, me)) = self.macro_expansions.last_mut()
+					{
+						if *pos < me.expansion.len()
+						{
+							*pos += 1;
+							return Some(&me.expansion[*pos - 1]);
+						}
+					}
+
+					// If there was a expansion being processed (which has to have just reached the end)
+					if let Some(_) = self.macro_expansions.pop() {
+						// Loop again
+						continue ;
+					}
+
+					return match self.tokens.split_first()
+						{
+						None => None,
+						Some( (rv, new) ) => {
+							self.tokens = new;
+							if let &Token::Ident(ref n) = rv
+							{
+								if let Some(md) = self.self_.macros.get(n)
+								{
+									debug!("{}: Expand `{}` to {:?}", self.self_, n, md.expansion);
+									self.macro_expansions.push( (0, md) );
+									continue ;
+								}
+							}
+							Some(rv)
+							}
+						};
+				}
+			}
+
+			fn evaluate_expr_value(&mut self) -> super::ParseResult<i64> {
+				Ok(match self.get_tok()
+				{
+				Some(&Token::Integer(v,_)) => v as i64,
+				//Some(&Token::Ident(ref n)) => panic!("{}: TODO: Look up #define macros - {:?}", self.self_, n),
+				Some(&Token::Ident(ref n)) => {
+					warn!("{}: Undefined identifier {}, evaluating to 0", self.self_, n);
+					0
+					},
+				_ => panic!("TODO: Error in #if parsing"),
+				})
+			}
+			fn evaluate_expr_muldiv(&mut self) -> super::ParseResult<i64> {
+				let next = Self::evaluate_expr_value;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::Star ) => { self.get_tok(); v * next(self)? },
+						Some(Token::Slash) => { self.get_tok(); v / next(self)? },
+						_ => return Ok(v),
+						};
+				}
+			}
+			fn evaluate_expr_addsub(&mut self) -> super::ParseResult<i64> {
+				let next = Self::evaluate_expr_muldiv;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::Plus ) => { self.get_tok(); v + next(self)? },
+						Some(Token::Minus) => { self.get_tok(); v - next(self)? },
+						_ => return Ok(v),
+						//_ => { debug!("v={}", v); return Ok(v) },
+						};
+				}
+			}
+			fn evaluate_expr_cmp(&mut self) -> super::ParseResult<i64> {
+				let next = Self::evaluate_expr_addsub;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::Lt ) => { self.get_tok(); (v <  next(self)?) as _ },
+						Some(Token::LtE) => { self.get_tok(); (v <= next(self)?) as _ },
+						Some(Token::Gt ) => { self.get_tok(); (v >  next(self)?) as _ },
+						Some(Token::GtE) => { self.get_tok(); (v >= next(self)?) as _ },
+						_ => return Ok(v),
+						//t @ _ => { debug!("t={:?} v={}", t, v); return Ok(v) },
+						};
+				}
+			}
+		}
+
+		let mut p = Parser { self_: self, tokens, tmp: None, macro_expansions: Vec::new() };
+		let rv = p.evaluate_expr_cmp()?;
+		match p.get_tok()
+		{
+		Some(t) => panic!("{}: TODO: Error in PP if/elif - Unhandled token {:?}", self, t),
+		None => {},
+		}
+		debug!("{}: Parse+evaluate a #if/#elif expression - {:?} = {}", self, tokens, rv);
+		Ok(rv != 0)
 	}
 }
 
