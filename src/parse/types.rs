@@ -139,6 +139,12 @@ impl<'ast> super::ParseState<'ast>
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				typeid = Some(::types::BaseType::Enum(try!(self.get_enum())));
 				},
+			Token::Ident(ref n) if n == "__magictype__" => {
+				syntax_assert!(self.lex.get_token()?, Token::ParenOpen);
+				let name = syntax_assert!(self.lex.get_token()?, Token::String(s) => s);
+				syntax_assert!(self.lex.get_token()?, Token::ParenClose);
+				typeid = Some(::types::BaseType::MagicType(::types::MagicType::Named(name)));
+				},
 			Token::Ident(n) => {
 				if typeid.is_some() {
 					self.lex.put_back( Token::Ident(n) );
