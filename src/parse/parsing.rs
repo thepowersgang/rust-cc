@@ -18,9 +18,10 @@ pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_pat
 		lex: ::parse::preproc::Preproc::new( Some(filename), pp_opts )?,
 		};
 	
+	// Process command-line `-D` arguments
 	for d in defines
 	{
-		self_.lex.parse_define_str(d);
+		self_.lex.parse_define_str(d)?;
 	}
 	
 	match self_.parseroot()
@@ -43,7 +44,6 @@ impl<'ast> super::ParseState<'ast>
 		loop
 		{
 			let tok = try!(self.lex.get_token());
-			debug!("parseroot: tok={:?}", tok);
 			match tok
 			{
 			Token::EOF => {
@@ -61,7 +61,9 @@ impl<'ast> super::ParseState<'ast>
 				try!( self.do_definition() )
 				},
 			}
+			debug!("--- {}", self.lex);
 		}
+		debug!("=== {}", self.lex);
 		
 		Ok( () )
 	}
@@ -122,7 +124,9 @@ impl<'ast> super::ParseState<'ast>
 		
 		while !peek_token!(self.lex, Token::BraceClose)
 		{
-			statements.push( self.parse_block_line()? );
+			let s = self.parse_block_line()?;
+			debug!("> {:?}", s);
+			statements.push( s );
 		}
 		
 		Ok( statements )
@@ -182,6 +186,7 @@ impl<'ast> super::ParseState<'ast>
 	/// Parse a single line in a block
 	fn parse_block_line(&mut self) -> ParseResult<::ast::Statement>
 	{
+		debug!(">>> {}", self.lex);
 		// Attempt to get a type, returns None if no type was present
 		Ok(match try!(self.try_parse_local_var())
 		{
@@ -597,13 +602,13 @@ impl<'ast> super::ParseState<'ast>
 					syntax_error!("Unexpected identifier in cast");
 				}
 				syntax_assert!(self.lex => Token::ParenClose);
-				::ast::Node::Cast(fulltype, box try!(self.parse_expr_p()))
+				::ast::Node::Cast(fulltype, box try!(self.parse_expr_9()))
 				},
 			None => {
-					let rv = try!(self.parse_expr());
-					syntax_assert!(try!(self.lex.get_token()), Token::ParenClose);
-					rv
-					},
+				let rv = try!(self.parse_expr());
+				syntax_assert!(self.lex => Token::ParenClose);
+				rv
+				},
 			},
 		t @ _ => {
 			self.lex.put_back(t);
@@ -628,8 +633,8 @@ impl<'ast> super::ParseState<'ast>
 			}
 			::ast::Node::String(val)
 			},
-		Token::Integer(v,_) => ::ast::Node::Integer(v),
-		Token::Float(v,_) => ::ast::Node::Float(v),
+		Token::Integer(v,_,_) => ::ast::Node::Integer(v),
+		Token::Float(v,_,_) => ::ast::Node::Float(v),
 		Token::BraceOpen => try!(self.parse_composite_lit()),
 		Token::Rword_sizeof => {
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);
@@ -650,6 +655,7 @@ impl<'ast> super::ParseState<'ast>
 			if expect_paren {
 				syntax_assert!(self.lex => Token::ParenClose);
 			}
+			debug!("{:?}, lex={}", rv, self.lex);
 			rv
 			},
 		t @ _ => syntax_error!("Unexpected {:?}, expected value", t),
@@ -732,16 +738,11 @@ impl<'ast> super::ParseState<'ast>
 			}
 			syntax_assert!(self.lex => Token::SquareOpen);
 			let idx_expr = try!(self.parse_expr());
-			let idx = match idx_expr.literal_integer()
-				{
-				Some(i) => i as usize,
-				None => syntax_error!("Non-constant expression {:?} used for array initialise index", idx_expr),
-				};
 			syntax_assert!(self.lex => Token::SquareClose);
 			syntax_assert!(self.lex => Token::Assign);
 			let val = try!(self.parse_expr());
 			
-			items.push( (idx,val) );
+			items.push( (idx_expr,val) );
 			
 			if ! peek_token!(self.lex, Token::Comma) {
 				break;

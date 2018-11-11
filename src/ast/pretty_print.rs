@@ -160,6 +160,7 @@ impl<'a> PrettyPrinter<'a>
 				{
 				&::types::ArraySize::None => {},
 				&::types::ArraySize::Fixed(v) => { write!(s, "{}", v); },
+				&::types::ArraySize::Expr(ref v) => { s.write_node(v, super::NodePrecedence::CommaOperator.up()); },
 				}
 				s.write_str("]");
 				});

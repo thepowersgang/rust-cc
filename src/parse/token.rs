@@ -16,8 +16,9 @@ pub enum Token
 	Preprocessor(Preprocessor),
 
 	// -- Expression leaves
-	Integer(u64, ::types::IntClass),
-	Float(f64, ::types::FloatClass),
+	Integer(u64, ::types::IntClass, String),
+	Float(f64, ::types::FloatClass, String),
+	Chararacter(u64),
 	String(String),
 	Ident(String),
 	

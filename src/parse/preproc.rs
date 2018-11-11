@@ -96,6 +96,7 @@ struct LexHandle
 }
 struct MacroExpansion
 {
+	idx: usize,
 	tokens: ::std::vec::IntoIter<Token>,	// TODO: Instead store Rc<Vec<Token>> to MacroDefinition.expansion and HashMap<String,Vec<Tokens>>
 }
 
@@ -195,6 +196,7 @@ impl Preproc
 				match try!(self.lexers.get_token())
 				{
 				Token::Whitespace => {},
+				Token::EscapedNewline => {},
 				Token::Newline => {
 					self.start_of_line = true;
 					},
@@ -252,6 +254,7 @@ impl Preproc
 			match try!(self.lexers.get_token())
 			{
 			Token::Whitespace => {},
+			Token::EscapedNewline => {},
 			Token::Newline => {
 				self.start_of_line = true;
 				},
@@ -420,7 +423,7 @@ impl Preproc
 									Token::ParenClose if args.len() == 0 => break,
 									Token::Ident(s) => args.push(s),
 									Token::Vargs => {
-										args.push("".to_owned());
+										args.push("__VA_ARGS__".to_owned());
 										syntax_assert!(self.eat_comments(), Token::ParenClose => ());
 										break
 										},
@@ -499,7 +502,7 @@ impl Preproc
 				Token::Ident(name) => panic!("TODO: Preprocessor '{}'", name),
 				
 
-				//Token::Integer(line, _) => {
+				//Token::Integer(line, _,_) => {
 				//	let file = syntax_assert!(self.lexers.get_token(), Token::String(s) => s);
 				//	if let InnerLexer::File(lexer_h) = self.lexers.last_mut()
 				//	{
@@ -533,9 +536,9 @@ impl Preproc
 							}
 							// Read tokens, handling nested parens
 							let mut args: HashMap<&str,_> = HashMap::new();
-							let mut cur_arg_idx = 0;
+							let mut cur_arg_idx: usize = 0;
 							let mut cur_arg_toks = Vec::new();
-							let mut paren_level = 0;
+							let mut paren_level: usize = 0;
 
 							loop
 							{
@@ -545,19 +548,20 @@ impl Preproc
 									args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
 									break args;
 									},
-								Token::Comma if paren_level == 0 => {
+								Token::Comma if paren_level == 0 && arg_names[cur_arg_idx] != "__VA_ARGS__" => {
 									args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
 									cur_arg_toks = Vec::new();
 									cur_arg_idx += 1;
 									},
 								t @ Token::ParenOpen => {
-									paren_level -= 1;
+									paren_level += 1;
 									cur_arg_toks.push(t);
 									},
 								t @ Token::ParenClose => {
 									paren_level -= 1;
 									cur_arg_toks.push(t);
 									},
+								Token::Whitespace | Token::EscapedNewline | Token::Newline if cur_arg_toks.len() == 0 => {},
 								t => cur_arg_toks.push(t),
 								}
 							}
@@ -566,22 +570,86 @@ impl Preproc
 							HashMap::new()
 						};
 
+					debug!("Macro expansion {} args={:?}", v, arg_mapping);
 					let output_tokens = {
 						let mut output_tokens = Vec::new();
+						enum Mode {
+							Normal, Stringify, Concat,
+						}
+						let mut mode = Mode::Normal;
 						for tok in &macro_def.expansion
 						{
 							match tok
 							{
-							Token::Ident(i) => match arg_mapping.get(&i[..])
+							Token::Ident(i) =>
+								match { let m = mode; mode = Mode::Normal; m }
 								{
-								Some(v) => output_tokens.extend( v.iter().cloned() ),
-								None => output_tokens.push( Token::Ident(i.clone()) ),
+								Mode::Normal =>
+									// No concat/stringify - expand tokens directly
+									match arg_mapping.get(&i[..])
+									{
+									Some(v) => output_tokens.extend( v.iter().cloned() ),
+									None => output_tokens.push( Token::Ident(i.clone()) ),
+									},
+								Mode::Stringify => panic!("TODO: Stringify"),
+									//match arg_mapping.get(&i[..])
+									//{
+									//Some(v) => output_tokens.extend( v.iter().cloned() ),
+									//None => output_tokens.push( Token::Ident(i.clone()) ),
+									//},
+								Mode::Concat =>
+									match output_tokens.last_mut()
+									{
+									Some(Token::Ident(prev)) =>
+										match arg_mapping.get(&i[..])
+										{
+										Some(v) =>
+											match &v[..]
+											{
+											&[Token::Ident(ref i)] => prev.push_str(i),
+											&[Token::Integer(_v, _, ref s)] => prev.push_str(s),
+											_ => panic!("{}: TODO: Concat `{}` with expanded - {:?}", self, prev, v),
+											},
+										None => {
+											prev.push_str(i);
+											},
+										},
+									Some(Token::Comma) =>
+										match arg_mapping.get(&i[..])
+										{
+										Some(v) if v.len() == 0 => { output_tokens.pop(); },
+										Some(v) => output_tokens.extend( v.iter().cloned() ),
+										None =>
+											panic!("TODO: Concat after a comma with no expansion following - {}", i),
+										}
+									opt_t => {
+										panic!("TODO: Concat after non-ident - {:?}", opt_t);
+										},
+									},
 								},
-							tok => output_tokens.push(tok.clone()),
+							Token::Hash => match mode
+								{
+								Mode::Normal => { mode = Mode::Stringify; },
+								Mode::Stringify => { mode = Mode::Concat; },
+								Mode::Concat => { panic!("TODO: Error on `###` in stream"); }
+								},
+								//{
+								//	// Mode change to do a concatenation
+								//}
+							tok => {
+								match mode
+								{
+								Mode::Normal => { },
+								Mode::Stringify => { panic!("TODO: Error for # followed by non-ident?"); },
+								Mode::Concat => { panic!("TODO: Error for ## followed by non-ident?"); },
+								}
+								output_tokens.push(tok.clone());
+								}
 							}
 						}
 						output_tokens
 						};
+					debug!("=> output_tokens={:?}", output_tokens);
 
 					if self.options.wrap_define_expansion {
 						return Ok(token::Preprocessor::MacroInvocaton {
@@ -668,7 +736,7 @@ impl Preproc
 						if *pos == 0 && me.expansion.len() == 0
 						{
 							// HACK: Empty macros expand to `1` in #if
-							static TOK_ONE: Token = Token::Integer(1, ::types::IntClass::int());
+							static TOK_ONE: Token = Token::Integer(1, ::types::IntClass::int(), String::new());
 							*pos += 1;
 							return Some(&TOK_ONE);
 						}
@@ -708,7 +776,7 @@ impl Preproc
 			fn evaluate_expr_value(&mut self) -> super::ParseResult<i64> {
 				Ok(match self.get_tok()
 				{
-				Some(&Token::Integer(v,_)) => v as i64,
+				Some(&Token::Integer(v,_,_)) => v as i64,
 				//Some(&Token::Ident(ref n)) => panic!("{}: TODO: Look up #define macros - {:?}", self.self_, n),
 				Some(&Token::Ident(ref n)) => {
 					warn!("{}: Undefined identifier {}, evaluating to 0", self.self_, n);
@@ -792,9 +860,9 @@ impl ::std::fmt::Display for Preproc
 				write!(f, "<stdin>:{}: ", h.line)
 			}
 			},
-		InnerLexer::MacroExpansion(_h) => {
+		InnerLexer::MacroExpansion(h) => {
 			// TODO: Print something sane for macro expansions (macro source location?)
-			write!(f, "?MACRO?: ")
+			write!(f, "?MACRO?:{}: ", h.idx)
 			},
 		}
 	}
@@ -831,6 +899,7 @@ impl TokenSourceStack
 	{
 		self.lexers.push(InnerLexer::MacroExpansion(MacroExpansion {
 			tokens: tokens.into_iter(),
+			idx: 0,
 			}));
 	}
 
@@ -910,7 +979,7 @@ impl MacroExpansion
 			{
 			None => Token::EOF,
 			Some(Token::EOF) => panic!("How did an EOF end up in a macro expansion?"),
-			Some(t) => t
+			Some(t) => { self.idx += 1; t }
 			})
 	}
 }

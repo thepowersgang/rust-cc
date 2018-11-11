@@ -275,7 +275,7 @@ pub enum Node
 
 	// TODO: Are these valid in expressions? or just in initializers
 	ListLiteral(Vec<Node>),	// {a, b, c}
-	ArrayLiteral(Vec<(usize,Node)>),	// {[0] = a, [1] = b, [2] = c}
+	ArrayLiteral(Vec<(Node,Node)>),	// {[0] = a, [1] = b, [2] = c}
 	StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
 	
 	// TODO: Specialise this for expression/literal calls?

@@ -38,7 +38,30 @@ pub enum ArraySize
 {
 	None,
 	Fixed(u64),
-	//Expr(::ast::Node),
+	Expr(ArraySizeExpr),
+}
+impl From<ArraySizeExpr> for ArraySize {
+	fn from(v: ArraySizeExpr) -> Self {
+		ArraySize::Expr(v)
+	}
+}
+#[derive(Clone)]
+pub struct ArraySizeExpr(Rc<::ast::Node>);
+impl ArraySizeExpr {
+	pub fn new(n: ::ast::Node) -> Self {
+		ArraySizeExpr(Rc::new(n))
+	}
+}
+impl PartialEq for ArraySizeExpr {
+	fn eq(&self, v: &Self) -> bool {
+		panic!("TODO: eq for ArraySizeExpr - {:?} == {:?}", self.0, v.0);
+	}
+}
+impl ::std::ops::Deref for ArraySizeExpr {
+	type Target = ::ast::Node;
+	fn deref(&self) -> &::ast::Node {
+		&*self.0
+	}
 }
 
 /// Boolean signedness
@@ -196,6 +219,7 @@ impl ::std::fmt::Display for ArraySize
 		{
 		&ArraySize::None => f.write_str("[]"),
 		&ArraySize::Fixed(v) => write!(f, "[{}]", v),
+		&ArraySize::Expr(ref v) => write!(f, "[{:?}]", *v.0),
 		}
 	}
 }

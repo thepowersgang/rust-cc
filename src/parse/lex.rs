@@ -11,6 +11,13 @@ pub struct Lexer<'a>
 {
 	instream: LexerInput<'a>,
 	lastchar: Option<char>,
+
+	/// String currently being captured (for floats/intergers)
+	capture: Option<String>,
+}
+struct CaptureHandle;
+impl Drop for CaptureHandle {
+	fn drop(&mut self) { panic!("BUG: CaptureHandle not consumed"); }
 }
 
 macro_rules! try_eof {
@@ -39,30 +46,46 @@ impl<'a> Lexer<'a>
 		Lexer {
 			instream: instream,
 			lastchar: None,
+			capture: None,
 		}
 	}
 	
 	fn getc(&mut self) -> ParseResult<char>
 	{
-		if let Some(ch) = self.lastchar.take()
-		{
-			Ok(ch)
-		}
-		else if let Some(r) = self.instream.next()
-		{
-			match r
+		let ch = if let Some(ch) = self.lastchar.take()
 			{
-			Ok(ch) => Ok(ch),
-			Err(e) => Err(::parse::Error::IOError(e)),
+				ch
 			}
-		}
-		else
+			else
+			{
+				match self.instream.next()
+				{
+				Some(Ok(ch)) => ch,
+				Some(Err(e)) => return Err(::parse::Error::IOError(e)),
+				None => return Err(::parse::Error::EOF),
+				}
+			};
+		if let Some(cap) = self.capture.as_mut()
 		{
-			Err(::parse::Error::EOF)
+			cap.push(ch)
 		}
+		Ok(ch)
 	}
 	fn ungetc(&mut self, ch: char) {
-		self.lastchar = Some(ch)
+		self.lastchar = Some(ch);
+		if let Some(cap) = self.capture.as_mut()
+		{
+			cap.pop();
+		}
+	}
+
+	fn start_capture(&mut self, ch: char) -> CaptureHandle {
+		self.capture = Some(::std::iter::once(ch).collect());
+		CaptureHandle
+	}
+	fn end_capture(&mut self, handle: CaptureHandle) -> String {
+		::std::mem::forget(handle);
+		self.capture.take().unwrap()
 	}
 	
 	// Eat as many spaces as possible, returns errors verbatim
@@ -325,11 +348,12 @@ impl<'a> Lexer<'a>
 			),
 
 		'"' => Token::String( try!(self.read_string()) ),
-		'\'' => Token::Integer( try!(self.read_charconst()), ::types::IntClass::char() ),
+		'\'' => Token::Chararacter( try!(self.read_charconst()) ),
 		
 		'0' ... '9' => {
+			let caph = self.start_capture(ch);
 			let (base, whole) = if ch == '0' {
-					let ch2 = try_eof!(self.getc(), Token::Integer(0, ::types::IntClass::int()));
+					let ch2 = try_eof!(self.getc(), Token::Integer(0, ::types::IntClass::int(), self.end_capture(caph)));
 					match ch2 {
 					'1' ... '7' => {
 						self.ungetc(ch2);
@@ -348,8 +372,8 @@ impl<'a> Lexer<'a>
 					(10, try!(self.read_number(10)))
 				};
 			// Check for a decimal point
-			let intret = Token::Integer(whole, ::types::IntClass::int());
-			ch = try_eof!(self.getc(), intret);
+			let intret = |s: &mut Self, c| Token::Integer(whole, ::types::IntClass::int(), s.end_capture(c));
+			ch = try_eof!(self.getc(), intret(self,caph));
 			if ch == '.' || (base == 10 && (ch == 'e' || ch == 'E')) || (base == 16 && (ch == 'p' || ch == 'P'))
 			{
 				// Floating point
@@ -392,21 +416,21 @@ impl<'a> Lexer<'a>
 					Ok(_) | Err(::parse::Error::EOF) => ::types::FloatClass::Double,
 					Err(e) => return Err(e),
 					};
-				Token::Float( float_val, ty )
+				Token::Float( float_val, ty, self.end_capture(caph) )
 			}
 			else
 			{
 				// Integer
-				let is_unsigned = ::types::Signedness::from_bool_signed(if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret); true } else { false });
-				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
-				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret); true } else { false };
+				let is_unsigned = ::types::Signedness::from_bool_signed(if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false });
+				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false };
+				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false };
 				self.ungetc(ch);
 				Token::Integer( whole, match (is_long,is_longlong) {
 					(false,false) => ::types::IntClass::Int(is_unsigned),
 					(true, false) => ::types::IntClass::Long(is_unsigned),
 					(true, true ) => ::types::IntClass::LongLong(is_unsigned),
 					(false, true) => panic!("BUGCHECK: LongLong set, but Long unset")
-					} )
+					}, self.end_capture(caph) )
 			}
 			},
 		'a'...'z'|'A'...'Z'|'_'|'$' => {

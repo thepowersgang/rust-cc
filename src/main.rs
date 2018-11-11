@@ -3,6 +3,8 @@
  */
 #![feature(box_syntax)]
 #![feature(fnbox)]	// For some pretty-printing hackery
+#![feature(const_string_new)]	// For a static integer token
+#![feature(nll)]
 
 #[macro_use]
 extern crate log;
@@ -25,6 +27,8 @@ struct Options
 
 	#[structopt(short="I",parse(from_os_str))]
 	include_dirs: Vec<::std::path::PathBuf>,
+
+	/// `-D FOO=bar`
 	#[structopt(short="D")]
 	defines: Vec<String>,
 }

@@ -229,10 +229,7 @@ impl<'ast> super::ParseState<'ast>
 							match size_expr.literal_integer()
 							{
 							Some(v) => ::types::ArraySize::Fixed(v),
-							None => {
-								panic!("TODO: Handle non-literal array sizes - {:?}", size_expr);
-								//::types::ArraySize::Expr(size_expr)
-								}
+							None => ::types::ArraySizeExpr::new(size_expr).into(),
 							}
 						}
 						else {
@@ -425,7 +422,7 @@ impl<'ast> super::ParseState<'ast>
 					&::types::BaseType::Integer(::types::IntClass::Int(s)) => s,
 					ft @ _ => syntax_error!("Invalid type for bitfield, expected signed/unsigned, got {:?}", ft),
 					};
-				let i = syntax_assert!( self.lex.get_token()?, Token::Integer(i,_class) => i as u8 );
+				let i = syntax_assert!( self.lex.get_token()?, Token::Integer(i,_class,_s) => i as u8 );
 				let bt = ::types::BaseType::Integer(::types::IntClass::Bits(sign, i));
 				items.push( (::types::Type::new_ref_bare(bt), ident) );
 				
