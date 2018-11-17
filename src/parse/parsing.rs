@@ -145,28 +145,17 @@ impl<'ast> super::ParseState<'ast>
 					// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
 					if peek_token!(self.lex, Token::BraceOpen)
 					{
-						// NOTE: The following would need changes for C++11 array literals
+						// NOTE: The following would need changes for C++11 struct initialisation
 						parse_todo!("Nested functions");
 					}
 					else
 					{
-						// TODO: Create local
-						let init = if peek_token!(self.lex, Token::Assign) {
-								Some( self.parse_expr()? )
-							}
-							else {
-								None
-							};
+						let init = self.parse_var_init()?;
 						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, value: init } ];
 						while peek_token!(self.lex, Token::Comma)
 						{
 							let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-							let init = if peek_token!(self.lex, Token::Assign) {
-									Some( self.parse_expr()? )
-								}
-								else {
-									None
-								};
+							let init = self.parse_var_init()?;
 							
 							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, value: init } );
 						}
@@ -180,6 +169,20 @@ impl<'ast> super::ParseState<'ast>
 			rv
 			},
 		None => None
+		})
+	}
+	fn parse_var_init(&mut self) -> ParseResult<::ast::Initialiser>
+	{
+		Ok(if !peek_token!(self.lex, Token::Assign) {
+			// No assignment
+			::ast::Initialiser::None
+		} else if !peek_token!(self.lex, Token::BraceOpen) {
+			// `=` ...
+			::ast::Initialiser::Value( self.parse_expr()? )
+		}
+		else {
+			// `=` `{`
+			self.parse_composite_lit()?
 		})
 	}
 	
@@ -386,16 +389,12 @@ impl<'ast> super::ParseState<'ast>
 	
 	fn parse_variable_def(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
-		match try!(self.lex.get_token())
-		{
-		Token::Assign => {
-			let value = try!(self.parse_expr());
-			self.ast.define_variable(typeid, ident, Some(value));
-			},
-		tok @ _ => {
-			self.lex.put_back(tok);
+		let init = self.parse_var_init()?;
+		if let ::ast::Initialiser::None = init {
 			self.ast.define_variable(typeid, ident, None);
-			}
+		}
+		else {
+			self.ast.define_variable(typeid, ident, Some(init));
 		}
 
 		Ok( () )
@@ -635,7 +634,6 @@ impl<'ast> super::ParseState<'ast>
 			},
 		Token::Integer(v,_,_) => ::ast::Node::Integer(v),
 		Token::Float(v,_,_) => ::ast::Node::Float(v),
-		Token::BraceOpen => try!(self.parse_composite_lit()),
 		Token::Rword_sizeof => {
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);
 			let rv = match try!(self.get_base_type_opt())
@@ -662,29 +660,29 @@ impl<'ast> super::ParseState<'ast>
 		})
 	}
 	
-	fn parse_composite_lit(&mut self) -> ParseResult<::ast::Node>
+	fn parse_composite_lit(&mut self) -> ParseResult<::ast::Initialiser>
 	{
 		Ok(match try!(self.lex.get_token())
 		{
 		Token::BraceClose => {
-			::ast::Node::ListLiteral(vec![])
+			::ast::Initialiser::ListLiteral(vec![])
 			},
 		t @ Token::Period => {
 			self.lex.put_back(t);
-			try!(self.parse_struct_lit())
+			::ast::Initialiser::StructLiteral( self.parse_struct_lit()? )
 			},
 		t @ Token::SquareOpen => {
 			self.lex.put_back(t);
-			try!(self.parse_array_lit())
+			::ast::Initialiser::ArrayLiteral( self.parse_array_lit()? )
 			},
 		t @ _ => {
 			self.lex.put_back(t);
-			try!(self.parse_list_lit())
+			::ast::Initialiser::ListLiteral( self.parse_list_lit()? )
 			},
 		})
 	}
 	
-	fn parse_list_lit(&mut self) -> ParseResult<::ast::Node>
+	fn parse_list_lit(&mut self) -> ParseResult<Vec<::ast::Node>>
 	{
 		let mut items = Vec::new();
 		loop
@@ -701,34 +699,10 @@ impl<'ast> super::ParseState<'ast>
 		syntax_assert!(self.lex => Token::BraceClose);
 
 		
-		Ok( ::ast::Node::ListLiteral(items) )
+		Ok(items)
 	}
 	
-	fn parse_struct_lit(&mut self) -> ParseResult<::ast::Node>
-	{
-		let mut items = Vec::new();
-		loop
-		{
-			if peek_token_nc!(self.lex, Token::BraceClose) {
-				break;
-			}
-			syntax_assert!(self.lex => Token::Period);
-			let name = syntax_assert!(self.lex => Token::Ident(i) @ i);
-			syntax_assert!(self.lex => Token::Assign);
-			let val = try!(self.parse_expr());
-			
-			items.push( (name,val) );
-			
-			if ! peek_token!(self.lex, Token::Comma) {
-				break;
-			}
-		}
-		syntax_assert!(self.lex => Token::BraceClose);
-		
-		Ok( ::ast::Node::StructLiteral(items) )
-	}
-	
-	fn parse_array_lit(&mut self) -> ParseResult<::ast::Node>
+	fn parse_array_lit(&mut self) -> ParseResult<Vec<(::ast::Node, ::ast::Node)>>
 	{
 		let mut items = Vec::new();
 		loop
@@ -750,7 +724,31 @@ impl<'ast> super::ParseState<'ast>
 		}
 		syntax_assert!(self.lex => Token::BraceClose);
 		
-		Ok( ::ast::Node::ArrayLiteral(items) )
+		Ok(items)
+	}
+	
+	fn parse_struct_lit(&mut self) -> ParseResult<Vec<(String,::ast::Node)>>
+	{
+		let mut items = Vec::new();
+		loop
+		{
+			if peek_token_nc!(self.lex, Token::BraceClose) {
+				break;
+			}
+			syntax_assert!(self.lex => Token::Period);
+			let name = syntax_assert!(self.lex => Token::Ident(i) @ i);
+			syntax_assert!(self.lex => Token::Assign);
+			let val = try!(self.parse_expr());
+			
+			items.push( (name,val) );
+			
+			if ! peek_token!(self.lex, Token::Comma) {
+				break;
+			}
+		}
+		syntax_assert!(self.lex => Token::BraceClose);
+		
+		Ok(items)
 	}
 }
 

@@ -7,6 +7,7 @@ use std::collections::hash_map::Entry;
 pub mod pretty_print;
 
 #[derive(Default)]
+/// Representation of a C program/compilation unit
 pub struct Program
 {
 	/// Item definition order
@@ -19,6 +20,7 @@ pub struct Program
 	// Aka global variables/functions
 	symbols: HashMap<String, Symbol>,
 }
+/// Referece to a defined item (typedef/struct/value/...)
 enum ItemRef
 {
 	ValueDecl(String),
@@ -37,8 +39,10 @@ enum ItemRef
 	//CppInclude(String),
 }
 
+// TODO: Have a disinction between functions and globals?
 struct Symbol
 {
+	// TODO: Storage classes?
 	name: String,
 	symtype: ::types::TypeRef,
 	value: Option<SymbolValue>,
@@ -46,7 +50,7 @@ struct Symbol
 #[derive(Debug)]
 enum SymbolValue
 {
-	Value(Node),
+	Value(Initialiser),
 	Code(Block),
 }
 
@@ -63,7 +67,7 @@ impl Program
 	{
 		self.define_symbol(typeid, name, value.map(SymbolValue::Code))
 	}
-	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Node>)
+	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Initialiser>)
 	{
 		self.define_symbol(typeid, name, value.map(SymbolValue::Value))
 	}
@@ -252,9 +256,24 @@ pub enum Statement
 #[derive(Debug)]
 pub struct VariableDefinition
 {
+	// TODO: Store the base type (for later printing)
 	pub ty: ::types::TypeRef,
 	pub name: String,
-	pub value: Option<Node>,
+	pub value: Initialiser,
+}
+#[derive(Debug)]
+pub enum Initialiser
+{
+	/// No initialisation
+	None,
+	/// Single value
+	Value(Node),
+	/// List literal `{ a, b, c }`
+	ListLiteral(Vec<Node>),
+	/// Array literal `{[0] = a, [1] = b, [2] = c}`
+	ArrayLiteral(Vec<(Node,Node)>),	// 
+	/// Struct literal `{.a = a, .b = b, .c = c}`
+	StructLiteral(Vec<(String,Node)>),
 }
 /// Either a evaluatable expression, or a variable definition
 #[derive(Debug)]
@@ -273,11 +292,6 @@ pub enum Node
 	Integer(u64),
 	Float(f64),
 
-	// TODO: Are these valid in expressions? or just in initializers
-	ListLiteral(Vec<Node>),	// {a, b, c}
-	ArrayLiteral(Vec<(Node,Node)>),	// {[0] = a, [1] = b, [2] = c}
-	StructLiteral(Vec<(String,Node)>),	// {.a = a, .b = b, .c = c}
-	
 	// TODO: Specialise this for expression/literal calls?
 	FcnCall(Box<Node>, Vec<Node>),
 	
@@ -423,12 +437,6 @@ impl Node
 		| Node::Integer(_)
 		| Node::Float(_)
 			=> NodePrecedence::Value,
-
-
-		Node::ListLiteral(_)
-		| Node::ArrayLiteral(_)
-		| Node::StructLiteral(_)
-			=> NodePrecedence::CommaOperator,
 
 		Node::FcnCall(_, _) => NodePrecedence::MemberAccess,
 

@@ -46,11 +46,25 @@ impl<'a> PrettyPrinter<'a>
 			self.write_str("\n");
 			},
 		Some(::ast::SymbolValue::Value(ref v)) => {
-			self.write_str(" = ");
-			self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			self.write_initialiser(v);
 			self.write_str(";\n");
 			},
 		None => panic!("Value with no value"),
+		}
+	}
+
+	fn write_initialiser(&mut self, init: &::ast::Initialiser)
+	{
+		match init
+		{
+		&::ast::Initialiser::None => {},
+		&::ast::Initialiser::Value(ref v) => {
+			self.write_str(" = ");
+			self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			},
+		&::ast::Initialiser::ListLiteral(_) => panic!("TODO: Pretty-print ListLiteral"),
+		&::ast::Initialiser::ArrayLiteral(_) => panic!("TODO: Pretty-print ArrayLiteral"),
+		&::ast::Initialiser::StructLiteral(_) => panic!("TODO: Pretty-print StructLiteral"),
 		}
 	}
 
@@ -319,11 +333,7 @@ impl<'a> PrettyPrinter<'a>
 				self.write_str("; ");
 			}
 			self.write_type(&def.ty, |self_| self_.write_str(&def.name));
-			if let Some(ref v) = def.value
-			{
-				self.write_str(" = ");
-				self.write_node(v, super::NodePrecedence::CommaOperator.up());
-			}
+			self.write_initialiser(&def.value);	// TODO: Indent level?
 			first = false;
 		}
 	}
@@ -358,11 +368,6 @@ impl<'a> PrettyPrinter<'a>
 		&Node::String(ref s) => write!(self, "{:?}", s),
 		&Node::Integer(v) => write!(self, "{}", v),
 		&Node::Float(v) => write!(self, "{}", v),
-
-		&Node::ListLiteral(_)
-		| &Node::ArrayLiteral(_)
-		| &Node::StructLiteral(_)
-			=> panic!("TODO: List/Array/Struct literal printing"),
 
 		&Node::FcnCall(ref fcn, ref values) => {
 			self.write_node(fcn, node_p);
