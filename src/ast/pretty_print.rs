@@ -63,7 +63,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_initialiser(v);
 			self.write_str(";\n");
 			},
-		None => panic!("Value with no value"),
+		None => panic!("Value with no value - {:?}", sym.name),
 		}
 	}
 
@@ -76,9 +76,20 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str(" = ");
 			self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			},
-		&::ast::Initialiser::ListLiteral(_) => {
-			self.write_str(" = ");
-			panic!("TODO: Pretty-print ListLiteral");
+		&::ast::Initialiser::ListLiteral(ref vs) => {
+			self.write_str(" = {");
+			let mut is_first = true;
+			for v in vs {
+				if !is_first {
+					self.write_str(", ");
+				}
+				else {
+					self.write_str(" ");
+				}
+				is_first = false;
+				self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			}
+			self.write_str(" }");
 			},
 		&::ast::Initialiser::ArrayLiteral(_) => panic!("TODO: Pretty-print ArrayLiteral"),
 		&::ast::Initialiser::StructLiteral(_) => panic!("TODO: Pretty-print StructLiteral"),
@@ -281,6 +292,9 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str(" )\n");
 			self.write_block(true_arm, indent+1);
 			if let &Some(ref ea) = else_arm {
+				for _ in 0 .. indent+1 {
+					self.write_str("\t");
+				}
 				self.write_str("else\n");
 				self.write_block(ea, indent+1);
 			}
