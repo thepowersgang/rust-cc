@@ -200,8 +200,6 @@ impl Program
 			Err(None)
 		}
 		else {
-			// Insert 'items' into the global constant scope
-			error!("TODO: Insert enum values - {:?}", items);
 			// Set items in enum
 			er.borrow_mut().set_items(items);
 			Ok( er )
@@ -422,6 +420,7 @@ impl Node
 			(&BinOp::Sub,Some(a),Some(b)) => Some(a-b),
 			_ => None,
 			},
+		&Node::Identifier(_) => None,	// TODO: Look up ident in the global/constant scope
 		_ => None,
 		}
 	}
