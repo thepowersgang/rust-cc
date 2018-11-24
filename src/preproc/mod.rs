@@ -89,8 +89,13 @@ pub enum Handling
 
 struct MacroDefinition
 {
-	arg_names: Option<Vec<String>>,
+	arg_names: Option<MacroArgs>,
 	expansion: Vec<Token>,
+}
+struct MacroArgs
+{
+	names: Vec<String>,
+	va_args_name: Option<String>,
 }
 #[derive(Default,Debug)]
 struct Conditional
@@ -467,13 +472,14 @@ impl Preproc
 				Token::Ident(ref name) if name == "define" => {
 						let ident = syntax_assert!(self.eat_comments(), Token::Ident(s) => s);
 						let mut tokens = Vec::new();
-						let (cont, args) =
+						let (cont, args, variable) =
 							match self.lexers.get_token()?
 							{
-							Token::Whitespace => (true, None),
-							Token::Newline => (false, None),
+							Token::Whitespace => (true, None, None),
+							Token::Newline => (false, None, None),
 							Token::ParenOpen => {
 								let mut args = Vec::new();
+								let mut variable = None;
 								loop
 								{
 									match self.eat_comments()?
@@ -481,7 +487,7 @@ impl Preproc
 									Token::ParenClose if args.len() == 0 => break,
 									Token::Ident(s) => args.push(s),
 									Token::Vargs => {
-										args.push("__VA_ARGS__".to_owned());
+										variable = Some("__VA_ARGS__".to_owned());
 										syntax_assert!(self.eat_comments(), Token::ParenClose => ());
 										break
 										},
@@ -491,7 +497,7 @@ impl Preproc
 									{
 									Token::Vargs => {
 										syntax_assert!(self.eat_comments(), Token::ParenClose => ());
-										//panic!("{}: TODO: Handle gcc-style named __VA_ARGS__", self);
+										variable = args.pop();
 										break
 										},
 									Token::ParenClose => break,
@@ -499,7 +505,7 @@ impl Preproc
 									tok @ _ => panic!("{}: TODO: Error, unexpected {:?} in macro argument list", self, tok),
 									}
 								}
-								(true, Some(args))
+								(true, Some(args), variable)
 								},
 							tok @ _ => panic!("TODO: Unexpected {:?} after #define name", tok),
 							};
@@ -524,7 +530,7 @@ impl Preproc
 						Handling::InternalOnly => {
 							info!("Define {} = {:?} {:?}", ident, args, tokens);
 							self.macros.insert(ident, MacroDefinition {
-								arg_names: args,
+								arg_names: args.map(|v| MacroArgs { names: v, va_args_name: variable }),
 								expansion: tokens,
 								});
 							// Continue loop
@@ -532,7 +538,7 @@ impl Preproc
 						Handling::InternalAndPropagate => {
 							// - Clone into the local map
 							self.macros.insert(ident.clone(), MacroDefinition {
-								arg_names: args.clone(),
+								arg_names: args.clone().map(|v| MacroArgs { names: v, va_args_name: variable }),
 								expansion: tokens.clone(),
 								});
 							return Ok(token::Preprocessor::MacroDefine {
@@ -600,7 +606,7 @@ impl Preproc
 
 				match self.macros.get(&v) {
 				Some(macro_def) => {
-					let arg_mapping: HashMap<&str,Vec<Token>> = if let Some(ref arg_names) = macro_def.arg_names {
+					let arg_mapping: HashMap<&str,Vec<Token>> = if let Some(ref args) = macro_def.arg_names {
 							match self.lexers.get_token_nospace()?
 							{
 							Token::ParenOpen => {},
@@ -610,8 +616,9 @@ impl Preproc
 								return Ok(Token::Ident(v));
 								}
 							}
+							debug!("Macro {} with args", v);
 							let l = &mut self.lexers;
-							Self::parse_macro_args(arg_names, &mut || l.get_token())?
+							Self::parse_macro_args(args, &mut || l.get_token())?
 						}
 						else {
 							HashMap::new()
@@ -628,11 +635,11 @@ impl Preproc
 								let mut arg_mapping = arg_mapping;	// re-map as mutable, so we can remove stuff.
 								let mut input = Vec::new();
 								input.push(Token::Ident(v));
-								if let Some(ref arg_names) = macro_def.arg_names
+								if let Some(ref args) = macro_def.arg_names
 								{
 									input.push(Token::ParenOpen);
 									let mut first = true;
-									for a in arg_names
+									for a in &args.names
 									{
 										if !first {
 											input.push(Token::Comma);
@@ -675,7 +682,7 @@ impl Preproc
 		}
 	}
 
-	fn parse_macro_args<'a>(arg_names: &'a [String], get_token: &mut FnMut()->Result<Token>) -> Result<HashMap<&'a str,Vec<Token>>>
+	fn parse_macro_args<'a>(mac_args: &'a MacroArgs, get_token: &mut FnMut()->Result<Token>) -> Result<HashMap<&'a str,Vec<Token>>>
 	{
 		// Read tokens, handling nested parens
 		let mut args: HashMap<&str,_> = HashMap::new();
@@ -688,14 +695,32 @@ impl Preproc
 			match get_token()?
 			{
 			Token::ParenClose if paren_level == 0 => {
-				args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
+				if cur_arg_idx < mac_args.names.len() {
+					args.insert( &mac_args.names[cur_arg_idx], cur_arg_toks );
+					if let Some(v) = mac_args.va_args_name.as_ref() {
+						args.insert(v, vec![]);
+					}
+				}
+				else if cur_arg_idx == 0 && cur_arg_toks.is_empty() && mac_args.va_args_name.is_none() {
+				}
+				else {
+					if let Some(v) = mac_args.va_args_name.as_ref() {
+						args.insert( v, cur_arg_toks );
+					}
+					else {
+						panic!("Bugcheck: va_args_name is None, but out of arguments - args={:?}", args);
+					}
+				}
 				break args;
 				},
 			// TODO: Handle gcc-style named variadics?
-			Token::Comma if paren_level == 0 && arg_names[cur_arg_idx] != "__VA_ARGS__" => {
-				args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
+			Token::Comma if paren_level == 0 && cur_arg_idx < mac_args.names.len() => {
+				args.insert( &mac_args.names[cur_arg_idx], cur_arg_toks );
 				cur_arg_toks = Vec::new();
 				cur_arg_idx += 1;
+				if cur_arg_idx == mac_args.names.len() && mac_args.va_args_name.is_none() {
+					panic!("TODO: Error message when too many arguments are passed");
+				}
 				},
 			t @ Token::ParenOpen => {
 				paren_level += 1;
@@ -880,7 +905,7 @@ impl Preproc
 						Some(v) if v.len() == 0 => { output_tokens.pop(); },
 						Some(v) => output_tokens.extend( v.iter().cloned() ),
 						None =>
-							panic!("TODO: Concat after a comma with no expansion following - {}", i),
+							panic!("TODO: ', ## {}' - no expansion for {}", i, i),
 						}
 					opt_t => {
 						panic!("TODO: Concat after non-ident - {:?}", opt_t);
@@ -975,11 +1000,11 @@ impl Preproc
 							{
 								if let Some(md) = self.self_.macros.get(&n)
 								{
-									let args = if let Some(ref arg_names) = md.arg_names {
+									let args = if let Some(ref args) = md.arg_names {
 											if self.peek_tok() != Some(&Token::ParenOpen) {
 												return Some(Token::Ident(n));
 											}
-											match Preproc::parse_macro_args(arg_names, &mut || self.tokens.next().ok_or(Error::UnexpectedEof))
+											match Preproc::parse_macro_args(args, &mut || self.tokens.next().ok_or(Error::UnexpectedEof))
 											{
 											Err(e) => panic!("TODO: Error when failing to parse macro args {:?}", e),
 											Ok(v) => v,

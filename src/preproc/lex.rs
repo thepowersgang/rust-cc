@@ -165,6 +165,8 @@ impl<'a> Lexer<'a>
 		'"' => Some('"'),
 		'n' => Some('\n'),
 		'r' => Some('\r'),
+		't' => Some(8u8 as char),
+		'v' => Some(11u8 as char),
 		'0' => Some('\0'),
 		'\n' => None,
 		c @ _ => panic!("Unexpected escape code in string '\\{}'", c)
