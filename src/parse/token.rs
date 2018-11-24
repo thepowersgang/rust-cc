@@ -18,7 +18,7 @@ pub enum Token
 	// -- Expression leaves
 	Integer(u64, ::types::IntClass, String),
 	Float(f64, ::types::FloatClass, String),
-	Chararacter(u64),
+	Character(u64),
 	String(String),
 	Ident(String),
 	

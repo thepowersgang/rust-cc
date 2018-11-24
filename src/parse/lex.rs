@@ -348,7 +348,7 @@ impl<'a> Lexer<'a>
 			),
 
 		'"' => Token::String( try!(self.read_string()) ),
-		'\'' => Token::Chararacter( try!(self.read_charconst()) ),
+		'\'' => Token::Character( try!(self.read_charconst()) ),
 		
 		'0' ... '9' => {
 			let caph = self.start_capture(ch);

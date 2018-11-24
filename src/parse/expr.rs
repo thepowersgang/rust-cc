@@ -239,6 +239,7 @@ impl<'ast> super::ParseState<'ast>
 			::ast::Node::String(val)
 			},
 		Token::Integer(v,_,_) => ::ast::Node::Integer(v),
+		Token::Character(v) => ::ast::Node::Integer(v),
 		Token::Float(v,_,_) => ::ast::Node::Float(v),
 		Token::Rword_sizeof => {
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);

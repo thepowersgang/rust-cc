@@ -733,7 +733,7 @@ impl Preproc
 							// -- Expression leaves
 							&Token::Integer(_, _, ref s) => s,
 							&Token::Float(_, _, ref s) => s,
-							&Token::Chararacter(ch) => panic!("TODO: Stringify char constant {}", ch),
+							&Token::Character(ch) => panic!("TODO: Stringify char constant {}", ch),
 							&Token::String(ref s) => panic!("TODO: Stringify string constant {:?}", s),
 							&Token::Ident(ref n) => n,
 							
