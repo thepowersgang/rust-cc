@@ -4,42 +4,9 @@
 use parse::Token;
 use parse::ParseResult;
 
-/// Parse a file into the passed AST program representation
-pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>, defines: &[String]) -> ParseResult<()>
-{
-	let pp_opts = {
-		let mut pp_opts = super::preproc::Options::default();
-		pp_opts.include_paths = include_paths;
-		pp_opts
-		};
-
-	let mut self_ = super::ParseState {
-		ast: ast,
-		lex: ::parse::preproc::Preproc::new( Some(filename), pp_opts )?,
-		};
-	
-	// Process command-line `-D` arguments
-	for d in defines
-	{
-		self_.lex.parse_define_str(d)?;
-	}
-	
-	match self_.parseroot()
-	{
-	Ok(o) => Ok(o),
-	Err(e) => {
-		error!("Parse error {:?} at {}", e, self_.lex);
-		match e
-		{
-		::parse::Error::SyntaxError(s) => Err( ::parse::Error::SyntaxError(format!("{} {}", self_.lex, s)) ),
-		_ => Err( e ),
-		}
-		}
-	}
-}
 impl<'ast> super::ParseState<'ast>
 {
-	fn parseroot(&mut self) -> ParseResult<()>
+	pub(super) fn parseroot(&mut self) -> ParseResult<()>
 	{
 		loop
 		{

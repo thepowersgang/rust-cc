@@ -14,6 +14,7 @@ extern crate utf8reader;
 #[macro_use]
 extern crate structopt;
 
+mod preproc;
 mod parse;
 mod types;
 mod ast;

@@ -1,8 +1,28 @@
 //! C Pre-processor handling
-use super::Token;
-use super::token;
 use std::collections::HashMap;
 use std::default::Default;
+
+pub use self::token::Token;
+pub mod token;
+mod lex;
+
+#[derive(Debug)]
+pub enum Error
+{
+	/// any EOF (may not be an error)
+	EOF,
+	/// Any form of IO error
+	IoError(::std::io::Error),
+	/// An unexpected character was encountered in the input stream
+	BadCharacter(char),
+	/// A literal (integer, float, string) wasn't able to be lexed correctly
+	MalformedLiteral(&'static str),
+	/// An unexpected EOF
+	UnexpectedEof,
+}
+
+pub type Result<T> = ::std::result::Result<T,Error>;
+
 
 trait ReadExt: ::std::io::Read {
 	fn chars(self) -> ::utf8reader::UTF8Reader<Self> where Self: Sized;
@@ -99,7 +119,7 @@ enum InnerLexer
 }
 struct LexHandle
 {
-	lexer: ::parse::lex::Lexer<'static>,
+	lexer: lex::Lexer<'static>,
 	filename: Option<::std::path::PathBuf>,
 	line: usize,
 }
@@ -117,19 +137,19 @@ macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try
 
 impl Preproc
 {
-	pub fn new(filename: Option<&::std::path::Path>, options: Options) -> ::parse::ParseResult<Preproc>
+	pub fn new(filename: Option<&::std::path::Path>, options: Options) -> Result<Preproc>
 	{
 		let lexer = if let Some(filename) = filename
 			{
-				::parse::lex::Lexer::new(box match ::std::fs::File::open(filename)
+				lex::Lexer::new(box match ::std::fs::File::open(filename)
 					{
 					Ok(f) => ::std::io::BufReader::new(f).chars(),
-					Err(e) => return Err(::parse::Error::IOError(e)),
+					Err(e) => return Err(Error::IoError(e)),
 					})
 			}
 			else
 			{
-				::parse::lex::Lexer::new(box ::std::io::stdin().chars())
+				lex::Lexer::new(box ::std::io::stdin().chars())
 			};
 		Ok(Preproc {
 			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.to_owned()) ),
@@ -141,9 +161,9 @@ impl Preproc
 			})
 	}
 
-	pub fn parse_define_str(&mut self, s: &str) -> ::parse::ParseResult<()>
+	pub fn parse_define_str(&mut self, s: &str) -> Result<()>
 	{
-		let mut lex = ::parse::lex::Lexer::new(box s.chars().map(Ok));
+		let mut lex = lex::Lexer::new(box s.chars().map(Ok));
 
 		let ident = syntax_assert!(lex.get_token(), Token::Ident(n) => n);
 		match lex.get_token()?
@@ -168,7 +188,7 @@ impl Preproc
 		self.saved_tok = Some( tok );
 	}
 
-	fn eat_comments(&mut self) -> ::parse::ParseResult<Token>
+	fn eat_comments(&mut self) -> Result<Token>
 	{
 		self.lexers.get_token_nospace()
 	}
@@ -179,7 +199,7 @@ impl Preproc
 			.all(|v| v.is_active)
 	}
 
-	pub fn get_token(&mut self) -> ::parse::ParseResult<Token>
+	pub fn get_token(&mut self) -> Result<Token>
 	{
 		if self.saved_tok.is_some()
 		{
@@ -189,12 +209,12 @@ impl Preproc
 		}
 		else
 		{
-			let tok = super::lex::map_keywords( self.get_token_int()? );
+			let tok = lex::map_keywords( self.get_token_int()? );
 			trace!("get_token = {:?} (new)", tok);
 			Ok(tok)
 		}
 	}
-	pub fn get_token_int(&mut self) -> ::parse::ParseResult<Token>
+	pub fn get_token_int(&mut self) -> Result<Token>
 	{
 		loop
 		{
@@ -586,7 +606,7 @@ impl Preproc
 							Token::ParenOpen => {},
 							tok => {
 								assert!( self.saved_tok.is_none() );
-								self.saved_tok = Some( super::lex::map_keywords(tok) );
+								self.saved_tok = Some( lex::map_keywords(tok) );
 								return Ok(Token::Ident(v));
 								}
 							}
@@ -655,7 +675,7 @@ impl Preproc
 		}
 	}
 
-	fn parse_macro_args<'a>(arg_names: &'a [String], get_token: &mut FnMut()->super::ParseResult<Token>) -> super::ParseResult<HashMap<&'a str,Vec<Token>>>
+	fn parse_macro_args<'a>(arg_names: &'a [String], get_token: &mut FnMut()->Result<Token>) -> Result<HashMap<&'a str,Vec<Token>>>
 	{
 		// Read tokens, handling nested parens
 		let mut args: HashMap<&str,_> = HashMap::new();
@@ -890,7 +910,7 @@ impl Preproc
 		output_tokens
 	}
 
-	fn parse_if_expr(&self, tokens: Vec<Token>) -> super::ParseResult<bool>
+	fn parse_if_expr(&self, tokens: Vec<Token>) -> Result<bool>
 	{
 		// TODO: Pass expansion over the tokens first? (Macro expansion rules aren't trivial)
 		struct Parser<'a>
@@ -959,7 +979,7 @@ impl Preproc
 											if self.peek_tok() != Some(&Token::ParenOpen) {
 												return Some(Token::Ident(n));
 											}
-											match Preproc::parse_macro_args(arg_names, &mut || self.tokens.next().ok_or(super::Error::EOF))
+											match Preproc::parse_macro_args(arg_names, &mut || self.tokens.next().ok_or(Error::UnexpectedEof))
 											{
 											Err(e) => panic!("TODO: Error when failing to parse macro args {:?}", e),
 											Ok(v) => v,
@@ -1009,7 +1029,7 @@ impl Preproc
 		//	EmptyExpansion,
 		//}
 		type Value = i64;
-		type Result = super::ParseResult<Value>;
+		type Result = crate::preproc::Result<Value>;
 		impl<'a> Parser<'a>
 		{
 			fn evaluate_expr_value(&mut self) -> Result {
@@ -1051,7 +1071,7 @@ impl Preproc
 					},
 				Some(Token::ParenOpen) => {
 					let rv = self.evaluate_expr()?;
-					match self.get_tok().ok_or(super::Error::EOF)?
+					match self.get_tok().ok_or(Error::UnexpectedEof)?
 					{
 					Token::ParenClose => {},
 					t => panic!("{}TODO: Error in #if parsing - Expected ')' got '{:?}' - {:?}", self.self_, t, self.tokens),
@@ -1222,7 +1242,7 @@ impl InnerLexer
 
 impl TokenSourceStack
 {
-	fn new(lexer: super::lex::Lexer<'static>, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
+	fn new(lexer: lex::Lexer<'static>, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
 	{
 		TokenSourceStack {
 			lexers: vec![ InnerLexer::File(LexHandle {
@@ -1233,13 +1253,13 @@ impl TokenSourceStack
 			}
 	}
 
-	fn push_file(&mut self, path: ::std::path::PathBuf) -> super::ParseResult<()>
+	fn push_file(&mut self, path: ::std::path::PathBuf) -> Result<()>
 	{
 		self.lexers.push(InnerLexer::File(LexHandle {
-			lexer: super::lex::Lexer::new(box match ::std::fs::File::open(&path)
+			lexer: lex::Lexer::new(box match ::std::fs::File::open(&path)
 				{
 				Ok(f) => ::std::io::BufReader::new(f).chars(),
-				Err(e) => return Err(::parse::Error::IOError(e)),
+				Err(e) => return Err(Error::IoError(e)),
 				}),
 			filename: Some(path),
 			line: 1,
@@ -1273,7 +1293,7 @@ impl TokenSourceStack
 		}
 	}
 
-	fn get_token(&mut self) -> super::ParseResult<Token>
+	fn get_token(&mut self) -> Result<Token>
 	{
 		loop
 		{
@@ -1294,7 +1314,7 @@ impl TokenSourceStack
 			}
 		}
 	}
-	fn get_token_nospace(&mut self) -> ::parse::ParseResult<Token>
+	fn get_token_nospace(&mut self) -> Result<Token>
 	{
 		loop
 		{
@@ -1309,7 +1329,7 @@ impl TokenSourceStack
 		}
 	}
 
-	fn get_includestr(&mut self) -> ::parse::ParseResult<Option<String>>
+	fn get_includestr(&mut self) -> Result<Option<String>>
 	{
 		match self.last_mut()
 		{
@@ -1320,7 +1340,7 @@ impl TokenSourceStack
 }
 impl LexHandle
 {
-	fn get_token(&mut self) -> super::ParseResult<Token>
+	fn get_token(&mut self) -> Result<Token>
 	{
 		match self.lexer.get_token()?
 		{
@@ -1340,7 +1360,7 @@ impl LexHandle
 }
 impl MacroExpansion
 {
-	fn get_token(&mut self) -> super::ParseResult<Token>
+	fn get_token(&mut self) -> Result<Token>
 	{
 		Ok(match self.tokens.next()
 			{

@@ -5,8 +5,7 @@
  */
 
 // Root parsing function
-pub use self::parsing::parse;
-pub use self::token::Token;
+pub use crate::preproc::Token;
 
 macro_rules! syntax_error
 {
@@ -58,11 +57,6 @@ macro_rules! parse_todo
 	($str:expr) => (return Err(::parse::Error::Todo($str)))
 }
 
-// TODO: Move these to another module?
-mod lex;
-mod preproc;
-pub mod token;
-
 mod parsing;
 mod expr;
 mod types;
@@ -76,6 +70,20 @@ pub enum Error
 	BadCharacter(char),
 	SyntaxError(String),
 }
+impl From<::preproc::Error> for Error
+{
+	fn from(v: ::preproc::Error) -> Self
+	{
+		match v
+		{
+		::preproc::Error::EOF => Error::EOF,
+		::preproc::Error::IoError(e) => Error::IOError(e),
+		::preproc::Error::UnexpectedEof => Error::SyntaxError(format!("Unexpected EOF in preprocessor")),
+		::preproc::Error::MalformedLiteral(v) => Error::SyntaxError(format!("Malformed literal: {}", v)),
+		::preproc::Error::BadCharacter(c) => Error::BadCharacter(c),
+		}
+	}
+}
 
 #[must_use]
 pub type ParseResult<T> = Result<T,Error>;
@@ -83,7 +91,41 @@ pub type ParseResult<T> = Result<T,Error>;
 struct ParseState<'ast>
 {
 	ast: &'ast mut ::ast::Program,
-	lex: ::parse::preproc::Preproc,
+	lex: ::preproc::Preproc,
+}
+
+/// Parse a file into the passed AST program representation
+pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_paths: Vec<::std::path::PathBuf>, defines: &[String]) -> ParseResult<()>
+{
+	let pp_opts = {
+		let mut pp_opts = super::preproc::Options::default();
+		pp_opts.include_paths = include_paths;
+		pp_opts
+		};
+
+	let mut self_ = ParseState {
+		ast: ast,
+		lex: ::preproc::Preproc::new( Some(filename), pp_opts )?,
+		};
+	
+	// Process command-line `-D` arguments
+	for d in defines
+	{
+		self_.lex.parse_define_str(d)?;
+	}
+	
+	match self_.parseroot()
+	{
+	Ok(o) => Ok(o),
+	Err(e) => {
+		error!("Parse error {:?} at {}", e, self_.lex);
+		match e
+		{
+		::parse::Error::SyntaxError(s) => Err( ::parse::Error::SyntaxError(format!("{} {}", self_.lex, s)) ),
+		_ => Err( e ),
+		}
+		}
+	}
 }
 
 // vim: ft=rust

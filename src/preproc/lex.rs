@@ -1,9 +1,8 @@
 /*!
  * Converts a source file into a stream of tokens
  */
-use parse::ParseResult;
-
 use super::token::Token;
+use super::Error;
 
 pub type LexerInput<'a> = Box< ::std::iter::Iterator<Item=::std::io::Result<char>> + 'a >;
 
@@ -24,7 +23,7 @@ macro_rules! try_eof {
 	($fcn:expr, $eofval:expr) => (
 		match $fcn {
 		Ok(v) => v,
-		Err(::parse::Error::EOF) => return Ok($eofval),
+		Err(Error::EOF) => return Ok($eofval),
 		Err(e) => return Err(e),
 		}
 		);
@@ -50,7 +49,7 @@ impl<'a> Lexer<'a>
 		}
 	}
 	
-	fn getc(&mut self) -> ParseResult<char>
+	fn getc(&mut self) -> super::Result<char>
 	{
 		let ch = if let Some(ch) = self.lastchar.take()
 			{
@@ -61,8 +60,8 @@ impl<'a> Lexer<'a>
 				match self.instream.next()
 				{
 				Some(Ok(ch)) => ch,
-				Some(Err(e)) => return Err(::parse::Error::IOError(e)),
-				None => return Err(::parse::Error::EOF),
+				Some(Err(e)) => return Err(Error::IoError(e)),
+				None => return Err(Error::EOF),
 				}
 			};
 		if let Some(cap) = self.capture.as_mut()
@@ -89,7 +88,7 @@ impl<'a> Lexer<'a>
 	}
 	
 	// Eat as many spaces as possible, returns errors verbatim
-	fn eat_whitespace(&mut self) -> ParseResult<usize>
+	fn eat_whitespace(&mut self) -> super::Result<usize>
 	{
 		let mut n = 0;
 		loop
@@ -105,7 +104,7 @@ impl<'a> Lexer<'a>
 	}
 	// Read and return the rest of the line
 	// - Eof is converted to return value
-	fn read_to_eol(&mut self) -> ParseResult<String>
+	fn read_to_eol(&mut self) -> super::Result<String>
 	{
 		let mut ret = String::new();
 		loop
@@ -118,7 +117,7 @@ impl<'a> Lexer<'a>
 		return Ok(ret);
 	}
 	// Read and return a sequence of "identifier" characters
-	fn read_ident(&mut self) -> ParseResult<String>
+	fn read_ident(&mut self) -> super::Result<String>
 	{
 		let mut name = String::new();
 		loop
@@ -133,7 +132,7 @@ impl<'a> Lexer<'a>
 		return Ok(name);
 	}
 	// Read a number from the input stream
-	fn read_number_with_len(&mut self, base: u32) -> ParseResult<(u64,usize)>
+	fn read_number_with_len(&mut self, base: u32) -> super::Result<(u64,usize)>
 	{
 		let mut val = 0;
 		let mut len = 0;
@@ -153,12 +152,12 @@ impl<'a> Lexer<'a>
 			}
 		}
 	}
-	fn read_number(&mut self, base: u32) -> ParseResult<u64>
+	fn read_number(&mut self, base: u32) -> super::Result<u64>
 	{
 		Ok( self.read_number_with_len(base)?.0 )
 	}
 	
-	fn read_escape(&mut self) -> ParseResult<Option<char>>
+	fn read_escape(&mut self) -> super::Result<Option<char>>
 	{
 		Ok(match try!(self.getc())
 		{
@@ -174,7 +173,7 @@ impl<'a> Lexer<'a>
 	
 	// Read a double-quoted string
 	// - NOTE: has no EOF processing, as an EOF in a double-quoted string is invalid
-	fn read_string(&mut self) -> ParseResult<String>
+	fn read_string(&mut self) -> super::Result<String>
 	{
 		let mut ret = String::new();
 		loop
@@ -197,7 +196,7 @@ impl<'a> Lexer<'a>
 		return Ok(ret);
 	}
 	// Read a single-quoted character constant
-	fn read_charconst(&mut self) -> ParseResult<u64>
+	fn read_charconst(&mut self) -> super::Result<u64>
 	{
 		let mut ret = String::new();
 		loop
@@ -219,13 +218,13 @@ impl<'a> Lexer<'a>
 		}
 		match ret.len()
 		{
-		0 => Err( ::parse::Error::SyntaxError(format!("Empty chracter constant")) ),
+		0 => Err( Error::MalformedLiteral("Empty chracter constant") ),
 		1 => Ok( ret.chars().next().unwrap() as u64 ),
-		_ => Err( ::parse::Error::SyntaxError(format!("Over-long character constant")) ),
+		_ => Err( Error::MalformedLiteral("Over-long character constant") ),
 		}
 	}
 
-	pub fn get_token_includestr(&mut self) -> ParseResult<Option<String>>
+	pub fn get_token_includestr(&mut self) -> super::Result<Option<String>>
 	{
 		try_eof!(self.eat_whitespace(), None);
 
@@ -250,7 +249,7 @@ impl<'a> Lexer<'a>
 		}
 	}
 	// Read a single token from the stream
-	pub fn get_token(&mut self) -> ParseResult<Token>
+	pub fn get_token(&mut self) -> super::Result<Token>
 	{
 		if try_eof!(self.eat_whitespace(), Token::EOF) > 0 {
 			return Ok(Token::Whitespace);
@@ -280,7 +279,7 @@ impl<'a> Lexer<'a>
 			'.' => {
 				if try_eof!(self.getc(), Token::Period) != '.' {
 					error!("Lex error '..' hit");
-					return Err( ::parse::Error::BadCharacter('.') );
+					return Err( Error::BadCharacter('.') );
 				}
 				Token::Vargs
 				},
@@ -378,7 +377,7 @@ impl<'a> Lexer<'a>
 			{
 				// Floating point
 				if base != 10 && base != 16 {
-					syntax_error!("Only hex and decimal floats are supported");
+					return Err(super::Error::MalformedLiteral("Only hex and decimal floats are supported"));
 				}
 				let (frac_value, frac_len) = self.read_number_with_len(base)?;
 				let (exp_is_neg,exponent) = if match self.getc()
@@ -386,7 +385,7 @@ impl<'a> Lexer<'a>
 						Ok('e') | Ok('E') if base != 16 => true,
 						Ok('p') | Ok('P') if base == 16 => true,
 						Ok(ch) => { self.ungetc(ch); false },
-						Err(::parse::Error::EOF) => false,
+						Err(Error::EOF) => false,
 						Err(e) => return Err(e),
 						}
 					{
@@ -396,11 +395,11 @@ impl<'a> Lexer<'a>
 							Ok('-') => true,
 							Ok('+') => false,
 							Ok(ch) => { self.ungetc(ch); false },
-							Err(::parse::Error::EOF) => false,
+							Err(Error::EOF) => false,
 							Err(e) => return Err(e),
 							};
 						let (ev, el) = self.read_number_with_len(10)?;
-						if el == 0 { syntax_error!("Exponent has no digits"); }
+						if el == 0 { return Err(super::Error::MalformedLiteral("Exponent has no digits")); }
 						(is_neg, ev)
 					}
 					else
@@ -413,7 +412,7 @@ impl<'a> Lexer<'a>
 					{
 					Ok('f') | Ok('F') => ::types::FloatClass::Float,
 					Ok('l') | Ok('L') => ::types::FloatClass::LongDouble,
-					Ok(_) | Err(::parse::Error::EOF) => ::types::FloatClass::Double,
+					Ok(_) | Err(Error::EOF) => ::types::FloatClass::Double,
 					Err(e) => return Err(e),
 					};
 				Token::Float( float_val, ty, self.end_capture(caph) )
@@ -439,7 +438,7 @@ impl<'a> Lexer<'a>
 			},
 		_ => {
 			error!("Bad character #{} hit", ch as u32);
-			return Err(::parse::Error::BadCharacter(ch))
+			return Err(Error::BadCharacter(ch))
 			}
 		};
 		trace!("get_token: {:?}", ret);
