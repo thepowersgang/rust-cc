@@ -164,7 +164,9 @@ impl Program
 	}
 
 	pub fn make_struct(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::StructRef,()> {
-		self.item_order.push(ItemRef::Struct(name.to_owned()));
+		if name != "" {
+			self.item_order.push(ItemRef::Struct(name.to_owned()));
+		}
 		let sr = self.get_struct(name);
 		let ispop = sr.borrow().is_populated();
 		
@@ -178,7 +180,9 @@ impl Program
 		}
 	}
 	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::UnionRef,()> {
-		self.item_order.push(ItemRef::Union(name.to_owned()));
+		if name != "" {
+			self.item_order.push(ItemRef::Union(name.to_owned()));
+		}
 		let ur = self.get_union(name);
 		let ispop = ur.borrow().is_populated();
 		
@@ -192,7 +196,9 @@ impl Program
 		}
 	}
 	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,String)>) -> Result<::types::EnumRef,Option<String>> {
-		self.item_order.push(ItemRef::Enum(name.to_owned()));
+		if name != "" {
+			self.item_order.push(ItemRef::Enum(name.to_owned()));
+		}
 		let er = self.get_enum(name);
 		let ispop = er.borrow().is_populated();
 		

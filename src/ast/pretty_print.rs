@@ -3,31 +3,45 @@ use super::ItemRef;
 
 pub fn write(mut sink: impl ::std::io::Write, prog: &super::Program)
 {
-	PrettyPrinter { sink: &mut sink }.write_program(prog);
+	PrettyPrinter { sink: &mut sink, prog: prog }.write_program();
 }
 
-struct PrettyPrinter<'a> {
-	sink: &'a mut ::std::io::Write
+struct PrettyPrinter<'a, 'b> {
+	sink: &'a mut ::std::io::Write,
+	prog: &'b super::Program,
 }
 
-impl<'a> PrettyPrinter<'a>
+impl<'a, 'b> PrettyPrinter<'a, 'b>
 {
 
-	fn write_program(&mut self, prog: &super::Program)
+	fn write_program(&mut self)
 	{
-		for item in &prog.item_order
+		for item in &self.prog.item_order
 		{
 			match item
 			{
 			&ItemRef::ValueDecl(ref name) => {
-				self.write_prototype(&prog.symbols[name]);
+				self.write_prototype(&self.prog.symbols[name]);
 				},
 			&ItemRef::Value(ref name) => {
-				self.write_value(&prog.symbols[name]);
+				self.write_value(&self.prog.symbols[name]);
+				},
+			&ItemRef::Struct(ref name) => {
+				debug!("TODO: struct {}", name);
 				},
 			_ => {},
 			}
 		}
+	}
+
+	fn find_typedef(&self, ty: &::types::TypeRef) -> Option<&'b str>
+	{
+		for (k,v) in &self.prog.typedefs {
+			if v == ty || (ty.basetype == v.basetype && v.qualifiers.is_lesser_than(&ty.qualifiers)) {
+				return Some(k)
+			}
+		}
+		None
 	}
 
 	fn write_prototype(&mut self, sym: &::ast::Symbol)
@@ -62,7 +76,10 @@ impl<'a> PrettyPrinter<'a>
 			self.write_str(" = ");
 			self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			},
-		&::ast::Initialiser::ListLiteral(_) => panic!("TODO: Pretty-print ListLiteral"),
+		&::ast::Initialiser::ListLiteral(_) => {
+			self.write_str(" = ");
+			panic!("TODO: Pretty-print ListLiteral");
+			},
 		&::ast::Initialiser::ArrayLiteral(_) => panic!("TODO: Pretty-print ArrayLiteral"),
 		&::ast::Initialiser::StructLiteral(_) => panic!("TODO: Pretty-print StructLiteral"),
 		}
@@ -95,6 +112,10 @@ impl<'a> PrettyPrinter<'a>
 			self.write_type_qualifiers(&ty.qualifiers);
 			if r.borrow().name != "" {
 				write!(self, "struct {} ", r.borrow().name);
+			}
+			else if let Some(t) = self.find_typedef(ty) {
+				// TODO: Search for a typedef of this struct
+				write!(self, "{} ", t);
 			}
 			else {
 				self.write_str("struct { ... } ");

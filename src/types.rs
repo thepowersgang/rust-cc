@@ -100,6 +100,11 @@ impl Qualifiers {
 	pub fn is_volatile(&self) -> bool { self.v & 2 != 0 }
 	pub fn is_restrict(&self) -> bool { self.v & 4 != 0 }
 
+	pub fn is_lesser_than(&self, other: &Self) -> bool {
+		// If self is a subset of other (no missing bits
+		self.v & other.v == self.v
+	}
+
 	pub fn merge_from(&mut self, other: &Qualifiers) {
 		self.v |= other.v;
 	}
@@ -156,15 +161,38 @@ pub enum StorageClass
 }
 
 pub type TypeRef = Rc<Type>;
-pub type StructRef = Rc<RefCell<Struct>>;
-pub type UnionRef  = Rc<RefCell<Union>>;
-pub type EnumRef   = Rc<RefCell<Enum>>;
+pub type StructRef = RcRefCellPtrEq<Struct>;
+pub type UnionRef  = RcRefCellPtrEq<Union>;
+pub type EnumRef   = RcRefCellPtrEq<Enum>;
+
+pub struct RcRefCellPtrEq<T>( Rc<RefCell<T>> );
+impl<T> Clone for RcRefCellPtrEq<T> {
+	fn clone(&self) -> Self {
+		RcRefCellPtrEq(self.0.clone())
+	}
+}
+impl<T> PartialEq for RcRefCellPtrEq<T> {
+	fn eq(&self, x: &Self) -> bool {
+		Rc::ptr_eq(&self.0, &x.0)
+	}
+}
+impl<T> RcRefCellPtrEq<T> {
+	pub fn new(v: T) -> Self {
+		RcRefCellPtrEq( Rc::new(RefCell::new(v)) )
+	}
+	pub fn borrow(&self) -> ::std::cell::Ref<T> {
+		self.0.borrow()
+	}
+	pub fn borrow_mut(&self) -> ::std::cell::RefMut<T> {
+		self.0.borrow_mut()
+	}
+}
 
 #[derive(Debug,PartialEq)]
 pub struct Struct
 {
 	pub name: String,
-	items:	Vec<(TypeRef,String)>,
+	items: Option<Vec<(TypeRef,String)>>,
 }
 
 #[derive(Debug,PartialEq)]
@@ -243,20 +271,20 @@ impl Struct
 {
 	pub fn new_ref(name: &str) -> StructRef
 	{
-		Rc::new( RefCell::new(Struct {
+		RcRefCellPtrEq::new(Struct {
 			name: name.to_string(),
-			items: Vec::new(),
-			}) )
+			items: None,
+			})
 	}
 	
 	pub fn is_populated(&self) -> bool
 	{
-		return self.items.is_empty() == false;
+		self.items.is_some()
 	}
 	pub fn set_items(&mut self, items: Vec<(TypeRef,String)>)
 	{
-		assert!( self.items.is_empty() );
-		self.items = items;
+		assert!( self.items.is_none() );
+		self.items = Some(items);
 	}
 }
 
@@ -264,15 +292,15 @@ impl Union
 {
 	pub fn new_ref(name: &str) -> UnionRef
 	{
-		Rc::new(RefCell::new( Union {
+		RcRefCellPtrEq::new(Union {
 			name: name.to_string(),
 			items: None,
-			} ))
+			})
 	}
 	
 	pub fn is_populated(&self) -> bool
 	{
-		return self.items.is_some();
+		self.items.is_some()
 	}
 	pub fn set_items(&mut self, items: Vec<(TypeRef,String)>)
 	{
@@ -285,15 +313,15 @@ impl Enum
 {
 	pub fn new_ref(name: &str) -> EnumRef
 	{
-		Rc::new(RefCell::new( Enum {
+		RcRefCellPtrEq::new(Enum {
 			name: name.to_string(),
 			items: None,
-			} ))
+			})
 	}
 	
 	pub fn is_populated(&self) -> bool
 	{
-		return self.items.is_some();
+		self.items.is_some()
 	}
 	pub fn set_items(&mut self, items: Vec<(u64,String)>)
 	{
