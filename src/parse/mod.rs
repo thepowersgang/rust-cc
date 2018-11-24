@@ -51,11 +51,14 @@ macro_rules! parse_todo
 	($str:expr) => (return Err(::parse::Error::Todo($str)))
 }
 
+// TODO: Move these to another module?
 mod lex;
 mod preproc;
-mod parsing;
-mod types;
 pub mod token;
+
+mod parsing;
+mod expr;
+mod types;
 
 #[derive(Debug)]
 pub enum Error
