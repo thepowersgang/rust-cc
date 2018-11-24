@@ -76,7 +76,20 @@ impl<'ast> super::ParseState<'ast>
 		loop {
 			let name = syntax_assert!( self.lex.get_token()?, Token::Ident(n) => n );
 			let opts = if peek_token!(self.lex, Token::ParenOpen) {
-					panic!("{}: TODO - Handle parens in GCC __attribute__", self.lex);
+					let mut toks = vec![];
+					let mut depth = 0;
+					loop
+					{
+						let t = self.lex.get_token()?;
+						match t
+						{
+						Token::ParenOpen => depth += 1,
+						Token::ParenClose if depth == 0 => break toks,
+						Token::ParenClose => depth -= 1,
+						_ => {},
+						}
+						toks.push(t);
+					}
 				}
 				else {
 					vec![]
@@ -110,11 +123,6 @@ impl<'ast> super::ParseState<'ast>
 			Token::BraceOpen => return self.parse_function(typeid, ident),
 			tok @ _ => {
 				self.lex.put_back(tok);
-
-				if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
-				{
-					panic!("{} TODO: __attribute__ on variable definition", self.lex);
-				}
 
 				try!(self.parse_variable_def(typeid, ident));
 				return self.parse_variable_list(basetype)
@@ -422,11 +430,6 @@ impl<'ast> super::ParseState<'ast>
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 			try!(self.parse_variable_def(typeid, ident));
 
-			if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
-			{
-				panic!("{} TODO: __attribute__ on variable definition", self.lex);
-			}
-
 		}
 		
 		Ok( () )
@@ -434,6 +437,21 @@ impl<'ast> super::ParseState<'ast>
 	
 	fn parse_variable_def(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
+		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
+		{
+			self.parse_gcc_attributes(|self_, name, _args| {
+				match &name[..]
+				{
+				"unused" => Ok( () ),
+				"section" => {
+					// TODO: Handle `section("FOO")` properly.
+					Ok( () )
+					},
+				_ => panic!("{} TODO: __attribute__({} {:?}) on variable definition (before value)", self_.lex, name, _args),
+				}
+				})?;
+		}
+
 		let init = self.parse_var_init()?;
 		if let ::ast::Initialiser::None = init {
 			self.ast.define_variable(typeid, ident, None);
@@ -441,6 +459,16 @@ impl<'ast> super::ParseState<'ast>
 		else {
 			self.ast.define_variable(typeid, ident, Some(init));
 		}
+
+		//if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
+		//{
+		//	self.parse_gcc_attributes(|self_, name, _args| {
+		//		match &name[..]
+		//		{
+		//		_ => panic!("{} TODO: __attribute__({}) on variable definition (after value)", self_.lex, name),
+		//		}
+		//		})?;
+		//}
 
 		Ok( () )
 	}
