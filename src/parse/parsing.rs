@@ -233,7 +233,9 @@ impl<'ast> super::ParseState<'ast>
 				::ast::Statement::Goto(dest)
 				},
 			Token::Rword_while => {
+				syntax_assert!(self.lex => Token::ParenOpen);
 				let cnd = self.parse_expr_list()?;
+				syntax_assert!(self.lex => Token::ParenClose);
 				let code = self.parse_opt_block()?;
 				::ast::Statement::WhileLoop {
 					cond: ::ast::ExprOrDef::Expr(cnd),
@@ -243,8 +245,10 @@ impl<'ast> super::ParseState<'ast>
 			Token::Rword_do => {
 				let code = self.parse_opt_block()?;
 				syntax_assert!(self.lex => Token::Rword_while);
+				syntax_assert!(self.lex => Token::ParenOpen);
 				let cnd = self.parse_expr_list()?;
-				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+				syntax_assert!(self.lex => Token::ParenClose);
+				syntax_assert!(self.lex => Token::Semicolon);
 				::ast::Statement::DoWhileLoop {
 					body: code,
 					cond: cnd,
@@ -252,13 +256,16 @@ impl<'ast> super::ParseState<'ast>
 				},
 			Token::Rword_for => try!(self.parse_for_loop()),
 			Token::Rword_if => {
+				syntax_assert!(self.lex => Token::ParenOpen);
 				let cnd = self.parse_expr()?;
+				syntax_assert!(self.lex => Token::ParenClose);
 				let tcode = self.parse_opt_block()?;
 				let fcode = if peek_token!(self.lex, Token::Rword_else) {
 						Some( self.parse_opt_block()? )
 					} else {
 						None
 					};
+				debug!("{}IF: {:?} {:?} {:?}", self.lex, cnd, tcode, fcode);
 				::ast::Statement::IfStatement {
 					cond: ::ast::ExprOrDef::Expr(cnd),
 					true_arm: tcode,
