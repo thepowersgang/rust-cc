@@ -68,6 +68,31 @@ impl<'ast> super::ParseState<'ast>
 		Ok( () )
 	}
 
+	/// Parse the body of a GCC `__attribute__(...)`
+	pub(super) fn parse_gcc_attributes(&mut self, mut cb: impl FnMut(&mut Self, String, Vec<Token>)->ParseResult<()>) -> ParseResult<()>
+	{
+		syntax_assert!( self.lex.get_token()?, Token::ParenOpen );
+		let is_double_wrapped = peek_token!(self.lex, Token::ParenOpen);
+		loop {
+			let name = syntax_assert!( self.lex.get_token()?, Token::Ident(n) => n );
+			let opts = if peek_token!(self.lex, Token::ParenOpen) {
+					panic!("{}: TODO - Handle parens in GCC __attribute__", self.lex);
+				}
+				else {
+					vec![]
+				};
+			cb(self, name, opts)?;
+			if ! peek_token!(self.lex, Token::Comma) {
+				break;
+			}
+		}
+		if is_double_wrapped {
+			syntax_assert!( self.lex.get_token()?, Token::ParenClose );
+		}
+		syntax_assert!( self.lex.get_token()?, Token::ParenClose );
+		Ok( () )
+	}
+
 	fn do_definition(&mut self) -> ParseResult<()>
 	{
 		// 1. Get base type
@@ -85,6 +110,12 @@ impl<'ast> super::ParseState<'ast>
 			Token::BraceOpen => return self.parse_function(typeid, ident),
 			tok @ _ => {
 				self.lex.put_back(tok);
+
+				if peek_token!(self.lex, Token::Rword_gcc_attribute)
+				{
+					panic!("{} TODO: __attribute__ on variable definition", self.lex);
+				}
+
 				try!(self.parse_variable_def(typeid, ident));
 				return self.parse_variable_list(basetype)
 				}
@@ -377,11 +408,20 @@ impl<'ast> super::ParseState<'ast>
 			{
 			Token::Comma => {},
 			Token::Semicolon => break,
-			_ => return Err( ::parse::Error::SyntaxError(format!("syntax error[parse_variable_list]")) )
+			t @ _ => {
+				error!("{}: Unexpected token {:?}", self.lex, t);
+				return Err( ::parse::Error::SyntaxError(format!("syntax error[parse_variable_list]")) );
+				}
 			}
 			
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 			try!(self.parse_variable_def(typeid, ident));
+
+			if peek_token!(self.lex, Token::Rword_gcc_attribute)
+			{
+				panic!("{} TODO: __attribute__ on variable definition", self.lex);
+			}
+
 		}
 		
 		Ok( () )

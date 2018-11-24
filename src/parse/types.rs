@@ -39,6 +39,11 @@ impl<'ast> super::ParseState<'ast>
 		let mut intsize: Option<u8> = None;
 		let mut int_seen = false;
 		let mut double_seen = false;
+		
+		if peek_token!(self.lex, Token::Rword_gcc_attribute) {
+			panic!("{}TODO: Handle gcc __attribute__ at start of type", self.lex);
+		}
+
 		// 1. Storage classes (extern, static, auto, register)
 		loop
 		{
@@ -328,6 +333,28 @@ impl<'ast> super::ParseState<'ast>
 				args.clear();
 			}
 			syntax_assert!(try!(self.lex.get_token()), Token::ParenClose);
+
+			if peek_token!(self.lex, Token::Rword_gcc_attribute) {
+				self.parse_gcc_attributes(|self_, name, _opts|
+					match &name[..]
+					{
+					"noreturn" => {
+						/* TODO: noreturn */;
+						Ok( () )
+						},
+					"warn_unused_result" => {
+						/* TODO: warn_unused_result */;
+						Ok( () )
+						},
+					"deprecated" => {
+						/* TODO: deprecated */;
+						Ok( () )
+						},
+					_ => panic!("{}: TODO - Handle GCC __attribute__(({})) on function", self_.lex, name),
+					}
+					)?;
+			}
+
 			Ok( TypeNode::Fcn(box inner, args) )
 			},
 		tok @ _ => {
@@ -447,22 +474,13 @@ impl<'ast> super::ParseState<'ast>
 		
 		if peek_token!(self.lex, Token::Rword_gcc_attribute)
 		{
-			syntax_assert!( self.lex.get_token()?, Token::ParenOpen );
-			let is_double_wrapped = peek_token!(self.lex, Token::ParenOpen);
-			loop {
-				match &syntax_assert!( self.lex.get_token()?, Token::Ident(n) => n )[..]
+			self.parse_gcc_attributes(|self_, name, _opts|
+				match &name[..]
 				{
-				"packed" => {},
-				n @ _ => panic!("{}: TODO - Handle GCC __attribute__(({})) on struct", self.lex, n),
+				"packed" => { /*TODO: Store packed flag*/; Ok( () ) },
+				_ => panic!("{}: TODO - Handle GCC __attribute__(({})) on struct", self_.lex, name),
 				}
-				if ! peek_token!(self.lex, Token::Comma) {
-					break;
-				}
-			}
-			if is_double_wrapped {
-				syntax_assert!( self.lex.get_token()?, Token::ParenClose );
-			}
-			syntax_assert!( self.lex.get_token()?, Token::ParenClose );
+				)?;
 		}
 		
 		Ok( items )
@@ -566,10 +584,12 @@ impl<'ast> super::ParseState<'ast>
 				curval = val;
 			}
 			items.push( (curval, name) );
-			curval += 1;
 			match try!(self.lex.get_token())
 			{
-			Token::Comma => continue,
+			Token::Comma => {
+				curval += 1;
+				continue
+				},
 			Token::BraceClose => break,
 			t @ _ => syntax_error!("Unexpected token {:?}, expected Token::Comma or TokBraceClose", t),
 			}
