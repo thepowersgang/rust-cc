@@ -76,7 +76,16 @@ struct MacroDefinition
 struct Conditional
 {
 	is_else: bool,
+	has_run: bool,	// no else/elif should run
 	is_active: bool,	// If the contents of this block should be emitted.
+}
+impl Conditional {
+	fn new(is_active: bool) -> Conditional {
+		Conditional {
+			is_active,
+			.. Default::default()
+			}
+	}
 }
 
 struct TokenSourceStack
@@ -96,6 +105,7 @@ struct LexHandle
 }
 struct MacroExpansion
 {
+	name: String,
 	idx: usize,
 	tokens: ::std::vec::IntoIter<Token>,	// TODO: Instead store Rc<Vec<Token>> to MacroDefinition.expansion and HashMap<String,Vec<Tokens>>
 }
@@ -160,17 +170,7 @@ impl Preproc
 
 	fn eat_comments(&mut self) -> ::parse::ParseResult<Token>
 	{
-		loop
-		{
-			match self.lexers.get_token()?
-			{
-			Token::Whitespace => {},
-			Token::EscapedNewline => {},
-			Token::LineComment(_) => {},
-			Token::BlockComment(_) => {},
-			tok => return Ok(tok),
-			}
-		}
+		self.lexers.get_token_nospace()
 	}
 
 	fn is_conditional_active(&self) -> bool
@@ -207,7 +207,7 @@ impl Preproc
 				{
 				Token::EOF => {
 					panic!("Unexpected EOF - {:?}", self.if_stack);
-					return Ok(Token::EOF);
+					//return Ok(Token::EOF);
 					},
 				Token::Whitespace => {},
 				Token::EscapedNewline => {},
@@ -235,11 +235,23 @@ impl Preproc
 							t => tokens.push(t),
 							}
 						}
+						let is_true = self.parse_if_expr(tokens)?;
+
 						match self.if_stack.last_mut()
 						{
 						None => panic!("{}TODO: Error for unmatched #elif", self),
 						Some(ref v) if v.is_else => panic!("TODO: Error for duplicate #elif"),
-						_ => { error!("{}TODO: check #elif - {:?}", self, tokens); },
+						Some(v) => {
+							if v.is_active {
+								v.is_active = false;
+								v.has_run = true;
+							}
+							else if !v.has_run {
+								v.is_active = is_true;
+							}
+							else {
+							}
+							},
 						}
 						},
 					Token::Ident(ref name) if name == "ifdef" || name == "ifndef" => {
@@ -253,7 +265,12 @@ impl Preproc
 						{
 						None => panic!("TODO: Error for unmatched #else"),
 						Some(ref v) if v.is_else => panic!("TODO: Error for duplicate #else"),
-						Some(v) => { v.is_else = true; },
+						Some(v) => {
+							v.is_else = true;
+							if !v.has_run {
+								v.is_active = true;
+							}
+							},
 						}
 						},
 					Token::Ident(ref name) if name == "endif" => {
@@ -345,7 +362,7 @@ impl Preproc
 					// Push to #if stack, only pass tokens if entire #if stack is true
 					// - Requires handling to be active 
 					if self.options.define_handling != Handling::PropagateOnly {
-						self.if_stack.push(Conditional { is_else: false, is_active: self.macros.contains_key(&ident) == cnd, });
+						self.if_stack.push(Conditional::new(self.macros.contains_key(&ident) == cnd));
 					}
 					if self.options.define_handling != Handling::InternalOnly {
 						return Ok(token::Preprocessor::IfDef { is_not_defined: !cnd, ident: ident }.into());
@@ -364,8 +381,8 @@ impl Preproc
 					}
 					if self.options.define_handling != Handling::PropagateOnly {
 						// Parse and evaluate the expression
-						let is_true = self.parse_if_expr(&tokens)?;
-						self.if_stack.push(Conditional { is_else: false, is_active: is_true, });
+						let is_true = self.parse_if_expr(tokens.clone())?;
+						self.if_stack.push(Conditional::new(is_true));
 					}
 					if self.options.define_handling != Handling::InternalOnly {
 						return Ok(token::Preprocessor::If { tokens: tokens }.into());
@@ -384,13 +401,14 @@ impl Preproc
 					}
 					// Parse and evaluate the expression
 					if self.options.define_handling != Handling::PropagateOnly {
-						let is_true = self.parse_if_expr(&tokens)?;
+						// NOTE: In this branch, the outer #if (or previous #elif) is active, so this expression doesn't matter.
+						//let is_true = self.parse_if_expr(&tokens)?;
 
 						match self.if_stack.last_mut()
 						{
 						None => panic!("TODO: Error for unmatched #elif"),
 						Some(ref v) if v.is_else => panic!("TODO: Error for duplicate #elif"),
-						Some(v) => { v.is_active = is_true; },
+						Some(v) => { v.has_run = true; v.is_active = false; },
 						}
 					}
 					if self.options.define_handling != Handling::InternalOnly {
@@ -405,7 +423,7 @@ impl Preproc
 						{
 						None => panic!("TODO: Error for unmatched #else"),
 						Some(ref v) if v.is_else => panic!("TODO: Error for duplicate #else"),
-						Some(v) => { v.is_else = true; v.is_active = !v.is_active; },
+						Some(v) => { v.is_else = true; v.has_run = true; v.is_active = !v.is_active; },
 						}
 					}
 					if self.options.define_handling != Handling::InternalOnly {
@@ -484,6 +502,7 @@ impl Preproc
 						match self.options.define_handling
 						{
 						Handling::InternalOnly => {
+							info!("Define {} = {:?} {:?}", ident, args, tokens);
 							self.macros.insert(ident, MacroDefinition {
 								arg_names: args,
 								expansion: tokens,
@@ -562,7 +581,7 @@ impl Preproc
 				match self.macros.get(&v) {
 				Some(macro_def) => {
 					let arg_mapping: HashMap<&str,Vec<Token>> = if let Some(ref arg_names) = macro_def.arg_names {
-							match self.lexers.get_token()?
+							match self.lexers.get_token_nospace()?
 							{
 							Token::ParenOpen => {},
 							tok => {
@@ -571,240 +590,15 @@ impl Preproc
 								return Ok(Token::Ident(v));
 								}
 							}
-							// Read tokens, handling nested parens
-							let mut args: HashMap<&str,_> = HashMap::new();
-							let mut cur_arg_idx: usize = 0;
-							let mut cur_arg_toks = Vec::new();
-							let mut paren_level: usize = 0;
-
-							loop
-							{
-								match self.lexers.get_token()?
-								{
-								Token::ParenClose if paren_level == 0 => {
-									args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
-									break args;
-									},
-								Token::Comma if paren_level == 0 && arg_names[cur_arg_idx] != "__VA_ARGS__" => {
-									args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
-									cur_arg_toks = Vec::new();
-									cur_arg_idx += 1;
-									},
-								t @ Token::ParenOpen => {
-									paren_level += 1;
-									cur_arg_toks.push(t);
-									},
-								t @ Token::ParenClose => {
-									paren_level -= 1;
-									cur_arg_toks.push(t);
-									},
-								Token::Whitespace | Token::EscapedNewline | Token::Newline if cur_arg_toks.len() == 0 => {},
-								t => cur_arg_toks.push(t),
-								}
-							}
+							let l = &mut self.lexers;
+							Self::parse_macro_args(arg_names, &mut || l.get_token())?
 						}
 						else {
 							HashMap::new()
 						};
 
 					debug!("Macro expansion {} args={:?}", v, arg_mapping);
-					let output_tokens = {
-						let mut output_tokens = Vec::new();
-						enum Mode {
-							Normal, Stringify, Concat,
-						}
-						let mut mode = Mode::Normal;
-						for tok in &macro_def.expansion
-						{
-							match tok
-							{
-							Token::Ident(i) =>
-								match { let m = mode; mode = Mode::Normal; m }
-								{
-								Mode::Normal =>
-									// No concat/stringify - expand tokens directly
-									match arg_mapping.get(&i[..])
-									{
-									Some(v) => output_tokens.extend( v.iter().cloned() ),
-									None => output_tokens.push( Token::Ident(i.clone()) ),
-									},
-								Mode::Stringify =>
-									match arg_mapping.get(&i[..])
-									{
-									Some(v) => {
-										let mut s = String::new();
-										for t in v.iter()
-										{
-											s.push_str(match t
-											{
-											&Token::EOF
-											| &Token::BlockComment(_)
-											| &Token::LineComment(_)
-												=> "",
-											&Token::Whitespace
-											| &Token::Newline
-											| &Token::EscapedNewline
-												=> " ",
-											&Token::Preprocessor(_) => panic!("{:?} in macro argument", t),
-											// -- Expression leaves
-											&Token::Integer(_, _, ref s) => s,
-											&Token::Float(_, _, ref s) => s,
-											&Token::Chararacter(ch) => panic!("TODO: Stringify char constant {}", ch),
-											&Token::String(ref s) => panic!("TODO: Stringify string constant {:?}", s),
-											&Token::Ident(ref n) => n,
-											
-											// -- Symbols
-											&Token::Hash => "#",
-											&Token::Tilde => "~",
-											&Token::Exclamation => "!",
-											&Token::Period => ".",
-											&Token::DerefMember => "->",
-											&Token::Comma => ",",
-											&Token::Semicolon => ";",
-											&Token::Star => "*",
-											&Token::Slash => "/",
-											&Token::Vargs => "...",
-											&Token::QuestionMark => "?",
-											&Token::Colon => ":",
-
-											&Token::Assign => "=",
-											&Token::AssignAdd => "+=",
-											&Token::AssignSub => "-=",
-											&Token::AssignMul => "*=",
-											&Token::AssignDiv => "/=",
-											&Token::AssignMod => "%=",
-											&Token::AssignLogicOr => "||=",
-											&Token::AssignLogicAnd => "&&=",
-											&Token::AssignBitOr => "|=",
-											&Token::AssignBitAnd => "&=",
-											
-											&Token::ShiftRight => ">>",
-											&Token::ShiftLeft => "<<",
-											
-											&Token::Equality => "==",
-											&Token::NotEquals => "!=",
-											&Token::Lt => "<",
-											&Token::Gt => ">",
-											&Token::LtE => "<=",
-											&Token::GtE => ">=",
-											
-											&Token::Percent => "%",
-											&Token::Plus => "+",
-											&Token::Minus => "-",
-											&Token::DoublePlus => "++",	// ungood (bad joke, sorry)
-											&Token::DoubleMinus => "--",
-											
-											&Token::Ampersand => "&",
-											&Token::Pipe => "|",
-											&Token::Caret => "^",
-											&Token::DoubleAmpersand => "&&",
-											&Token::DoublePipe => "||",
-											
-											// -- Brackets
-											&Token::BraceOpen => "{",
-											&Token::BraceClose => "}",
-											&Token::ParenOpen => "(",
-											&Token::ParenClose => ")",
-											&Token::SquareOpen => "[",
-											&Token::SquareClose => "]",
-											
-											// -- Reserved Words
-											// - Storage classes
-											&Token::Rword_typedef => "typedef",
-											&Token::Rword_auto => "auto",
-											&Token::Rword_extern => "extern",
-											&Token::Rword_static => "static",
-											&Token::Rword_register => "register",
-											&Token::Rword_inline => "inline",
-											&Token::Rword_const => "const",
-											&Token::Rword_volatile => "volatile",
-											&Token::Rword_restrict => "restrict",
-											&Token::Rword_void => "void",
-											&Token::Rword_Bool => "Bool",
-											&Token::Rword_signed => "signed",
-											&Token::Rword_unsigned => "unsigned",
-											&Token::Rword_char => "char",
-											&Token::Rword_short => "short",
-											&Token::Rword_int => "int",
-											&Token::Rword_long => "long",
-											&Token::Rword_float => "float",
-											&Token::Rword_double => "double",
-											&Token::Rword_enum => "enum",
-											&Token::Rword_union => "union",
-											&Token::Rword_struct => "struct",
-											&Token::Rword_if => "if",
-											&Token::Rword_else => "else",
-											&Token::Rword_while => "while",
-											&Token::Rword_do => "do",
-											&Token::Rword_for => "for",
-											&Token::Rword_switch => "switch",
-											&Token::Rword_goto => "goto",
-											&Token::Rword_continue => "continue",
-											&Token::Rword_break => "break",
-											&Token::Rword_return => "return",
-											&Token::Rword_case => "case",
-											&Token::Rword_default => "default",
-											&Token::Rword_sizeof => "sizeof",
-											&Token::Rword_gcc_attribute => "__attribute__",
-											&Token::Rword_gcc_va_arg => "__builtin_va_arg",
-											});
-										}
-										output_tokens.push(Token::String(s))
-										},
-									None => output_tokens.push( Token::String(i.clone()) ),
-									},
-								Mode::Concat =>
-									match output_tokens.last_mut()
-									{
-									Some(Token::Ident(prev)) =>
-										match arg_mapping.get(&i[..])
-										{
-										Some(v) =>
-											match &v[..]
-											{
-											&[Token::Ident(ref i)] => prev.push_str(i),
-											&[Token::Integer(_v, _, ref s)] => prev.push_str(s),
-											_ => panic!("{}: TODO: Concat `{}` with expanded - {:?}", self, prev, v),
-											},
-										None => {
-											prev.push_str(i);
-											},
-										},
-									Some(Token::Comma) =>
-										match arg_mapping.get(&i[..])
-										{
-										Some(v) if v.len() == 0 => { output_tokens.pop(); },
-										Some(v) => output_tokens.extend( v.iter().cloned() ),
-										None =>
-											panic!("TODO: Concat after a comma with no expansion following - {}", i),
-										}
-									opt_t => {
-										panic!("TODO: Concat after non-ident - {:?}", opt_t);
-										},
-									},
-								},
-							Token::Hash => match mode
-								{
-								Mode::Normal => { mode = Mode::Stringify; },
-								Mode::Stringify => { mode = Mode::Concat; },
-								Mode::Concat => { panic!("TODO: Error on `###` in stream"); }
-								},
-								//{
-								//	// Mode change to do a concatenation
-								//}
-							tok => {
-								match mode
-								{
-								Mode::Normal => { },
-								Mode::Stringify => { panic!("TODO: Error for # followed by non-ident?"); },
-								Mode::Concat => { panic!("TODO: Error for ## followed by non-ident?"); },
-								}
-								output_tokens.push(tok.clone());
-								}
-							}
-						}
-						output_tokens
-						};
+					let output_tokens = self.do_macro_expansion(macro_def, &arg_mapping);
 					debug!("=> output_tokens={:?}", output_tokens);
 
 					if self.options.wrap_define_expansion {
@@ -836,7 +630,7 @@ impl Preproc
 					}
 					else if macro_def.expansion.len() > 0 {
 						// Push this macro as a new underlying lexer.
-						self.lexers.push_macro(output_tokens);
+						self.lexers.push_macro(v, output_tokens);
 						// Keep looping (next iteration will use the macro as a token source)
 						continue
 					}
@@ -861,56 +655,287 @@ impl Preproc
 		}
 	}
 
+	fn parse_macro_args<'a>(arg_names: &'a [String], get_token: &mut FnMut()->super::ParseResult<Token>) -> super::ParseResult<HashMap<&'a str,Vec<Token>>>
+	{
+		// Read tokens, handling nested parens
+		let mut args: HashMap<&str,_> = HashMap::new();
+		let mut cur_arg_idx: usize = 0;
+		let mut cur_arg_toks = Vec::new();
+		let mut paren_level: usize = 0;
 
-	fn parse_if_expr(&self, tokens: &[Token]) -> super::ParseResult<bool>
+		Ok(loop
+		{
+			match get_token()?
+			{
+			Token::ParenClose if paren_level == 0 => {
+				args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
+				break args;
+				},
+			// TODO: Handle gcc-style named variadics?
+			Token::Comma if paren_level == 0 && arg_names[cur_arg_idx] != "__VA_ARGS__" => {
+				args.insert( &arg_names[cur_arg_idx], cur_arg_toks );
+				cur_arg_toks = Vec::new();
+				cur_arg_idx += 1;
+				},
+			t @ Token::ParenOpen => {
+				paren_level += 1;
+				cur_arg_toks.push(t);
+				},
+			t @ Token::ParenClose => {
+				paren_level -= 1;
+				cur_arg_toks.push(t);
+				},
+			Token::Whitespace | Token::EscapedNewline | Token::Newline if cur_arg_toks.len() == 0 => {},
+			t => cur_arg_toks.push(t),
+			}
+		})
+	}
+
+	fn do_macro_expansion(&self, macro_def: &MacroDefinition, arg_mapping: &HashMap<&str,Vec<Token>>) -> Vec<Token>
+	{
+		let mut output_tokens = Vec::new();
+		enum Mode {
+			Normal, Stringify, Concat,
+		}
+		let mut mode = Mode::Normal;
+		for tok in &macro_def.expansion
+		{
+			match tok
+			{
+			Token::Ident(i) =>
+				match ::std::mem::replace(&mut mode, Mode::Normal)
+				{
+				Mode::Normal =>
+					// No concat/stringify - expand tokens directly
+					match arg_mapping.get(&i[..])
+					{
+					Some(v) => output_tokens.extend( v.iter().cloned() ),
+					None => output_tokens.push( Token::Ident(i.clone()) ),
+					},
+				Mode::Stringify =>
+					match arg_mapping.get(&i[..])
+					{
+					Some(v) => {
+						let mut s = String::new();
+						for t in v.iter()
+						{
+							s.push_str(match t
+							{
+							&Token::EOF
+							| &Token::BlockComment(_)
+							| &Token::LineComment(_)
+								=> "",
+							&Token::Whitespace
+							| &Token::Newline
+							| &Token::EscapedNewline
+								=> " ",
+							&Token::Preprocessor(_) => panic!("{:?} in macro argument", t),
+							// -- Expression leaves
+							&Token::Integer(_, _, ref s) => s,
+							&Token::Float(_, _, ref s) => s,
+							&Token::Chararacter(ch) => panic!("TODO: Stringify char constant {}", ch),
+							&Token::String(ref s) => panic!("TODO: Stringify string constant {:?}", s),
+							&Token::Ident(ref n) => n,
+							
+							// -- Symbols
+							&Token::Hash => "#",
+							&Token::Tilde => "~",
+							&Token::Exclamation => "!",
+							&Token::Period => ".",
+							&Token::DerefMember => "->",
+							&Token::Comma => ",",
+							&Token::Semicolon => ";",
+							&Token::Star => "*",
+							&Token::Slash => "/",
+							&Token::Vargs => "...",
+							&Token::QuestionMark => "?",
+							&Token::Colon => ":",
+
+							&Token::Assign => "=",
+							&Token::AssignAdd => "+=",
+							&Token::AssignSub => "-=",
+							&Token::AssignMul => "*=",
+							&Token::AssignDiv => "/=",
+							&Token::AssignMod => "%=",
+							&Token::AssignLogicOr => "||=",
+							&Token::AssignLogicAnd => "&&=",
+							&Token::AssignBitOr => "|=",
+							&Token::AssignBitAnd => "&=",
+							
+							&Token::ShiftRight => ">>",
+							&Token::ShiftLeft => "<<",
+							
+							&Token::Equality => "==",
+							&Token::NotEquals => "!=",
+							&Token::Lt => "<",
+							&Token::Gt => ">",
+							&Token::LtE => "<=",
+							&Token::GtE => ">=",
+							
+							&Token::Percent => "%",
+							&Token::Plus => "+",
+							&Token::Minus => "-",
+							&Token::DoublePlus => "++",	// ungood (bad joke, sorry)
+							&Token::DoubleMinus => "--",
+							
+							&Token::Ampersand => "&",
+							&Token::Pipe => "|",
+							&Token::Caret => "^",
+							&Token::DoubleAmpersand => "&&",
+							&Token::DoublePipe => "||",
+							
+							// -- Brackets
+							&Token::BraceOpen => "{",
+							&Token::BraceClose => "}",
+							&Token::ParenOpen => "(",
+							&Token::ParenClose => ")",
+							&Token::SquareOpen => "[",
+							&Token::SquareClose => "]",
+							
+							// -- Reserved Words
+							// - Storage classes
+							&Token::Rword_typedef => "typedef",
+							&Token::Rword_auto => "auto",
+							&Token::Rword_extern => "extern",
+							&Token::Rword_static => "static",
+							&Token::Rword_register => "register",
+							&Token::Rword_inline => "inline",
+							&Token::Rword_const => "const",
+							&Token::Rword_volatile => "volatile",
+							&Token::Rword_restrict => "restrict",
+							&Token::Rword_void => "void",
+							&Token::Rword_Bool => "Bool",
+							&Token::Rword_signed => "signed",
+							&Token::Rword_unsigned => "unsigned",
+							&Token::Rword_char => "char",
+							&Token::Rword_short => "short",
+							&Token::Rword_int => "int",
+							&Token::Rword_long => "long",
+							&Token::Rword_float => "float",
+							&Token::Rword_double => "double",
+							&Token::Rword_enum => "enum",
+							&Token::Rword_union => "union",
+							&Token::Rword_struct => "struct",
+							&Token::Rword_if => "if",
+							&Token::Rword_else => "else",
+							&Token::Rword_while => "while",
+							&Token::Rword_do => "do",
+							&Token::Rword_for => "for",
+							&Token::Rword_switch => "switch",
+							&Token::Rword_goto => "goto",
+							&Token::Rword_continue => "continue",
+							&Token::Rword_break => "break",
+							&Token::Rword_return => "return",
+							&Token::Rword_case => "case",
+							&Token::Rword_default => "default",
+							&Token::Rword_sizeof => "sizeof",
+							});
+						}
+						output_tokens.push(Token::String(s))
+						},
+					None => output_tokens.push( Token::String(i.clone()) ),
+					},
+				Mode::Concat =>
+					match output_tokens.last_mut()
+					{
+					Some(Token::Ident(prev)) =>
+						match arg_mapping.get(&i[..])
+						{
+						Some(v) =>
+							match &v[..]
+							{
+							&[Token::Ident(ref i)] => prev.push_str(i),
+							&[Token::Integer(_v, _, ref s)] => prev.push_str(s),
+							_ => panic!("{}: TODO: Concat `{}` with expanded - {:?}", self, prev, v),
+							},
+						None => {
+							prev.push_str(i);
+							},
+						},
+					Some(Token::Comma) =>
+						match arg_mapping.get(&i[..])
+						{
+						Some(v) if v.len() == 0 => { output_tokens.pop(); },
+						Some(v) => output_tokens.extend( v.iter().cloned() ),
+						None =>
+							panic!("TODO: Concat after a comma with no expansion following - {}", i),
+						}
+					opt_t => {
+						panic!("TODO: Concat after non-ident - {:?}", opt_t);
+						},
+					},
+				},
+			Token::Hash => match mode
+				{
+				Mode::Normal => { mode = Mode::Stringify; },
+				Mode::Stringify => { mode = Mode::Concat; },
+				Mode::Concat => { panic!("TODO: Error on `###` in stream"); }
+				},
+				//{
+				//	// Mode change to do a concatenation
+				//}
+			tok => {
+				match mode
+				{
+				Mode::Normal => { },
+				Mode::Stringify => { panic!("TODO: Error for # followed by non-ident?"); },
+				Mode::Concat => { panic!("TODO: Error for ## followed by non-ident?"); },
+				}
+				output_tokens.push(tok.clone());
+				}
+			}
+		}
+		output_tokens
+	}
+
+	fn parse_if_expr(&self, tokens: Vec<Token>) -> super::ParseResult<bool>
 	{
 		// TODO: Pass expansion over the tokens first? (Macro expansion rules aren't trivial)
 		struct Parser<'a>
 		{
 			self_: &'a Preproc,
-			tokens: &'a [Token],
-			macro_expansions: Vec<(usize, &'a MacroDefinition)>,	// TODO: Arguments?
+			tokens: ::std::vec::IntoIter<Token>,
+			macro_expansions: Vec<(usize, ::std::vec::IntoIter<Token>)>,
 			
-			tmp: Option<&'a Token>,
+			tmp: Option<Token>,
 		}
 		impl<'a> Parser<'a>
 		{
-			fn peek_tok(&mut self) -> Option<&'a Token> {
+			fn peek_tok<'b>(&'b mut self) -> Option<&'b Token> {
 				if self.tmp.is_none() {
 					self.tmp = self.get_tok();
 				}
-				self.tmp
+				self.tmp.as_ref()
 			}
-			fn get_tok(&mut self) -> Option<&'a Token> {
-				if self.tmp.is_some() {
-					return self.tmp.take();
-				}
-
-				loop
-				{
-					match self.get_tok_int()
-					{
-					Some(&Token::EscapedNewline) => {},
-					v => return v,
+			fn get_tok(&mut self) -> Option<Token> {
+				let rv = if self.tmp.is_some() {
+						self.tmp.take()
 					}
-				}
+					else {
+						loop
+						{
+							match self.get_tok_int()
+							{
+							Some(Token::EscapedNewline) => {},
+							v => break v,
+							}
+						}
+					};
+				//debug!("if::Parser::get_tok: {:?}", rv);
+				rv
 			}
-			fn get_tok_int(&mut self) -> Option<&'a Token> {
+			fn get_tok_int(&mut self) -> Option<Token> {
 				loop
 				{
-					if let Some(&mut (ref mut pos, me)) = self.macro_expansions.last_mut()
+					if let Some(&mut (ref mut pos, ref mut me)) = self.macro_expansions.last_mut()
 					{
-						if *pos == 0 && me.expansion.len() == 0
-						{
-							// HACK: Empty macros expand to `1` in #if
-							static TOK_ONE: Token = Token::Integer(1, ::types::IntClass::int(), String::new());
-							*pos += 1;
-							return Some(&TOK_ONE);
+						*pos += 1;
+						if let Some(v) = me.next() {
+							return Some(v);
 						}
-						if *pos < me.expansion.len()
-						{
-							*pos += 1;
-							return Some(&me.expansion[*pos - 1]);
+						else if *pos == 1 {
+							// HACK: Empty macros expand to `1` in #if
+							return Some(Token::Integer(1, ::types::IntClass::int(), String::new()));
 						}
 					}
 
@@ -920,23 +945,57 @@ impl Preproc
 						continue ;
 					}
 
-					return match self.tokens.split_first()
+					return match self.tokens.next()
 						{
 						None => None,
-						Some( (rv, new) ) => {
-							self.tokens = new;
-							if let &Token::Ident(ref n) = rv
+						Some(rv) => {
+							if let Token::Ident(n) = rv
 							{
-								if let Some(md) = self.self_.macros.get(n)
+								if let Some(md) = self.self_.macros.get(&n)
 								{
-									debug!("{}: Expand `{}` to {:?}", self.self_, n, md.expansion);
-									self.macro_expansions.push( (0, md) );
+									let args = if let Some(ref arg_names) = md.arg_names {
+											if self.peek_tok() != Some(&Token::ParenOpen) {
+												return Some(Token::Ident(n));
+											}
+											match Preproc::parse_macro_args(arg_names, &mut || self.tokens.next().ok_or(super::Error::EOF))
+											{
+											Err(e) => panic!("TODO: Error when failing to parse macro args {:?}", e),
+											Ok(v) => v,
+											}
+										}
+										else {
+											HashMap::new()
+										};
+									debug!("{}: Expand `{}` to {:?} with args={:?}", self.self_, n, md.expansion, args);
+									let exp = self.self_.do_macro_expansion(md, &args);
+									// TODO: Calculate expansion, with recursion
+									self.macro_expansions.push( (0, exp.into_iter()) );
 									continue ;
+								}
+								else
+								{
+									return Some(Token::Ident(n));
 								}
 							}
 							Some(rv)
 							}
 						};
+				}
+			}
+
+			fn get_tok_noexpand(&mut self) -> Option<Token>
+			{
+				if self.tmp.is_some() {
+					self.tmp.take()
+				}
+				else if self.macro_expansions.len() > 0 {
+					panic!("{}TODO: `defined` in macro exapnsion, valid?", self.self_);
+				}
+				else if let Some(t) = self.tokens.next() {
+					Some(t)
+				}
+				else {
+					None
 				}
 			}
 		}
@@ -954,35 +1013,45 @@ impl Preproc
 			fn evaluate_expr_value(&mut self) -> Result {
 				Ok(match self.get_tok()
 				{
-				Some(&Token::Integer(v,_,_)) => v as Value,
-				Some(&Token::Ident(ref n)) if n == "defined" => {
-					let l = self.macro_expansions.len();
-					let _t = self.peek_tok().ok_or(super::Error::EOF)?;
-					debug!("> {:?}", _t);
-					if self.macro_expansions.len() == l {
-						let _t = self.get_tok();
-						debug!("{:?}", _t);
+				Some(Token::Integer(v,_,_)) => v as Value,
+				Some(Token::Ident(ref n)) if n == "defined" => {
+					let i = match self.get_tok_noexpand()
+						{
+						Some(Token::Ident(i)) => i,
+						Some(Token::ParenOpen) =>
+							match self.get_tok_noexpand()
+							{
+							Some(Token::Ident(i)) =>
+								match self.get_tok_noexpand()
+								{
+								Some(Token::ParenClose) => i,
+								t => panic!("{}TODO: Error in #if parsing - `defined(NAME` followed by invalid token - {:?}", self.self_, t), 
+								},
+							t => panic!("{}TODO: Error in #if parsing - `defined(` followed by invalid token - {:?}", self.self_, t), 
+							},
+						t => panic!("{}TODO: Error in #if parsing - defined followed by invalid token - {:?}", self.self_, t), 
+						};
+					debug!("> defined {:?}", i);
+					if self.self_.macros.contains_key(&i) {
 						1
 					}
 					else {
-						while self.macro_expansions.len() > l {
-							let _t = self.get_tok();
-							debug!("{:?}", _t);
-							self.peek_tok();
-						}
 						0
 					}
 					},
-				Some(&Token::Ident(ref n)) => {
+				Some(Token::Ident(n)) => {
 					// TODO: `#if foo == foo` should be true, but `#if foo == bar` should be false?
 					warn!("{}: Undefined identifier {}, evaluating to 0", self.self_, n);
+					if self.peek_tok() == Some(&Token::ParenOpen) {
+						error!("{}Was {} meant to be a function-like macro?", self.self_, n);
+					}
 					0
 					},
-				Some(&Token::ParenOpen) => {
+				Some(Token::ParenOpen) => {
 					let rv = self.evaluate_expr()?;
 					match self.get_tok().ok_or(super::Error::EOF)?
 					{
-					&Token::ParenClose => {},
+					Token::ParenClose => {},
 					t => panic!("{}TODO: Error in #if parsing - Expected ')' got '{:?}' - {:?}", self.self_, t, self.tokens),
 					}
 					rv
@@ -1073,12 +1142,34 @@ impl Preproc
 						};
 				}
 			}
+			fn evaluate_expr_ternary(&mut self) -> Result {
+				let next = Self::evaluate_expr_bool;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::QuestionMark) => {
+							self.get_tok();
+							let a = next(self)?;
+							match self.get_tok()
+							{
+							Some(Token::Colon) => {},
+							t => panic!("{:?}", t),
+							}
+							let b = next(self)?;
+							if v != 0 { a } else { b }
+							},
+						_ => return Ok(v),
+						}
+				}
+			}
 			fn evaluate_expr(&mut self) -> Result {
-				self.evaluate_expr_bool()
+				self.evaluate_expr_ternary()
 			}
 		}
 
-		let mut p = Parser { self_: self, tokens, tmp: None, macro_expansions: Vec::new() };
+		let mut p = Parser { self_: self, tokens: tokens.clone().into_iter(), tmp: None, macro_expansions: Vec::new() };
 		let rv = p.evaluate_expr()?;
 		match p.get_tok()
 		{
@@ -1120,7 +1211,7 @@ impl InnerLexer
 			},
 		InnerLexer::MacroExpansion(h) => {
 			// TODO: Print something sane for macro expansions (macro source location?)
-			write!(f, "?MACRO?:{}: ", h.idx)
+			write!(f, "macro {}:{}: ", h.name, h.idx)
 			},
 		}
 	}
@@ -1153,9 +1244,10 @@ impl TokenSourceStack
 			}));
 		Ok( () )
 	}
-	fn push_macro(&mut self, tokens: Vec<Token>)
+	fn push_macro(&mut self, name: String, tokens: Vec<Token>)
 	{
 		self.lexers.push(InnerLexer::MacroExpansion(MacroExpansion {
+			name: name,
 			tokens: tokens.into_iter(),
 			idx: 0,
 			}));
@@ -1200,6 +1292,21 @@ impl TokenSourceStack
 			}
 		}
 	}
+	fn get_token_nospace(&mut self) -> ::parse::ParseResult<Token>
+	{
+		loop
+		{
+			match self.get_token()?
+			{
+			Token::Whitespace => {},
+			Token::EscapedNewline => {},
+			Token::LineComment(_) => {},
+			Token::BlockComment(_) => {},
+			tok => return Ok(tok),
+			}
+		}
+	}
+
 	fn get_includestr(&mut self) -> ::parse::ParseResult<Option<String>>
 	{
 		match self.last_mut()

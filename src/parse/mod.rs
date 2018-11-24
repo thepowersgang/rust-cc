@@ -44,7 +44,14 @@ macro_rules! peek_token
 		$tok => true,
 		tok @ _ => { lex.put_back(tok); false }
 		}
-		})
+		});
+	($lex:expr, $tok:pat if $cond:expr) => ({
+		let lex = &mut $lex;
+		match try!(lex.get_token()) {
+		$tok if $cond => true,
+		tok @ _ => { lex.put_back(tok); false }
+		}
+		});
 }
 macro_rules! parse_todo
 {

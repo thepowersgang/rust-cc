@@ -111,7 +111,7 @@ impl<'ast> super::ParseState<'ast>
 			tok @ _ => {
 				self.lex.put_back(tok);
 
-				if peek_token!(self.lex, Token::Rword_gcc_attribute)
+				if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
 				{
 					panic!("{} TODO: __attribute__ on variable definition", self.lex);
 				}
@@ -422,7 +422,7 @@ impl<'ast> super::ParseState<'ast>
 			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
 			try!(self.parse_variable_def(typeid, ident));
 
-			if peek_token!(self.lex, Token::Rword_gcc_attribute)
+			if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
 			{
 				panic!("{} TODO: __attribute__ on variable definition", self.lex);
 			}

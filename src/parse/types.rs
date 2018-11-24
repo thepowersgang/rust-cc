@@ -40,7 +40,7 @@ impl<'ast> super::ParseState<'ast>
 		let mut int_seen = false;
 		let mut double_seen = false;
 		
-		if peek_token!(self.lex, Token::Rword_gcc_attribute) {
+		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__") {
 			panic!("{}TODO: Handle gcc __attribute__ at start of type", self.lex);
 		}
 
@@ -143,6 +143,9 @@ impl<'ast> super::ParseState<'ast>
 			Token::Rword_enum => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				typeid = Some(::types::BaseType::Enum(try!(self.get_enum())));
+				},
+			Token::Ident(ref n) if n == "__gnuc_va_list" => {
+				typeid = Some(::types::BaseType::MagicType(::types::MagicType::VaList));
 				},
 			Token::Ident(ref n) if n == "__magictype__" => {
 				syntax_assert!(self.lex.get_token()?, Token::ParenOpen);
@@ -334,7 +337,7 @@ impl<'ast> super::ParseState<'ast>
 			}
 			syntax_assert!(try!(self.lex.get_token()), Token::ParenClose);
 
-			if peek_token!(self.lex, Token::Rword_gcc_attribute) {
+			if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__") {
 				self.parse_gcc_attributes(|self_, name, _opts|
 					match &name[..]
 					{
@@ -472,7 +475,7 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!( try!(self.lex.get_token()), Token::Semicolon );
 		}
 		
-		if peek_token!(self.lex, Token::Rword_gcc_attribute)
+		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
 		{
 			self.parse_gcc_attributes(|self_, name, _opts|
 				match &name[..]

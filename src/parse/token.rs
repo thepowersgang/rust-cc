@@ -120,8 +120,6 @@ pub enum Token
 	Rword_default,
 	// - Meta
 	Rword_sizeof,
-	Rword_gcc_attribute,
-	Rword_gcc_va_arg,
 }
 impl From<Preprocessor> for Token {
 	fn from(v: Preprocessor) -> Token {

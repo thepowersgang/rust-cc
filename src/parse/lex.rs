@@ -479,8 +479,6 @@ impl<'a> Lexer<'a>
 			"continue" => Token::Rword_continue,
 			"goto"   => Token::Rword_goto,
 			
-			"__attribute__" => Token::Rword_gcc_attribute,
-			"__builtin_va_arg" => Token::Rword_gcc_va_arg,
 			_ => Token::Ident(ident)
 			}
 			},
@@ -496,8 +494,13 @@ impl<'a> Lexer<'a>
 
 fn make_float(base: u32, whole: u64, frac_len: usize, frac_value: u64, exp_is_neg: bool, exponent: u64) -> f64 //Float32_128
 {
-	// 1. Convert the fraction value into an ecoded fraction. (5 => 0x5 => 0x8, 123 => 0x7B => 0x0214D)
-	panic!("TODO: Create floating point values (base={}, whole={},frac={}:{},exponent={}{}", base, whole, frac_len, frac_value, if exp_is_neg { "-" } else { "" }, exponent);
+	if frac_value == 0 && exponent == 0 {
+		whole as f64
+	}
+	else {
+		// 1. Convert the fraction value into an ecoded fraction. (5 => 0x5 => 0x8, 123 => 0x7B => 0x0214D)
+		panic!("TODO: Create floating point values (base={}, whole={},frac={}:{},exponent={}{}", base, whole, frac_len, frac_value, if exp_is_neg { "-" } else { "" }, exponent);
+	}
 }
 
 // vim: ft=rust
