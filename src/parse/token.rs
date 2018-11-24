@@ -32,6 +32,7 @@ pub enum Token
 	Semicolon,
 	Star,
 	Slash,
+	Backslash,
 	Vargs,
 	QuestionMark,
 	Colon,

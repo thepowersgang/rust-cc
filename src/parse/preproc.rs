@@ -189,7 +189,7 @@ impl Preproc
 		}
 		else
 		{
-			let tok = self.get_token_int()?;
+			let tok = super::lex::map_keywords( self.get_token_int()? );
 			trace!("get_token = {:?} (new)", tok);
 			Ok(tok)
 		}
@@ -220,7 +220,7 @@ impl Preproc
 				Token::Hash if self.start_of_line =>
 					match self.eat_comments()?
 					{
-					Token::Rword_if => {
+					Token::Ident(ref name) if name == "if" => {
 						while self.eat_comments()? != Token::Newline {
 						}
 						self.if_stack.push(Conditional::default());
@@ -259,7 +259,7 @@ impl Preproc
 						syntax_assert!(self.eat_comments(), Token::Newline => ());
 						self.if_stack.push(Conditional::default());
 						},
-					Token::Rword_else => {
+					Token::Ident(ref name) if name == "else" => {
 						syntax_assert!(self.eat_comments(), Token::Newline => ());
 						match self.if_stack.last_mut()
 						{
@@ -369,7 +369,7 @@ impl Preproc
 					}
 					},
 				// #if
-				Token::Rword_if => {
+				Token::Ident(ref name) if name == "if" => {
 					let mut tokens = Vec::new();
 					loop
 					{
@@ -416,7 +416,7 @@ impl Preproc
 					}
 					},
 				// #else
-				Token::Rword_else => {
+				Token::Ident(ref name) if name == "else" => {
 					syntax_assert!(self.eat_comments(), Token::Newline => ());
 					if self.options.define_handling != Handling::PropagateOnly {
 						match self.if_stack.last_mut()
@@ -586,7 +586,7 @@ impl Preproc
 							Token::ParenOpen => {},
 							tok => {
 								assert!( self.saved_tok.is_none() );
-								self.saved_tok = Some( tok );
+								self.saved_tok = Some( super::lex::map_keywords(tok) );
 								return Ok(Token::Ident(v));
 								}
 							}
@@ -747,6 +747,7 @@ impl Preproc
 							&Token::Semicolon => ";",
 							&Token::Star => "*",
 							&Token::Slash => "/",
+							&Token::Backslash => "\\",
 							&Token::Vargs => "...",
 							&Token::QuestionMark => "?",
 							&Token::Colon => ":",
@@ -794,41 +795,42 @@ impl Preproc
 							
 							// -- Reserved Words
 							// - Storage classes
-							&Token::Rword_typedef => "typedef",
-							&Token::Rword_auto => "auto",
-							&Token::Rword_extern => "extern",
-							&Token::Rword_static => "static",
-							&Token::Rword_register => "register",
-							&Token::Rword_inline => "inline",
-							&Token::Rword_const => "const",
-							&Token::Rword_volatile => "volatile",
-							&Token::Rword_restrict => "restrict",
-							&Token::Rword_void => "void",
-							&Token::Rword_Bool => "Bool",
-							&Token::Rword_signed => "signed",
-							&Token::Rword_unsigned => "unsigned",
-							&Token::Rword_char => "char",
-							&Token::Rword_short => "short",
-							&Token::Rword_int => "int",
-							&Token::Rword_long => "long",
-							&Token::Rword_float => "float",
-							&Token::Rword_double => "double",
-							&Token::Rword_enum => "enum",
-							&Token::Rword_union => "union",
-							&Token::Rword_struct => "struct",
-							&Token::Rword_if => "if",
-							&Token::Rword_else => "else",
-							&Token::Rword_while => "while",
-							&Token::Rword_do => "do",
-							&Token::Rword_for => "for",
-							&Token::Rword_switch => "switch",
-							&Token::Rword_goto => "goto",
-							&Token::Rword_continue => "continue",
-							&Token::Rword_break => "break",
-							&Token::Rword_return => "return",
-							&Token::Rword_case => "case",
-							&Token::Rword_default => "default",
-							&Token::Rword_sizeof => "sizeof",
+							&Token::Rword_typedef
+							| &Token::Rword_auto
+							| &Token::Rword_extern
+							| &Token::Rword_static
+							| &Token::Rword_register
+							| &Token::Rword_inline
+							| &Token::Rword_const
+							| &Token::Rword_volatile
+							| &Token::Rword_restrict
+							| &Token::Rword_void
+							| &Token::Rword_Bool
+							| &Token::Rword_signed
+							| &Token::Rword_unsigned
+							| &Token::Rword_char
+							| &Token::Rword_short
+							| &Token::Rword_int
+							| &Token::Rword_long
+							| &Token::Rword_float
+							| &Token::Rword_double
+							| &Token::Rword_enum
+							| &Token::Rword_union
+							| &Token::Rword_struct
+							| &Token::Rword_if
+							| &Token::Rword_else
+							| &Token::Rword_while
+							| &Token::Rword_do
+							| &Token::Rword_for
+							| &Token::Rword_switch
+							| &Token::Rword_goto
+							| &Token::Rword_continue
+							| &Token::Rword_break
+							| &Token::Rword_return
+							| &Token::Rword_case
+							| &Token::Rword_default
+							| &Token::Rword_sizeof
+								=> panic!("Reserved word mapped to token variant in preprocessor, should still be an ident"),
 							});
 						}
 						output_tokens.push(Token::String(s))

@@ -264,7 +264,7 @@ impl<'a> Lexer<'a>
 			match try_eof!(self.getc(), Token::EOF)
 			{
 			'\n' => Token::EscapedNewline,
-			_ => return Err( ::parse::Error::BadCharacter('\\') ),
+			ch => { self.ungetc(ch); Token::Backslash },
 			},
 		'#' => Token::Hash,
 		'~' => Token::Tilde,
@@ -435,52 +435,7 @@ impl<'a> Lexer<'a>
 			},
 		'a'...'z'|'A'...'Z'|'_'|'$' => {
 			self.ungetc(ch);
-			let ident = try!(self.read_ident());
-			match &ident[..]
-			{
-			"typedef" => Token::Rword_typedef,
-			"static"  => Token::Rword_static,
-			"extern"  => Token::Rword_extern,
-			"inline"  => Token::Rword_inline,
-			
-			"const"    => Token::Rword_const,
-			"volatile" => Token::Rword_volatile,
-			"restrict" => Token::Rword_restrict,
-
-			"auto"     => Token::Rword_auto,
-			"register" => Token::Rword_register,
-			"signed"   => Token::Rword_signed,
-			"unsigned" => Token::Rword_unsigned,
-			"void"  => Token::Rword_void,
-			"_Bool" => Token::Rword_Bool,
-			"char"  => Token::Rword_char,
-			"short" => Token::Rword_short,
-			"int"   => Token::Rword_int,
-			"long"  => Token::Rword_long,
-			"float"  => Token::Rword_float,
-			"double" => Token::Rword_double,
-			
-			"sizeof" => Token::Rword_sizeof,
-			"enum"   => Token::Rword_enum,
-			"union"  => Token::Rword_union,
-			"struct" => Token::Rword_struct,
-			
-			"if"    => Token::Rword_if,
-			"else"  => Token::Rword_else,
-			"do"    => Token::Rword_do,
-			"while" => Token::Rword_while,
-			"for"   => Token::Rword_for,
-			"switch" => Token::Rword_switch,
-			
-			"case" => Token::Rword_case,
-			"default" => Token::Rword_default,
-			"return" => Token::Rword_return,
-			"break"  => Token::Rword_break,
-			"continue" => Token::Rword_continue,
-			"goto"   => Token::Rword_goto,
-			
-			_ => Token::Ident(ident)
-			}
+			Token::Ident( try!(self.read_ident()) )
 			},
 		_ => {
 			error!("Bad character #{} hit", ch as u32);
@@ -489,6 +444,59 @@ impl<'a> Lexer<'a>
 		};
 		trace!("get_token: {:?}", ret);
 		Ok(ret)
+	}
+}
+
+pub(super) fn map_keywords(tok: Token) -> Token
+{
+	match tok
+	{
+	Token::Ident(ident) => match &ident[..]
+		{
+		"typedef" => Token::Rword_typedef,
+		"static"  => Token::Rword_static,
+		"extern"  => Token::Rword_extern,
+		"inline"  => Token::Rword_inline,
+		
+		"const"    => Token::Rword_const,
+		"volatile" => Token::Rword_volatile,
+		"restrict" => Token::Rword_restrict,
+
+		"auto"     => Token::Rword_auto,
+		"register" => Token::Rword_register,
+		"signed"   => Token::Rword_signed,
+		"unsigned" => Token::Rword_unsigned,
+		"void"  => Token::Rword_void,
+		"_Bool" => Token::Rword_Bool,
+		"char"  => Token::Rword_char,
+		"short" => Token::Rword_short,
+		"int"   => Token::Rword_int,
+		"long"  => Token::Rword_long,
+		"float"  => Token::Rword_float,
+		"double" => Token::Rword_double,
+		
+		"sizeof" => Token::Rword_sizeof,
+		"enum"   => Token::Rword_enum,
+		"union"  => Token::Rword_union,
+		"struct" => Token::Rword_struct,
+		
+		"if"    => Token::Rword_if,
+		"else"  => Token::Rword_else,
+		"do"    => Token::Rword_do,
+		"while" => Token::Rword_while,
+		"for"   => Token::Rword_for,
+		"switch" => Token::Rword_switch,
+		
+		"case" => Token::Rword_case,
+		"default" => Token::Rword_default,
+		"return" => Token::Rword_return,
+		"break"  => Token::Rword_break,
+		"continue" => Token::Rword_continue,
+		"goto"   => Token::Rword_goto,
+		
+		_ => Token::Ident(ident)
+		},
+	t => t,
 	}
 }
 
