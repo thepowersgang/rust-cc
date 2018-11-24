@@ -72,7 +72,7 @@ struct MacroDefinition
 	arg_names: Option<Vec<String>>,
 	expansion: Vec<Token>,
 }
-#[derive(Default)]
+#[derive(Default,Debug)]
 struct Conditional
 {
 	is_else: bool,
@@ -113,7 +113,7 @@ impl Preproc
 			{
 				::parse::lex::Lexer::new(box match ::std::fs::File::open(filename)
 					{
-					Ok(f) => f.chars(),
+					Ok(f) => ::std::io::BufReader::new(f).chars(),
 					Err(e) => return Err(::parse::Error::IOError(e)),
 					})
 			}
@@ -165,6 +165,7 @@ impl Preproc
 			match self.lexers.get_token()?
 			{
 			Token::Whitespace => {},
+			Token::EscapedNewline => {},
 			Token::LineComment(_) => {},
 			Token::BlockComment(_) => {},
 			tok => return Ok(tok),
@@ -184,8 +185,17 @@ impl Preproc
 		{
 			let tok = self.saved_tok.take().unwrap();
 			trace!("get_token = {:?} (saved)", tok);
-			return Ok( tok );
+			Ok( tok )
 		}
+		else
+		{
+			let tok = self.get_token_int()?;
+			trace!("get_token = {:?} (new)", tok);
+			Ok(tok)
+		}
+	}
+	pub fn get_token_int(&mut self) -> ::parse::ParseResult<Token>
+	{
 		loop
 		{
 			// ---
@@ -195,6 +205,10 @@ impl Preproc
 			if ! self.is_conditional_active() {
 				match try!(self.lexers.get_token())
 				{
+				Token::EOF => {
+					panic!("Unexpected EOF - {:?}", self.if_stack);
+					return Ok(Token::EOF);
+					},
 				Token::Whitespace => {},
 				Token::EscapedNewline => {},
 				Token::Newline => {
@@ -212,14 +226,20 @@ impl Preproc
 						self.if_stack.push(Conditional::default());
 						},
 					Token::Ident(ref name) if name == "elif" => {
-						while self.eat_comments()? != Token::Newline {
+						let mut tokens = Vec::new();
+						loop
+						{
+							match self.eat_comments()?
+							{
+							Token::Newline => break,
+							t => tokens.push(t),
+							}
 						}
-						self.if_stack.push(Conditional::default());
 						match self.if_stack.last_mut()
 						{
-						None => panic!("TODO: Error for unmatched #elif"),
+						None => panic!("{}TODO: Error for unmatched #elif", self),
 						Some(ref v) if v.is_else => panic!("TODO: Error for duplicate #elif"),
-						_ => {},
+						_ => { error!("{}TODO: check #elif - {:?}", self, tokens); },
 						}
 						},
 					Token::Ident(ref name) if name == "ifdef" || name == "ifndef" => {
@@ -319,7 +339,7 @@ impl Preproc
 				// ---
 				// #if[n]def
 				Token::Ident(ref name) if name == "ifdef" || name == "ifndef" => {
-					let cnd = (name == "ifdef");
+					let cnd = name == "ifdef";
 					let ident = syntax_assert!(self.eat_comments(), Token::Ident(s) => s);
 					syntax_assert!(self.eat_comments(), Token::Newline => ());
 					// Push to #if stack, only pass tokens if entire #if stack is true
@@ -431,6 +451,11 @@ impl Preproc
 									}
 									match self.eat_comments()?
 									{
+									Token::Vargs => {
+										syntax_assert!(self.eat_comments(), Token::ParenClose => ());
+										//panic!("{}: TODO: Handle gcc-style named __VA_ARGS__", self);
+										break
+										},
 									Token::ParenClose => break,
 									Token::Comma => {},
 									tok @ _ => panic!("{}: TODO: Error, unexpected {:?} in macro argument list", self, tok),
@@ -486,6 +511,17 @@ impl Preproc
 							}
 						}
 					},
+				Token::Ident(ref name) if name == "undef" => {
+					let ident = syntax_assert!(self.eat_comments(), Token::Ident(s) => s);
+					// TODO: Do function-like macros need the parens when being un-defined?
+					syntax_assert!(self.eat_comments(), Token::Newline => ());
+					if self.options.define_handling != Handling::PropagateOnly {
+						self.macros.remove(&ident);
+					}
+					if self.options.define_handling != Handling::InternalOnly {
+						return Ok(token::Preprocessor::MacroUndefine { name: ident }.into());
+					}
+					},
 				// #pragma
 				Token::Ident(ref name) if name == "pragma" => {
 					let ident = syntax_assert!(self.eat_comments(), Token::Ident(s) => s);
@@ -494,12 +530,13 @@ impl Preproc
 					"once" => {
 						syntax_assert!(self.eat_comments(), Token::Newline => ());
 						// TODO: Ensure single-inclusion of this file
+						// TODO: If enabled, propagate a token::Preprocessor::PragmaOnce
 						},
-					n => panic!("{}: TDOO: Unknown pragma `{}`", self, n),
+					n => panic!("{}: TODO: Unknown pragma `{}`", self, n),
 					}
 					},
 				// Unknown identifier
-				Token::Ident(name) => panic!("TODO: Preprocessor '{}'", name),
+				Token::Ident(name) => panic!("{}TODO: Preprocessor '{}'", self, name),
 				
 
 				//Token::Integer(line, _,_) => {
@@ -591,12 +628,131 @@ impl Preproc
 									Some(v) => output_tokens.extend( v.iter().cloned() ),
 									None => output_tokens.push( Token::Ident(i.clone()) ),
 									},
-								Mode::Stringify => panic!("TODO: Stringify"),
-									//match arg_mapping.get(&i[..])
-									//{
-									//Some(v) => output_tokens.extend( v.iter().cloned() ),
-									//None => output_tokens.push( Token::Ident(i.clone()) ),
-									//},
+								Mode::Stringify =>
+									match arg_mapping.get(&i[..])
+									{
+									Some(v) => {
+										let mut s = String::new();
+										for t in v.iter()
+										{
+											s.push_str(match t
+											{
+											&Token::EOF
+											| &Token::BlockComment(_)
+											| &Token::LineComment(_)
+												=> "",
+											&Token::Whitespace
+											| &Token::Newline
+											| &Token::EscapedNewline
+												=> " ",
+											&Token::Preprocessor(_) => panic!("{:?} in macro argument", t),
+											// -- Expression leaves
+											&Token::Integer(_, _, ref s) => s,
+											&Token::Float(_, _, ref s) => s,
+											&Token::Chararacter(ch) => panic!("TODO: Stringify char constant {}", ch),
+											&Token::String(ref s) => panic!("TODO: Stringify string constant {:?}", s),
+											&Token::Ident(ref n) => n,
+											
+											// -- Symbols
+											&Token::Hash => "#",
+											&Token::Tilde => "~",
+											&Token::Exclamation => "!",
+											&Token::Period => ".",
+											&Token::DerefMember => "->",
+											&Token::Comma => ",",
+											&Token::Semicolon => ";",
+											&Token::Star => "*",
+											&Token::Slash => "/",
+											&Token::Vargs => "...",
+											&Token::QuestionMark => "?",
+											&Token::Colon => ":",
+
+											&Token::Assign => "=",
+											&Token::AssignAdd => "+=",
+											&Token::AssignSub => "-=",
+											&Token::AssignMul => "*=",
+											&Token::AssignDiv => "/=",
+											&Token::AssignMod => "%=",
+											&Token::AssignLogicOr => "||=",
+											&Token::AssignLogicAnd => "&&=",
+											&Token::AssignBitOr => "|=",
+											&Token::AssignBitAnd => "&=",
+											
+											&Token::ShiftRight => ">>",
+											&Token::ShiftLeft => "<<",
+											
+											&Token::Equality => "==",
+											&Token::NotEquals => "!=",
+											&Token::Lt => "<",
+											&Token::Gt => ">",
+											&Token::LtE => "<=",
+											&Token::GtE => ">=",
+											
+											&Token::Percent => "%",
+											&Token::Plus => "+",
+											&Token::Minus => "-",
+											&Token::DoublePlus => "++",	// ungood (bad joke, sorry)
+											&Token::DoubleMinus => "--",
+											
+											&Token::Ampersand => "&",
+											&Token::Pipe => "|",
+											&Token::Caret => "^",
+											&Token::DoubleAmpersand => "&&",
+											&Token::DoublePipe => "||",
+											
+											// -- Brackets
+											&Token::BraceOpen => "{",
+											&Token::BraceClose => "}",
+											&Token::ParenOpen => "(",
+											&Token::ParenClose => ")",
+											&Token::SquareOpen => "[",
+											&Token::SquareClose => "]",
+											
+											// -- Reserved Words
+											// - Storage classes
+											&Token::Rword_typedef => "typedef",
+											&Token::Rword_auto => "auto",
+											&Token::Rword_extern => "extern",
+											&Token::Rword_static => "static",
+											&Token::Rword_register => "register",
+											&Token::Rword_inline => "inline",
+											&Token::Rword_const => "const",
+											&Token::Rword_volatile => "volatile",
+											&Token::Rword_restrict => "restrict",
+											&Token::Rword_void => "void",
+											&Token::Rword_Bool => "Bool",
+											&Token::Rword_signed => "signed",
+											&Token::Rword_unsigned => "unsigned",
+											&Token::Rword_char => "char",
+											&Token::Rword_short => "short",
+											&Token::Rword_int => "int",
+											&Token::Rword_long => "long",
+											&Token::Rword_float => "float",
+											&Token::Rword_double => "double",
+											&Token::Rword_enum => "enum",
+											&Token::Rword_union => "union",
+											&Token::Rword_struct => "struct",
+											&Token::Rword_if => "if",
+											&Token::Rword_else => "else",
+											&Token::Rword_while => "while",
+											&Token::Rword_do => "do",
+											&Token::Rword_for => "for",
+											&Token::Rword_switch => "switch",
+											&Token::Rword_goto => "goto",
+											&Token::Rword_continue => "continue",
+											&Token::Rword_break => "break",
+											&Token::Rword_return => "return",
+											&Token::Rword_case => "case",
+											&Token::Rword_default => "default",
+											&Token::Rword_sizeof => "sizeof",
+											&Token::Rword_gcc_attribute => "__attribute__",
+											&Token::Rword_gcc_va_arg => "__builtin_va_arg",
+											});
+										}
+										output_tokens.push(Token::String(s))
+										},
+									None => output_tokens.push( Token::String(i.clone()) ),
+									},
 								Mode::Concat =>
 									match output_tokens.last_mut()
 									{
@@ -729,6 +885,17 @@ impl Preproc
 				if self.tmp.is_some() {
 					return self.tmp.take();
 				}
+
+				loop
+				{
+					match self.get_tok_int()
+					{
+					Some(&Token::EscapedNewline) => {},
+					v => return v,
+					}
+				}
+			}
+			fn get_tok_int(&mut self) -> Option<&'a Token> {
 				loop
 				{
 					if let Some(&mut (ref mut pos, me)) = self.macro_expansions.last_mut()
@@ -772,21 +939,69 @@ impl Preproc
 						};
 				}
 			}
+		}
 
-			fn evaluate_expr_value(&mut self) -> super::ParseResult<i64> {
+		// TODO: use a value enum to handle quirks?
+		//enum Value {
+		//	Int(i64),
+		//	Name(String),
+		//	EmptyExpansion,
+		//}
+		type Value = i64;
+		type Result = super::ParseResult<Value>;
+		impl<'a> Parser<'a>
+		{
+			fn evaluate_expr_value(&mut self) -> Result {
 				Ok(match self.get_tok()
 				{
-				Some(&Token::Integer(v,_,_)) => v as i64,
-				//Some(&Token::Ident(ref n)) => panic!("{}: TODO: Look up #define macros - {:?}", self.self_, n),
+				Some(&Token::Integer(v,_,_)) => v as Value,
+				Some(&Token::Ident(ref n)) if n == "defined" => {
+					let l = self.macro_expansions.len();
+					let _t = self.peek_tok().ok_or(super::Error::EOF)?;
+					debug!("> {:?}", _t);
+					if self.macro_expansions.len() == l {
+						let _t = self.get_tok();
+						debug!("{:?}", _t);
+						1
+					}
+					else {
+						while self.macro_expansions.len() > l {
+							let _t = self.get_tok();
+							debug!("{:?}", _t);
+							self.peek_tok();
+						}
+						0
+					}
+					},
 				Some(&Token::Ident(ref n)) => {
+					// TODO: `#if foo == foo` should be true, but `#if foo == bar` should be false?
 					warn!("{}: Undefined identifier {}, evaluating to 0", self.self_, n);
 					0
 					},
-				_ => panic!("TODO: Error in #if parsing"),
+				Some(&Token::ParenOpen) => {
+					let rv = self.evaluate_expr()?;
+					match self.get_tok().ok_or(super::Error::EOF)?
+					{
+					&Token::ParenClose => {},
+					t => panic!("{}TODO: Error in #if parsing - Expected ')' got '{:?}' - {:?}", self.self_, t, self.tokens),
+					}
+					rv
+					},
+				t @ _ => panic!("{}TODO: Error in #if parsing - unexpected token {:?}", self.self_, t),
 				})
 			}
-			fn evaluate_expr_muldiv(&mut self) -> super::ParseResult<i64> {
+			fn evaluate_expr_unary(&mut self) -> Result {
+				let cur = Self::evaluate_expr_unary;
 				let next = Self::evaluate_expr_value;
+				match self.peek_tok()
+				{
+				Some(Token::Exclamation) => { self.get_tok(); Ok( (cur(self)? == 0) as _ ) },
+				Some(Token::Minus) => { self.get_tok(); Ok( -cur(self)? ) },
+				_ => next(self),
+				}
+			}
+			fn evaluate_expr_muldiv(&mut self) -> Result {
+				let next = Self::evaluate_expr_unary;
 				let mut v = next(self)?;
 				loop
 				{
@@ -798,8 +1013,21 @@ impl Preproc
 						};
 				}
 			}
-			fn evaluate_expr_addsub(&mut self) -> super::ParseResult<i64> {
+			fn evaluate_expr_shift(&mut self) -> Result {
 				let next = Self::evaluate_expr_muldiv;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::ShiftLeft) => { self.get_tok(); v << next(self)? },
+						Some(Token::ShiftRight) => { self.get_tok(); v >> next(self)? },
+						_ => return Ok(v),
+						};
+				}
+			}
+			fn evaluate_expr_addsub(&mut self) -> Result {
+				let next = Self::evaluate_expr_shift;
 				let mut v = next(self)?;
 				loop
 				{
@@ -808,11 +1036,11 @@ impl Preproc
 						Some(Token::Plus ) => { self.get_tok(); v + next(self)? },
 						Some(Token::Minus) => { self.get_tok(); v - next(self)? },
 						_ => return Ok(v),
-						//_ => { debug!("v={}", v); return Ok(v) },
+						//t @ _ => { debug!("evaluate_expr_addsub: t={:?} v={}", t, v); return Ok(v) },
 						};
 				}
 			}
-			fn evaluate_expr_cmp(&mut self) -> super::ParseResult<i64> {
+			fn evaluate_expr_cmp(&mut self) -> Result {
 				let next = Self::evaluate_expr_addsub;
 				let mut v = next(self)?;
 				loop
@@ -826,20 +1054,38 @@ impl Preproc
 						Some(Token::Equality) => { self.get_tok(); (v == next(self)?) as _ },
 						Some(Token::NotEquals) => { self.get_tok(); (v != next(self)?) as _ },
 						_ => return Ok(v),
-						//t @ _ => { debug!("t={:?} v={}", t, v); return Ok(v) },
+						//t @ _ => { debug!("evaluate_expr_cmp: t={:?} v={}", t, v); return Ok(v) },
 						};
 				}
+			}
+			fn evaluate_expr_bool(&mut self) -> Result {
+				debug!("evaluate_expr_bool");
+				let next = Self::evaluate_expr_cmp;
+				let mut v = next(self)?;
+				loop
+				{
+					v = match self.peek_tok()
+						{
+						Some(Token::DoubleAmpersand) => { self.get_tok(); let oth = next(self)?; (oth != 0 && v != 0) as _ },
+						Some(Token::DoublePipe) => { self.get_tok(); let oth = next(self)?; (oth != 0 || v != 0) as _ },
+						//t @ _ => { debug!("evaluate_expr_bool: t={:?} v={}", t, v); return Ok(v) },
+						_ => return Ok(v),
+						};
+				}
+			}
+			fn evaluate_expr(&mut self) -> Result {
+				self.evaluate_expr_bool()
 			}
 		}
 
 		let mut p = Parser { self_: self, tokens, tmp: None, macro_expansions: Vec::new() };
-		let rv = p.evaluate_expr_cmp()?;
+		let rv = p.evaluate_expr()?;
 		match p.get_tok()
 		{
 		Some(t) => panic!("{}: TODO: Error in PP if/elif - Unhandled token {:?}", self, t),
 		None => {},
 		}
-		debug!("{}: Parse+evaluate a #if/#elif expression - {:?} = {}", self, tokens, rv);
+		debug!("{}: Parsed and evaluated #if/#elif expression - {:?} = {}", self, tokens, rv);
 		Ok(rv != 0)
 	}
 }
@@ -848,7 +1094,19 @@ impl ::std::fmt::Display for Preproc
 {
 	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
 	{
-		match self.lexers.last()
+		for l in &self.lexers.lexers[.. self.lexers.lexers.len() - 1]
+		{
+			l.fmt_lineno(f)?;
+			write!(f, "\n")?;
+		}
+		self.lexers.last().fmt_lineno(f)
+	}
+}
+impl InnerLexer
+{
+	fn fmt_lineno(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
+	{
+		match self
 		{
 		InnerLexer::File(h) => {
 			if let Some(ref p) = h.filename
@@ -887,7 +1145,7 @@ impl TokenSourceStack
 		self.lexers.push(InnerLexer::File(LexHandle {
 			lexer: super::lex::Lexer::new(box match ::std::fs::File::open(&path)
 				{
-				Ok(f) => f.chars(),
+				Ok(f) => ::std::io::BufReader::new(f).chars(),
 				Err(e) => return Err(::parse::Error::IOError(e)),
 				}),
 			filename: Some(path),

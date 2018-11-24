@@ -158,6 +158,10 @@ pub enum Preprocessor
 		arg_names: Option< Vec<String> >,
 		expansion: Vec<Token>,
 	},
+	/// Macro un-definition
+	MacroUndefine {
+		name: String,
+	},
 	/// A macro invocation/expansion
 	/// NOTE: This only gets emitted if macros are being handled by the pre-processor
 	MacroInvocaton {
