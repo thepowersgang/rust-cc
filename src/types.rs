@@ -25,13 +25,14 @@ pub enum BaseType
 	
 	Pointer(Rc<Type>),
 	Array(Rc<Type>, ArraySize),
-	Function(Rc<Type>,Vec<(Rc<Type>,String)>),
+	// TODO: make this a struct with a custom PartialEq impl that ignores names
+	Function(FunctionType),
 }
 #[derive(Clone,PartialEq,Debug)]
 pub enum MagicType
 {
 	VaList,
-	Named(String),
+	Named(String, String),
 }
 #[derive(Clone,PartialEq)]
 pub enum ArraySize
@@ -61,6 +62,22 @@ impl ::std::ops::Deref for ArraySizeExpr {
 	type Target = ::ast::Node;
 	fn deref(&self) -> &::ast::Node {
 		&*self.0
+	}
+}
+
+#[derive(Clone,Debug)]
+pub struct FunctionType
+{
+	pub ret: Rc<Type>,
+	pub args: Vec<(Rc<Type>, String)>
+}
+impl PartialEq for FunctionType
+{
+	fn eq(&self, v: &Self) -> bool {
+		self.ret == v.ret
+			&& self.args.len() == v.args.len()
+			// Checks just the base types (ignoring qualifiers like `const` on the top level)
+			&& Iterator::zip( self.args.iter(), v.args.iter() ).all( |(a,b)| a.0.basetype == b.0.basetype )
 	}
 }
 
@@ -192,7 +209,7 @@ impl<T> RcRefCellPtrEq<T> {
 pub struct Struct
 {
 	pub name: String,
-	items: Option<Vec<(TypeRef,String)>>,
+	pub items: Option<Vec<(TypeRef,String)>>,
 }
 
 #[derive(Debug,PartialEq)]
@@ -234,7 +251,7 @@ impl ::std::fmt::Debug for BaseType
 		
 		&BaseType::Array(ref typeref, ref size) => write!(fmt, "{:?}{}", typeref, size),
 		&BaseType::Pointer(ref typeref) => write!(fmt, "*{:?}", typeref),
-		&BaseType::Function(ref ret, ref args) => write!(fmt, "Fcn({:?}, {:?})", ret, args),
+		&BaseType::Function(ref info) => write!(fmt, "Fcn({:?}, {:?})", info.ret, info.args),
 		}
 	}
 }

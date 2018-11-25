@@ -84,17 +84,21 @@ impl Program
 		{
 		Entry::Occupied(mut e) => {
 			if e.get().symtype != typeid {
+				// TODO: Don't check argument names (they should be separate?)
 				// ERROR: Conflicting declarations
+				panic!("TODO: Conflicting definitions of {} - {:?} != {:?}", name, e.get().symtype, typeid);
 			}
 			else if e.get().value.is_some() {
 				if value.is_some() {
 					// ERROR: Duplicated definition
+					panic!("TODO: Re-definition of {} - {:?} and {:?}", name, e.get().value, value);
 				}
 				else {
 					// WARN: Trailing declaration
 				}
 			}
 			else {
+				e.get_mut().symtype = typeid;
 				e.get_mut().value = value;
 			}
 			},

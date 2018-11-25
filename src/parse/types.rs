@@ -149,9 +149,13 @@ impl<'ast> super::ParseState<'ast>
 				},
 			Token::Ident(ref n) if n == "__magictype__" => {
 				syntax_assert!(self.lex.get_token()?, Token::ParenOpen);
-				let name = syntax_assert!(self.lex.get_token()?, Token::String(s) => s);
+				let s = syntax_assert!(self.lex.get_token()?, Token::String(s) => s);
 				syntax_assert!(self.lex.get_token()?, Token::ParenClose);
-				typeid = Some(::types::BaseType::MagicType(::types::MagicType::Named(name)));
+				let (name, repr) = {
+					let mut it = s.splitn(2, ':');
+					( it.next().unwrap().to_owned(), it.next().expect("No repr in magic type").to_owned() )
+					};
+				typeid = Some(::types::BaseType::MagicType(::types::MagicType::Named(name, repr)));
 				},
 			Token::Ident(n) => {
 				if typeid.is_some() {
@@ -229,7 +233,7 @@ impl<'ast> super::ParseState<'ast>
 					*sub
 					},
 				TypeNode::Fcn(sub, args) => {
-					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function(rettype, args) );
+					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function( ::types::FunctionType { ret: rettype, args } ) );
 					*sub
 					},
 				TypeNode::Array(sub, size) => {

@@ -26,8 +26,13 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			&ItemRef::Value(ref name) => {
 				self.write_value(&self.prog.symbols[name]);
 				},
+			&ItemRef::Typedef(ref name) => {
+				let td = &self.prog.typedefs[name];
+				self.write_str("typedef "); self.write_type_d(td, &mut |s| s.write_str(name), false); self.write_str(";\n");
+				},
 			&ItemRef::Struct(ref name) => {
-				debug!("TODO: struct {}", name);
+				self.write_struct_def(&self.prog.structs[name].borrow(), true);
+				self.write_str(";\n");
 				},
 			_ => {},
 			}
@@ -67,6 +72,25 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		}
 	}
 
+
+	fn write_struct_def(&mut self, s: &::types::Struct, use_newlines: bool)
+	{
+		let nl = if true || use_newlines { "\n" } else { " " };
+		let indent = if true || use_newlines { "\t" } else { "" };
+		self.write_str("struct "); self.write_str(&s.name); self.write_str(nl);
+		if let Some(ref fields) = s.items
+		{
+			self.write_str("{"); self.write_str(nl);
+			for &(ref ty, ref name) in fields
+			{
+				self.write_str(indent);
+				self.write_type(ty, |s| s.write_str(name));
+				self.write_str(";"); self.write_str(nl);
+			}
+			self.write_str("}");
+		}
+	}
+
 	fn write_initialiser(&mut self, init: &::ast::Initialiser)
 	{
 		match init
@@ -101,10 +125,10 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 	fn write_type(&mut self, ty: &::types::TypeRef, mut cb: impl FnMut(&mut Self))
 	{
 		//self.write_type_d(ty, Box::new(cb));
-		self.write_type_d(ty, &mut cb);
+		self.write_type_d(ty, &mut cb, true);
 	}
 	//fn write_type_d<'b>(&mut self, ty: &::types::TypeRef, cb: Box<::std::boxed::FnBox(&mut Self)+'b>)
-	fn write_type_d(&mut self, ty: &::types::TypeRef, cb: &mut FnMut(&mut Self))
+	fn write_type_d(&mut self, ty: &::types::TypeRef, cb: &mut FnMut(&mut Self), use_typedef: bool)
 	{
 		use ::types::BaseType;
 		match ty.basetype
@@ -120,16 +144,32 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			cb(self);
 			},
 		BaseType::Struct(ref r) => {
+			if use_typedef {
+				//if let Some(t) = self.find_typedef(ty) {
+				//	write!(self, "{} ", t);
+				//	cb(self);
+				//}
+			}
 			self.write_type_qualifiers(&ty.qualifiers);
 			if r.borrow().name != "" {
 				write!(self, "struct {} ", r.borrow().name);
 			}
-			else if let Some(t) = self.find_typedef(ty) {
-				// TODO: Search for a typedef of this struct
-				write!(self, "{} ", t);
-			}
 			else {
-				self.write_str("struct { ... } ");
+				let print_body = if ! use_typedef {
+						true
+					}
+					else if let Some(t) = self.find_typedef(ty) {
+						write!(self, "{} ", t);
+						false
+					}
+					else {
+						true
+					};
+				if print_body
+				{
+					self.write_struct_def(&r.borrow(), false);
+					self.write_str(" ");
+				}
 			}
 			cb(self);
 			},
@@ -185,7 +225,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			use ::types::MagicType;
 			match *m
 			{
-			MagicType::Named(ref n) => { self.write_str(n); self.write_str(" "); },
+			MagicType::Named(ref n, ref _repr) => { self.write_str(n); self.write_str(" "); },
 			MagicType::VaList => self.write_str("va_list "),
 			}
 			cb(self);
@@ -211,12 +251,12 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				s.write_str("]");
 				});
 			},
-		BaseType::Function(ref ret, ref args) => {
-			self.write_type(ret, |_| {});
+		BaseType::Function(ref info) => {
+			self.write_type(&info.ret, |_| {});
 			(*cb)(self);
 			self.write_str("(");
 			let mut b = false;
-			for (aty, aname) in args {
+			for (aty, aname) in &info.args {
 				if b {
 					self.write_str(", ");
 				}
@@ -310,6 +350,9 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		&Statement::DoWhileLoop { ref body, ref cond } => {
 			self.write_str("do\n");
 			self.write_block(body, indent+1);
+			for _ in 0 .. indent+1 {
+				self.write_str("\t");
+			}
 			self.write_str("while( ");
 			self.write_node(cond, super::NodePrecedence::Lowest);
 			self.write_str(" )");
@@ -345,16 +388,16 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		&Statement::Goto(ref n) => { write!(self, "goto {}", n); false },
 
 		&Statement::Switch(ref v, ref stmts) => {
-			self.write_str("switch "); self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			self.write_str("switch "); self.write_node(v, super::NodePrecedence::CommaOperator.up()); self.write_str("\n");
 			self.write_block(stmts, indent+1);
 			true
 			},
 
 		// NOTE: Labels have negative indentation (handled by caller)
-		&Statement::Label(ref n) => { write!(self, "{}:", n); true },
-		&Statement::CaseDefault => { self.write_str("default:"); true },
-		&Statement::CaseSingle(v) => { write!(self, "case {}:", v); true },
-		&Statement::CaseRange(v1, v2) => { write!(self, "case {} ... {}:", v1, v2); true },
+		&Statement::Label(ref n) => { write!(self, "{}:\n", n); true },
+		&Statement::CaseDefault => { self.write_str("default:\n"); true },
+		&Statement::CaseSingle(v) => { write!(self, "case {}:\n", v); true },
+		&Statement::CaseRange(v1, v2) => { write!(self, "case {} ... {}:\n", v1, v2); true },
 		}
 	}
 	fn write_vardef(&mut self, defs: &super::VarDefList)
