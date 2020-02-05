@@ -19,10 +19,10 @@ impl<'ast> super::ParseState<'ast>
 {
 	/// Parse a bare type name (no pointer handling)
 	pub fn get_base_type(&mut self) -> ParseResult<::types::TypeRef> {
-		match try!(self.get_base_type_opt())
+		match self.get_base_type_opt()?
 		{
 		Some(t) => Ok(t),
-		None => syntax_error!("No type provided, got token {:?}", try!(self.lex.get_token())),
+		None => syntax_error!("No type provided, got token {:?}", self.lex.get_token()?),
 		}
 	}
 	
@@ -134,15 +134,15 @@ impl<'ast> super::ParseState<'ast>
 				},
 			Token::Rword_struct => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
-				typeid = Some(::types::BaseType::Struct(try!(self.get_struct())));
+				typeid = Some(::types::BaseType::Struct(self.get_struct()?));
 				},
 			Token::Rword_union => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
-				typeid = Some(::types::BaseType::Union(try!(self.get_union())));
+				typeid = Some(::types::BaseType::Union(self.get_union()?));
 				},
 			Token::Rword_enum => {
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
-				typeid = Some(::types::BaseType::Enum(try!(self.get_enum())));
+				typeid = Some(::types::BaseType::Enum(self.get_enum()?));
 				},
 			Token::Ident(ref n) if n == "__gnuc_va_list" => {
 				typeid = Some(::types::BaseType::MagicType(::types::MagicType::VaList));
@@ -220,7 +220,7 @@ impl<'ast> super::ParseState<'ast>
 	/// Returns both the fully-generated type, and the inner identifier of the type
 	pub fn get_full_type(&mut self, basetype: ::types::TypeRef) -> ParseResult<(::types::TypeRef,String)>
 	{
-		let mut typenode = try!(self.get_fulltype_ptr());
+		let mut typenode = self.get_fulltype_ptr()?;
 		debug!("get_full_type: typenode={:?}", typenode);
 		let mut rettype = basetype;
 		loop
@@ -265,7 +265,7 @@ impl<'ast> super::ParseState<'ast>
 			let mut qualifiers = ::types::Qualifiers::new();
 			loop
 			{
-				match try!(self.lex.get_token())
+				match self.lex.get_token()?
 				{
 				Token::Rword_const    => { qualifiers.set_const(); }
 				Token::Rword_volatile => { qualifiers.set_volatile(); }
@@ -290,7 +290,7 @@ impl<'ast> super::ParseState<'ast>
 	/// Handle the bottom layer (either parentheses, or an identifier)
 	fn get_fulltype_bottom(&mut self) -> ParseResult<TypeNode>
 	{
-		match try!(self.lex.get_token())
+		match self.lex.get_token()?
 		{
 		Token::ParenOpen => {
 			debug!("get_fulltype_bottom - Parentheses");
@@ -312,7 +312,7 @@ impl<'ast> super::ParseState<'ast>
 	/// Handle function types (parentheses after identifier)
 	fn get_fulltype_fcn(&mut self, inner: TypeNode) -> ParseResult<TypeNode>
 	{
-		match try!(self.lex.get_token())
+		match self.lex.get_token()?
 		{
 		Token::ParenOpen => {
 			debug!("get_fulltype_fcn - Parentheses");
@@ -324,9 +324,9 @@ impl<'ast> super::ParseState<'ast>
 					args.push( ( ::types::Type::new_ref_bare(::types::BaseType::Void), "...".to_string()) );
 					break;
 				}
-				let basetype = try!(self.get_base_type());
-				args.push( try!(self.get_full_type(basetype)) );
-				match try!(self.lex.get_token())
+				let basetype = self.get_base_type()?;
+				args.push( self.get_full_type(basetype)? );
+				match self.lex.get_token()?
 				{
 				Token::Comma => {},
 				tok @ _ => {
@@ -339,22 +339,22 @@ impl<'ast> super::ParseState<'ast>
 			if args.len() == 1 && args[0] == (::types::Type::new_ref_bare(::types::BaseType::Void),"".to_string()) {
 				args.clear();
 			}
-			syntax_assert!(try!(self.lex.get_token()), Token::ParenClose);
+			syntax_assert!(self.lex.get_token()?, Token::ParenClose);
 
 			if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__") {
 				self.parse_gcc_attributes(|self_, name, _opts|
 					match &name[..]
 					{
 					"noreturn" => {
-						/* TODO: noreturn */;
+						/* TODO: noreturn */
 						Ok( () )
 						},
 					"warn_unused_result" => {
-						/* TODO: warn_unused_result */;
+						/* TODO: warn_unused_result */
 						Ok( () )
 						},
 					"deprecated" => {
-						/* TODO: deprecated */;
+						/* TODO: deprecated */
 						Ok( () )
 						},
 					_ => panic!("{}: TODO - Handle GCC __attribute__(({})) on function", self_.lex, name),
@@ -412,13 +412,13 @@ impl<'ast> super::ParseState<'ast>
 	
 	fn get_struct(&mut self) -> ParseResult<::types::StructRef>
 	{
-		let name = try!(self._get_ident_or_blank());
+		let name = self._get_ident_or_blank()?;
 		
 		// Check for defining the structure's contents
-		match try!(self.lex.get_token())
+		match self.lex.get_token()?
 		{
 		Token::BraceOpen => {
-			let fields = try!(self.populate_struct());
+			let fields = self.populate_struct()?;
 			match self.ast.make_struct(&name, fields)
 			{
 			Ok(sr) => Ok(sr),
@@ -442,10 +442,10 @@ impl<'ast> super::ParseState<'ast>
 			}
 			
 			// 1. Get base type
-			let basetype = try!(self.get_base_type());
+			let basetype = self.get_base_type()?;
 			debug!("do_definition: basetype={:?}", basetype);
 			// 2. Get extended type and identifier
-			let (ft, ident) = try!(self.get_full_type(basetype.clone()));
+			let (ft, ident) = self.get_full_type(basetype.clone())?;
 			
 			// - Handle bitfields
 			if peek_token!(self.lex, Token::Colon)
@@ -464,7 +464,7 @@ impl<'ast> super::ParseState<'ast>
 				/*
 				while peek_token!(self.lex, Token::Comma)
 				{
-					items.push( try!(self.get_full_type(basetype.clone())) );
+					items.push( self.get_full_type(basetype.clone())? );
 				}
 				*/
 			}
@@ -476,7 +476,7 @@ impl<'ast> super::ParseState<'ast>
 					items.push( self.get_full_type(basetype.clone())? );
 				}
 			}
-			syntax_assert!( try!(self.lex.get_token()), Token::Semicolon );
+			syntax_assert!( self.lex.get_token()?, Token::Semicolon );
 		}
 		
 		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
@@ -495,13 +495,13 @@ impl<'ast> super::ParseState<'ast>
 
 	fn get_union(&mut self) -> ParseResult<::types::UnionRef>
 	{
-		let name = try!(self._get_ident_or_blank());
+		let name = self._get_ident_or_blank()?;
 		
 		// Check for defining the enum's contents
-		match try!(self.lex.get_token())
+		match self.lex.get_token()?
 		{
 		Token::BraceOpen => {
-			let fields = try!(self.populate_union());
+			let fields = self.populate_union()?;
 			match self.ast.make_union(&name, fields)
 			{
 			Ok(er) => Ok(er),
@@ -525,16 +525,16 @@ impl<'ast> super::ParseState<'ast>
 			}
 			
 			// 1. Get base type
-			let basetype = try!(self.get_base_type());
+			let basetype = self.get_base_type()?;
 			debug!("populate_union: basetype={:?}", basetype);
 			// 2. Get extended type and identifier
-			items.push( try!(self.get_full_type(basetype.clone())) );
+			items.push( self.get_full_type(basetype.clone())? );
 			
 			while peek_token!(self.lex, Token::Comma)
 			{
-				items.push( try!(self.get_full_type(basetype.clone())) );
+				items.push( self.get_full_type(basetype.clone())? );
 			}
-			syntax_assert!( try!(self.lex.get_token()), Token::Semicolon );
+			syntax_assert!( self.lex.get_token()?, Token::Semicolon );
 		}
 		
 		Ok( items )
@@ -545,13 +545,13 @@ impl<'ast> super::ParseState<'ast>
 	// ---
 	fn get_enum(&mut self) -> ParseResult<::types::EnumRef>
 	{
-		let name = try!(self._get_ident_or_blank());
+		let name = self._get_ident_or_blank()?;
 		
 		// Check for defining the enum's contents
-		match try!(self.lex.get_token())
+		match self.lex.get_token()?
 		{
 		Token::BraceOpen => {
-			let fields = try!(self.populate_enum());
+			let fields = self.populate_enum()?;
 			match self.ast.make_enum(&name, fields)
 			{
 			Ok(er) => Ok(er),
@@ -578,11 +578,11 @@ impl<'ast> super::ParseState<'ast>
 			if peek_token!(self.lex, Token::BraceClose) {
 				break;
 			}
-			let name = syntax_assert!( try!(self.lex.get_token()), Token::Ident(v) => v );
+			let name = syntax_assert!( self.lex.get_token()?, Token::Ident(v) => v );
 			
 			if peek_token!(self.lex, Token::Assign) {
 				// This can be a constant expression
-				let node = try!(self.parse_expr());
+				let node = self.parse_expr()?;
 				let val = match node.literal_integer()
 					{
 					Some(v) => v as u64,
@@ -591,7 +591,7 @@ impl<'ast> super::ParseState<'ast>
 				curval = val;
 			}
 			items.push( (curval, name) );
-			match try!(self.lex.get_token())
+			match self.lex.get_token()?
 			{
 			Token::Comma => {
 				curval += 1;

@@ -10,22 +10,22 @@ impl<'ast> super::ParseState<'ast>
 	{
 		loop
 		{
-			let tok = try!(self.lex.get_token());
+			let tok = self.lex.get_token()?;
 			match tok
 			{
 			Token::EOF => {
 				break;
 				},
 			Token::Rword_typedef => {
-				let basetype = try!(self.get_base_type());
+				let basetype = self.get_base_type()?;
 				debug!("do_typedef: basetype={:?}", basetype);
-				let (typeid, name) = try!(self.get_full_type(basetype));
+				let (typeid, name) = self.get_full_type(basetype)?;
 				self.ast.set_typedef(name, typeid);
-				syntax_assert!( try!(self.lex.get_token()), Token::Semicolon );
+				syntax_assert!( self.lex.get_token()?, Token::Semicolon );
 				},
 			_ => {
 				self.lex.put_back(tok);
-				try!( self.do_definition() )
+				self.do_definition()?
 				},
 			}
 			debug!("--- {}", self.lex);
@@ -76,29 +76,29 @@ impl<'ast> super::ParseState<'ast>
 	fn do_definition(&mut self) -> ParseResult<()>
 	{
 		// 1. Get base type
-		let basetype = try!(self.get_base_type());
+		let basetype = self.get_base_type()?;
 		debug!("do_definition: basetype={:?}", basetype);
 		// 2. Get extended type and identifier
-		let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
+		let (typeid, ident) = self.get_full_type(basetype.clone())?;
 		// - if the ident is non-empty, parse the variable definition.
 		if ident != ""
 		{
 			// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
-			match try!(self.lex.get_token())
+			match self.lex.get_token()?
 			{
 			// NOTE: The following would need changes for C++11 array literals
 			Token::BraceOpen => return self.parse_function(typeid, ident),
 			tok @ _ => {
 				self.lex.put_back(tok);
 
-				try!(self.parse_variable_def(typeid, ident));
+				self.parse_variable_def(typeid, ident)?;
 				return self.parse_variable_list(basetype)
 				}
 			}
 		}
 		else
 		{
-			syntax_assert!( try!(self.lex.get_token()), Token::Semicolon );
+			syntax_assert!( self.lex.get_token()?, Token::Semicolon );
 			return Ok( () );
 		}
 	}
@@ -111,7 +111,7 @@ impl<'ast> super::ParseState<'ast>
 {
 	fn parse_function(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
-		let code = try!(self.parse_block());
+		let code = self.parse_block()?;
 		debug!("parse_function: code = {:?}", code);
 		self.ast.define_function(typeid, ident, Some(code));
 		Ok( () )
@@ -119,7 +119,7 @@ impl<'ast> super::ParseState<'ast>
 	
 	fn parse_opt_block(&mut self) -> ParseResult<::ast::Block>
 	{
-		let exprs = try!(self.parse_block_line());
+		let exprs = self.parse_block_line()?;
 		if let ::ast::Statement::Block(b) = exprs {
 			Ok( b )
 		}
@@ -145,12 +145,12 @@ impl<'ast> super::ParseState<'ast>
 	
 	fn try_parse_local_var(&mut self) -> ParseResult<Option<Vec<::ast::VariableDefinition>>>
 	{
-		Ok(match try!(self.get_base_type_opt())
+		Ok(match self.get_base_type_opt()?
 		{
 		Some(basetype) => {
 			debug!("try_parse_local_var - basetype={:?}", basetype);
 			// Definition!
-			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
+			let (typeid, ident) = self.get_full_type(basetype.clone())?;
 			let rv = if ident != ""
 				{
 					// 3. Check for a: Semicolon, Comma, Open Brace, or Assignment
@@ -165,7 +165,7 @@ impl<'ast> super::ParseState<'ast>
 						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, value: init } ];
 						while peek_token!(self.lex, Token::Comma)
 						{
-							let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
+							let (typeid, ident) = self.get_full_type(basetype.clone())?;
 							let init = self.parse_var_init()?;
 							
 							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, value: init } );
@@ -202,29 +202,29 @@ impl<'ast> super::ParseState<'ast>
 	{
 		debug!(">>> {}", self.lex);
 		// Attempt to get a type, returns None if no type was present
-		Ok(match try!(self.try_parse_local_var())
+		Ok(match self.try_parse_local_var()?
 		{
 		Some(n) => {
-			syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+			syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 			::ast::Statement::VarDef(n)
 			},
-		None => match try!(self.lex.get_token())
+		None => match self.lex.get_token()?
 			{
 			Token::Semicolon => ::ast::Statement::Empty,
-			Token::BraceOpen => ::ast::Statement::Block( try!(self.parse_block()) ),
+			Token::BraceOpen => ::ast::Statement::Block( self.parse_block()? ),
 			Token::Rword_return => if peek_token!(self.lex, Token::Semicolon) {
 					::ast::Statement::Return( None )
 				} else {
 					let rv = ::ast::Statement::Return( Some(self.parse_expr_list()?) );
-					syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+					syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 					rv
 				},
 			Token::Rword_break => {
-				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+				syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 				::ast::Statement::Break
 				},
 			Token::Rword_continue => {
-				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+				syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 				::ast::Statement::Continue
 				},
 			Token::Rword_goto => {
@@ -254,7 +254,7 @@ impl<'ast> super::ParseState<'ast>
 					cond: cnd,
 					}
 				},
-			Token::Rword_for => try!(self.parse_for_loop()),
+			Token::Rword_for => self.parse_for_loop()?,
 			Token::Rword_if => {
 				syntax_assert!(self.lex => Token::ParenOpen);
 				let cnd = self.parse_expr()?;
@@ -272,23 +272,23 @@ impl<'ast> super::ParseState<'ast>
 					else_arm: fcode,
 					}
 				},
-			Token::Rword_switch => try!(self.parse_switch_statement()),
+			Token::Rword_switch => self.parse_switch_statement()?,
 			
 			t @ Token::Ident(_) => {
 				self.lex.put_back(t);
-				let rv = try!(self.parse_expr_list());
+				let rv = self.parse_expr_list()?;
 				if let ::ast::Node::Identifier(i) = rv
 				{
 					if peek_token!(self.lex, Token::Colon) {
 						::ast::Statement::Label(i)
 					}
 					else {
-						syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+						syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 						::ast::Statement::Expr( ::ast::Node::Identifier(i) )
 					}
 				}
 				else {
-					syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+					syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 					::ast::Statement::Expr(rv)
 				}
 				},
@@ -296,8 +296,8 @@ impl<'ast> super::ParseState<'ast>
 			// Expression
 			t @ _ => {
 				self.lex.put_back(t);
-				let rv = try!(self.parse_expr_list());
-				syntax_assert!(try!(self.lex.get_token()), Token::Semicolon);
+				let rv = self.parse_expr_list()?;
+				syntax_assert!(self.lex.get_token()?, Token::Semicolon);
 				::ast::Statement::Expr(rv)
 				}
 			}, 
@@ -313,7 +313,7 @@ impl<'ast> super::ParseState<'ast>
 		let init = if peek_token_nc!(self.lex, Token::Semicolon) {
 				None
 			} else {
-				match try!(self.try_parse_local_var())
+				match self.try_parse_local_var()?
 				{
 				Some(n) => Some(::ast::ExprOrDef::Definition(n)),
 				None => Some(::ast::ExprOrDef::Expr( self.parse_expr_list()? )),
@@ -324,18 +324,18 @@ impl<'ast> super::ParseState<'ast>
 		let cnd = if peek_token_nc!(self.lex, Token::Semicolon) {
 				None
 			} else {
-				Some(try!(self.parse_expr_list()))
+				Some(self.parse_expr_list()?)
 			};
 		syntax_assert!(self.lex => Token::Semicolon);
 		debug!("parse_for_loop: cnd = {:?}", cnd);
 		let inc = if peek_token_nc!(self.lex, Token::ParenClose) {
 				None
 			} else {
-				Some(try!(self.parse_expr_list()))
+				Some(self.parse_expr_list()?)
 			};
 		syntax_assert!(self.lex => Token::ParenClose);
 		debug!("parse_for_loop: inc = {:?}", inc);
-		let code = try!(self.parse_opt_block());
+		let code = self.parse_opt_block()?;
 		Ok( ::ast::Statement::ForLoop {
 			init,
 			cond: cnd,
@@ -351,7 +351,7 @@ impl<'ast> super::ParseState<'ast>
 		syntax_assert!(self.lex => Token::BraceOpen);
 		loop
 		{
-			match try!(self.lex.get_token())
+			match self.lex.get_token()?
 			{
 			Token::BraceClose => break,
 			Token::Rword_default => {
@@ -360,13 +360,13 @@ impl<'ast> super::ParseState<'ast>
 				},
 			Token::Rword_case => {
 				// TODO: Allow named constants (from #define)?
-				let first = match try!(self.parse_expr()).literal_integer()
+				let first = match self.parse_expr()?.literal_integer()
 					{
 					Some(i) => i as u64,
 					None => syntax_error!("Case value is not literal"),
 					};
 				if peek_token!(self.lex, Token::Vargs) {
-					let last = match try!(self.parse_expr()).literal_integer()
+					let last = match self.parse_expr()?.literal_integer()
 						{
 						Some(i) => i as u64,
 						None => syntax_error!("Case value is not literal"),
@@ -391,7 +391,7 @@ impl<'ast> super::ParseState<'ast>
 	{
 		loop
 		{
-			match try!(self.lex.get_token())
+			match self.lex.get_token()?
 			{
 			Token::Comma => {},
 			Token::Semicolon => break,
@@ -401,8 +401,8 @@ impl<'ast> super::ParseState<'ast>
 				}
 			}
 			
-			let (typeid, ident) = try!(self.get_full_type(basetype.clone()));
-			try!(self.parse_variable_def(typeid, ident));
+			let (typeid, ident) = self.get_full_type(basetype.clone())?;
+			self.parse_variable_def(typeid, ident)?;
 
 		}
 		
@@ -455,7 +455,7 @@ impl<'ast> super::ParseState<'ast>
 {
 	fn parse_composite_lit(&mut self) -> ParseResult<::ast::Initialiser>
 	{
-		Ok(match try!(self.lex.get_token())
+		Ok(match self.lex.get_token()?
 		{
 		Token::BraceClose => {
 			::ast::Initialiser::ListLiteral(vec![])
@@ -483,7 +483,7 @@ impl<'ast> super::ParseState<'ast>
 			if peek_token_nc!(self.lex, Token::BraceClose) {
 				break;
 			}
-			let val = try!(self.parse_expr());
+			let val = self.parse_expr()?;
 			items.push(val);
 			if ! peek_token!(self.lex, Token::Comma) {
 				break;
@@ -504,10 +504,10 @@ impl<'ast> super::ParseState<'ast>
 				break;
 			}
 			syntax_assert!(self.lex => Token::SquareOpen);
-			let idx_expr = try!(self.parse_expr());
+			let idx_expr = self.parse_expr()?;
 			syntax_assert!(self.lex => Token::SquareClose);
 			syntax_assert!(self.lex => Token::Assign);
-			let val = try!(self.parse_expr());
+			let val = self.parse_expr()?;
 			
 			items.push( (idx_expr,val) );
 			
@@ -531,7 +531,7 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!(self.lex => Token::Period);
 			let name = syntax_assert!(self.lex => Token::Ident(i) @ i);
 			syntax_assert!(self.lex => Token::Assign);
-			let val = try!(self.parse_expr());
+			let val = self.parse_expr()?;
 			
 			items.push( (name,val) );
 			

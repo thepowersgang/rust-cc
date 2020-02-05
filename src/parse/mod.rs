@@ -14,8 +14,8 @@ macro_rules! syntax_error
 }
 macro_rules! syntax_assert
 {
-	($lex:expr => Token::$exp:ident) => (syntax_assert!(try!($lex.get_token()), Token::$exp));
-	($lex:expr => Token::$exp:ident($($a:ident),+) @ $v:expr) => (syntax_assert!(try!($lex.get_token()), Token::$exp($($a),+) => $v));
+	($lex:expr => Token::$exp:ident) => (syntax_assert!($lex.get_token()?, Token::$exp));
+	($lex:expr => Token::$exp:ident($($a:ident),+) @ $v:expr) => (syntax_assert!($lex.get_token()?, Token::$exp($($a),+) => $v));
 	($tok:expr, Token::$exp:ident) => (match $tok {
 		Token::$exp => {},
 		tok @ _ => syntax_error!("Unexpected token {:?}, expected {:?}", tok, stringify!($exp)),
@@ -29,7 +29,7 @@ macro_rules! peek_token_nc
 {
 	($lex:expr, $tok:pat) => ({
 		let lex = &mut $lex;
-		match try!(lex.get_token()) {
+		match lex.get_token()? {
 		tok @ $tok => { lex.put_back(tok); true },
 		tok @ _ => { lex.put_back(tok); false }
 		}
@@ -39,14 +39,14 @@ macro_rules! peek_token
 {
 	($lex:expr, $tok:pat) => ({
 		let lex = &mut $lex;
-		match try!(lex.get_token()) {
+		match lex.get_token()? {
 		$tok => true,
 		tok @ _ => { lex.put_back(tok); false }
 		}
 		});
 	($lex:expr, $tok:pat if $cond:expr) => ({
 		let lex = &mut $lex;
-		match try!(lex.get_token()) {
+		match lex.get_token()? {
 		$tok if $cond => true,
 		tok @ _ => { lex.put_back(tok); false }
 		}

@@ -135,7 +135,7 @@ struct MacroExpansion
 	tokens: ::std::vec::IntoIter<Token>,	// TODO: Instead store Rc<Vec<Token>> to MacroDefinition.expansion and HashMap<String,Vec<Tokens>>
 }
 
-macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = try!($tok); match v {
+macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = $tok?; match v {
 	$pat => $val,
 	_ => panic!("TODO: Syntax errors, assert {}, got {:?}", stringify!($pat), v)
 	}})}
@@ -228,7 +228,7 @@ impl Preproc
 			// TODO: May want to propagate the ignored tokens if Internal+Propagate is enabled?
 			// ---
 			if ! self.is_conditional_active() {
-				match try!(self.lexers.get_token())
+				match self.lexers.get_token()?
 				{
 				Token::EOF => {
 					panic!("Unexpected EOF - {:?}", self.if_stack);
@@ -313,7 +313,7 @@ impl Preproc
 				continue ;
 			}
 
-			match try!(self.lexers.get_token())
+			match self.lexers.get_token()?
 			{
 			Token::Whitespace => {},
 			Token::EscapedNewline => {},
@@ -592,7 +592,7 @@ impl Preproc
 				//		lexer_h.line = line as usize;
 				//		debug!("Set locaion to \"{}\":{}", lexer_h.filename, line);
 				//	}
-				//	while try!(self.lexers.get_token()) != Token::Newline
+				//	while self.lexers.get_token()? != Token::Newline
 				//	{
 				//	}
 				//	},

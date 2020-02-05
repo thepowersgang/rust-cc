@@ -93,7 +93,7 @@ impl<'a> Lexer<'a>
 		let mut n = 0;
 		loop
 		{
-			let ch = try!(self.getc());
+			let ch = self.getc()?;
 			if !ch.is_ascii_whitespace() || ch == '\n' {
 				self.ungetc(ch);
 				break;
@@ -159,7 +159,7 @@ impl<'a> Lexer<'a>
 	
 	fn read_escape(&mut self) -> super::Result<Option<char>>
 	{
-		Ok(match try!(self.getc())
+		Ok(match self.getc()?
 		{
 		'\\' => Some('\\'),
 		'"' => Some('"'),
@@ -180,12 +180,12 @@ impl<'a> Lexer<'a>
 		let mut ret = String::new();
 		loop
 		{
-			let ch = try!(self.getc());
+			let ch = self.getc()?;
 			if ch == '\"' {
 				break;
 			}
 			if ch == '\\' {
-				match try!(self.read_escape())
+				match self.read_escape()?
 				{
 				Some(c) => ret.push(c),
 				None => {},
@@ -203,12 +203,12 @@ impl<'a> Lexer<'a>
 		let mut ret = String::new();
 		loop
 		{
-			let ch = try!(self.getc());
+			let ch = self.getc()?;
 			if ch == '\'' {
 				break;
 			}
 			if ch == '\\' {
-				match try!(self.read_escape())
+				match self.read_escape()?
 				{
 				Some(c) => ret.push(c),
 				None => {},
@@ -328,7 +328,7 @@ impl<'a> Lexer<'a>
 			'=' => Token::AssignMul,
 			),
 		'/' => match_ch!(self, Token::Slash,
-			'/' => Token::LineComment(try!(self.read_to_eol())),
+			'/' => Token::LineComment(self.read_to_eol()?),
 			'=' => Token::AssignDiv,
 			'*' => {
 				let mut comment = String::new();
@@ -348,8 +348,8 @@ impl<'a> Lexer<'a>
 				},
 			),
 
-		'"' => Token::String( try!(self.read_string()) ),
-		'\'' => Token::Character( try!(self.read_charconst()) ),
+		'"' => Token::String( self.read_string()? ),
+		'\'' => Token::Character( self.read_charconst()? ),
 		
 		'0' ..= '9' => {
 			let caph = self.start_capture(ch);
@@ -360,8 +360,8 @@ impl<'a> Lexer<'a>
 						self.ungetc(ch2);
 						(8, self.read_number( 8)?)
 						},
-					'x' => (16, try!(self.read_number(16))),
-					'b' => ( 2, try!(self.read_number( 2))),
+					'x' => (16, self.read_number(16)?),
+					'b' => ( 2, self.read_number( 2)?),
 					_ => {
 						self.ungetc(ch2);
 						(10, 0)
@@ -370,7 +370,7 @@ impl<'a> Lexer<'a>
 				}
 				else {
 					self.ungetc(ch);
-					(10, try!(self.read_number(10)))
+					(10, self.read_number(10)?)
 				};
 			// Check for a decimal point
 			let intret = |s: &mut Self, c| Token::Integer(whole, ::types::IntClass::int(), s.end_capture(c));
@@ -436,7 +436,7 @@ impl<'a> Lexer<'a>
 			},
 		'a'..='z'|'A'..='Z'|'_'|'$' => {
 			self.ungetc(ch);
-			Token::Ident( try!(self.read_ident()) )
+			Token::Ident( self.read_ident()? )
 			},
 		_ => {
 			error!("Bad character #{} hit", ch as u32);
