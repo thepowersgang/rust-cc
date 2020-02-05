@@ -7,7 +7,7 @@ pub fn write(mut sink: impl ::std::io::Write, prog: &super::Program)
 }
 
 struct PrettyPrinter<'a, 'b> {
-	sink: &'a mut ::std::io::Write,
+	sink: &'a mut dyn (::std::io::Write),
 	prog: &'b super::Program,
 }
 
@@ -128,7 +128,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		self.write_type_d(ty, &mut cb, true);
 	}
 	//fn write_type_d<'b>(&mut self, ty: &::types::TypeRef, cb: Box<::std::boxed::FnBox(&mut Self)+'b>)
-	fn write_type_d(&mut self, ty: &::types::TypeRef, cb: &mut FnMut(&mut Self), use_typedef: bool)
+	fn write_type_d(&mut self, ty: &::types::TypeRef, cb: &mut dyn FnMut(&mut Self), use_typedef: bool)
 	{
 		use ::types::BaseType;
 		match ty.basetype

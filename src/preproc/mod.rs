@@ -682,7 +682,7 @@ impl Preproc
 		}
 	}
 
-	fn parse_macro_args<'a>(mac_args: &'a MacroArgs, get_token: &mut FnMut()->Result<Token>) -> Result<HashMap<&'a str,Vec<Token>>>
+	fn parse_macro_args<'a>(mac_args: &'a MacroArgs, get_token: &mut dyn FnMut()->Result<Token>) -> Result<HashMap<&'a str,Vec<Token>>>
 	{
 		// Read tokens, handling nested parens
 		let mut args: HashMap<&str,_> = HashMap::new();

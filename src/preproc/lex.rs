@@ -4,7 +4,7 @@
 use super::token::Token;
 use super::Error;
 
-pub type LexerInput<'a> = Box< ::std::iter::Iterator<Item=::std::io::Result<char>> + 'a >;
+pub type LexerInput<'a> = Box< dyn (::std::iter::Iterator<Item=::std::io::Result<char>>) + 'a >;
 
 pub struct Lexer<'a>
 {
@@ -351,12 +351,12 @@ impl<'a> Lexer<'a>
 		'"' => Token::String( try!(self.read_string()) ),
 		'\'' => Token::Character( try!(self.read_charconst()) ),
 		
-		'0' ... '9' => {
+		'0' ..= '9' => {
 			let caph = self.start_capture(ch);
 			let (base, whole) = if ch == '0' {
 					let ch2 = try_eof!(self.getc(), Token::Integer(0, ::types::IntClass::int(), self.end_capture(caph)));
 					match ch2 {
-					'1' ... '7' => {
+					'1' ..= '7' => {
 						self.ungetc(ch2);
 						(8, self.read_number( 8)?)
 						},
@@ -434,7 +434,7 @@ impl<'a> Lexer<'a>
 					}, self.end_capture(caph) )
 			}
 			},
-		'a'...'z'|'A'...'Z'|'_'|'$' => {
+		'a'..='z'|'A'..='Z'|'_'|'$' => {
 			self.ungetc(ch);
 			Token::Ident( try!(self.read_ident()) )
 			},

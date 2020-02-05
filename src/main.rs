@@ -2,8 +2,6 @@
  * C parser (and eventual) compiler
  */
 #![feature(box_syntax)]
-#![feature(fnbox)]	// For some pretty-printing hackery
-#![feature(const_string_new)]	// For a static integer token
 #![feature(nll)]
 
 #[macro_use]
