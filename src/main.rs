@@ -50,6 +50,9 @@ fn main()
 	Ok(_) => {}
 	}
 
+	// TODO: Type check/annotate?
+	// TODO: Convert to cranelift?
+
 	let stdout = ::std::io::stdout();
 	::ast::pretty_print::write(stdout.lock(), &program);
 }

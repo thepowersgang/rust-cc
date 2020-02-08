@@ -167,7 +167,7 @@ impl Program
 		}
 	}
 
-	pub fn make_struct(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::StructRef,()> {
+	pub fn make_struct(&mut self, name: &str, items: ::types::StructBody) -> Result<::types::StructRef,()> {
 		if name != "" {
 			self.item_order.push(ItemRef::Struct(name.to_owned()));
 		}
@@ -305,6 +305,7 @@ pub enum Node
 	
 	Assign(Box<Node>, Box<Node>),
 	AssignOp(BinOp, Box<Node>, Box<Node>),
+	Intrinsic(String, Vec<::types::TypeRef>, Vec<Box<Node>>),
 	
 	Cast(::types::TypeRef,Box<Node>),
 	SizeofType(::types::TypeRef),
@@ -456,6 +457,7 @@ impl Node
 		Node::Cast(_, _) => NodePrecedence::Unary,	// TODO: Double-check
 		Node::SizeofType(_) => NodePrecedence::Value,
 		Node::SizeofExpr(_) => NodePrecedence::Value,
+		Node::Intrinsic(..) => NodePrecedence::Value,
 
 		Node::Ternary(_,_,_) => NodePrecedence::Ternary,
 		Node::UniOp(ref op, _) => match *op

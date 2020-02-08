@@ -226,6 +226,50 @@ impl<'ast> super::ParseState<'ast>
 	{
 		Ok(match self.lex.get_token()?
 		{
+		Token::Ident(ref id) if id == "__magiccall__" => {
+			syntax_assert!(self.lex => Token::ParenOpen);
+			let name = syntax_assert!(self.lex => Token::String(s) @ s);
+			let mut vals = Vec::new();
+			if peek_token!(self.lex, Token::Colon)
+			{
+				loop
+				{
+					if peek_token_nc!(self.lex, Token::ParenClose) || peek_token_nc!(self.lex, Token::Colon) {
+						break;
+					}
+
+					let v = box self.parse_expr_0()?;
+					vals.push(v);
+
+					if !peek_token!(self.lex, Token::Comma) {
+						break;
+					}
+				}
+			}
+			let mut tys = Vec::new();
+			if peek_token!(self.lex, Token::Colon)
+			{
+				loop
+				{
+					if peek_token_nc!(self.lex, Token::ParenClose) {
+						break;
+					}
+
+					let base_ty = self.get_base_type()?;
+					let (ty, name) = self.get_full_type( base_ty )?;
+					if ! name.is_empty() {
+						syntax_error!("Unexpected name in magic call");
+					}
+					tys.push(ty);
+
+					if !peek_token!(self.lex, Token::Comma) {
+						break;
+					}
+				}
+			}
+			syntax_assert!(self.lex => Token::ParenClose);
+			::ast::Node::Intrinsic(name, tys, vals)
+			},
 		Token::Ident(id) => ::ast::Node::Identifier(id),
 		Token::String(s) => {
 			let mut val = s;

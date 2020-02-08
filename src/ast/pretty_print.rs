@@ -78,16 +78,24 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		let nl = if true || use_newlines { "\n" } else { " " };
 		let indent = if true || use_newlines { "\t" } else { "" };
 		self.write_str("struct "); self.write_str(&s.name); self.write_str(nl);
-		if let Some(ref fields) = s.items
+		if let Some(ref body) = s.items
 		{
 			self.write_str("{"); self.write_str(nl);
-			for &(ref ty, ref name) in fields
+			for &(ref ty, ref name) in &body.fields
 			{
 				self.write_str(indent);
 				self.write_type(ty, |s| s.write_str(name));
 				self.write_str(";"); self.write_str(nl);
 			}
 			self.write_str("}");
+			if body.attributes.gcc.len() > 0
+			{
+				self.write_str("__attribute__((");
+				for a in &body.attributes.gcc {
+					self.write_str(&a.0);
+				}
+				self.write_str("))");
+			}
 		}
 	}
 
@@ -510,6 +518,20 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		&Node::SizeofExpr(ref v) => {
 			self.write_str("sizeof(");
 			self.write_node(v, super::NodePrecedence::CommaOperator.up());
+			self.write_str(")");
+			},
+		Node::Intrinsic(ref name, ref tys, ref vals) => {
+			self.write_str("__magiccall__(");
+			write!(self, "{:?} : ", name);
+			for v in vals {
+				self.write_node(v, super::NodePrecedence::CommaOperator.up());
+				self.write_str(",");
+			}
+			self.write_str(" : ");
+			for ty in tys {
+				self.write_type(ty, |_|{});
+				self.write_str(",");
+			}
 			self.write_str(")");
 			},
 

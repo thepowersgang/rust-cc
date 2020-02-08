@@ -10,7 +10,7 @@ enum TypeNode
 	/// A pointer (with qualifiers for the pointer value - not the pointee)
 	Ptr(Box<TypeNode>, ::types::Qualifiers),
 	/// Function type (return type and arguments, with optional names)
-	Fcn(Box<TypeNode>, Vec<(::types::TypeRef,String)>),
+	Fcn(Box<TypeNode>, Vec<(::types::TypeRef,String)>, ::types::Attributes),
 	/// Array type, with optional size node
 	Array(Box<TypeNode>, Option<::ast::Node>),
 }
@@ -232,8 +232,8 @@ impl<'ast> super::ParseState<'ast>
 					rettype = ::types::Type::new_ref( ::types::BaseType::Pointer(rettype), qual );
 					*sub
 					},
-				TypeNode::Fcn(sub, args) => {
-					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function( ::types::FunctionType { ret: rettype, args } ) );
+				TypeNode::Fcn(sub, args, attributes) => {
+					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function( ::types::FunctionType { ret: rettype, args, attributes } ) );
 					*sub
 					},
 				TypeNode::Array(sub, size) => {
@@ -317,6 +317,7 @@ impl<'ast> super::ParseState<'ast>
 		Token::ParenOpen => {
 			debug!("get_fulltype_fcn - Parentheses");
 			let mut args = Vec::new();
+			let mut attributes = ::types::Attributes::default();
 			// Arguments!
 			loop
 			{
@@ -346,15 +347,15 @@ impl<'ast> super::ParseState<'ast>
 					match &name[..]
 					{
 					"noreturn" => {
-						/* TODO: noreturn */
+						attributes.gcc.push( (name, Vec::new()) );
 						Ok( () )
 						},
 					"warn_unused_result" => {
-						/* TODO: warn_unused_result */
+						attributes.gcc.push( (name, Vec::new()) );
 						Ok( () )
 						},
 					"deprecated" => {
-						/* TODO: deprecated */
+						attributes.gcc.push( (name, Vec::new()) );
 						Ok( () )
 						},
 					_ => panic!("{}: TODO - Handle GCC __attribute__(({})) on function", self_.lex, name),
@@ -362,7 +363,7 @@ impl<'ast> super::ParseState<'ast>
 					)?;
 			}
 
-			Ok( TypeNode::Fcn(box inner, args) )
+			Ok( TypeNode::Fcn(box inner, args, attributes) )
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
@@ -432,9 +433,9 @@ impl<'ast> super::ParseState<'ast>
 			}
 		}
 	}
-	fn populate_struct(&mut self) -> ParseResult<Vec<(::types::TypeRef,String)>>
+	fn populate_struct(&mut self) -> ParseResult<::types::StructBody>
 	{
-		let mut items = Vec::new();
+		let mut items = ::types::StructBody::default();
 		loop
 		{
 			if peek_token!(self.lex, Token::BraceClose) {
@@ -458,7 +459,7 @@ impl<'ast> super::ParseState<'ast>
 					};
 				let i = syntax_assert!( self.lex.get_token()?, Token::Integer(i,_class,_s) => i as u8 );
 				let bt = ::types::BaseType::Integer(::types::IntClass::Bits(sign, i));
-				items.push( (::types::Type::new_ref_bare(bt), ident) );
+				items.fields.push( (::types::Type::new_ref_bare(bt), ident) );
 				
 				if peek_token!(self.lex, Token::Comma) { parse_todo!("Comma separated bitfields"); }
 				/*
@@ -470,10 +471,10 @@ impl<'ast> super::ParseState<'ast>
 			}
 			else
 			{
-				items.push( (ft, ident) );
+				items.fields.push( (ft, ident) );
 				while peek_token!(self.lex, Token::Comma)
 				{
-					items.push( self.get_full_type(basetype.clone())? );
+					items.fields.push( self.get_full_type(basetype.clone())? );
 				}
 			}
 			syntax_assert!( self.lex.get_token()?, Token::Semicolon );
@@ -484,7 +485,10 @@ impl<'ast> super::ParseState<'ast>
 			self.parse_gcc_attributes(|self_, name, _opts|
 				match &name[..]
 				{
-				"packed" => { /*TODO: Store packed flag*/; Ok( () ) },
+				"packed" => {
+					items.attributes.gcc.push( (name, Vec::new()) );
+					Ok( () )
+					},
 				_ => panic!("{}: TODO - Handle GCC __attribute__(({})) on struct", self_.lex, name),
 				}
 				)?;

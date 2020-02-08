@@ -65,11 +65,18 @@ impl ::std::ops::Deref for ArraySizeExpr {
 	}
 }
 
+#[derive(Debug,Default,PartialEq,Clone)]
+pub struct Attributes
+{
+	pub gcc: Vec<(String, Vec<String>)>,
+}
+
 #[derive(Clone,Debug)]
 pub struct FunctionType
 {
 	pub ret: Rc<Type>,
-	pub args: Vec<(Rc<Type>, String)>
+	pub args: Vec<(Rc<Type>, String)>,
+	pub attributes: Attributes,
 }
 impl PartialEq for FunctionType
 {
@@ -209,7 +216,13 @@ impl<T> RcRefCellPtrEq<T> {
 pub struct Struct
 {
 	pub name: String,
-	pub items: Option<Vec<(TypeRef,String)>>,
+	pub items: Option<StructBody>,
+}
+#[derive(Default,Debug,PartialEq)]
+pub struct StructBody
+{
+	pub fields: Vec<(TypeRef, String)>,
+	pub attributes: Attributes,
 }
 
 #[derive(Debug,PartialEq)]
@@ -298,7 +311,7 @@ impl Struct
 	{
 		self.items.is_some()
 	}
-	pub fn set_items(&mut self, items: Vec<(TypeRef,String)>)
+	pub fn set_items(&mut self, items: StructBody)
 	{
 		assert!( self.items.is_none() );
 		self.items = Some(items);
