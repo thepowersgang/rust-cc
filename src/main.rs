@@ -12,11 +12,15 @@ extern crate utf8reader;
 #[macro_use]
 extern crate structopt;
 
+extern crate cranelift_codegen;
+extern crate cranelift_frontend;
+
 mod preproc;
 mod parse;
 mod types;
 mod ast;
 
+mod codegen;
 
 #[derive(StructOpt)]
 struct Options
@@ -51,10 +55,31 @@ fn main()
 	}
 
 	// TODO: Type check/annotate?
-	// TODO: Convert to cranelift?
+	// - Need to annotate types and implicit conversion positions
+	//   > All node types
+	//   > Add promotions/demotions/conversions
+	//   > Annotate ternary with if it's in LValue position
+	//   > Collate variables and determine if they're addressed
 
-	let stdout = ::std::io::stdout();
-	::ast::pretty_print::write(stdout.lock(), &program);
+	// Convert to cranelift?
+	if false
+	{
+		let mut c = codegen::Context::new();
+		for (name,ty,code) in program.iter_functions()
+		{
+			match ty.basetype
+			{
+			crate::types::BaseType::Function(ref fcn) => c.lower_function(name, fcn, code),
+			_ => {},
+			}
+		}
+	}
+
+	if false
+	{
+		let stdout = ::std::io::stdout();
+		::ast::pretty_print::write(stdout.lock(), &program);
+	}
 }
 
 // vim: ft=rust

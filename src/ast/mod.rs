@@ -215,6 +215,19 @@ impl Program
 			Ok( er )
 		}
 	}
+
+	pub fn iter_functions(&self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &Block)> {
+		self.item_order.iter()
+			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
+			.filter_map(move |name| {
+				let s = &self.symbols[name];
+				match s.value
+				{
+				Some(SymbolValue::Code(ref e)) => Some( (&name[..], &s.symtype, e) ),
+				_ => None,
+				}
+				})
+	}
 }
 
 pub type Block = StatementList;

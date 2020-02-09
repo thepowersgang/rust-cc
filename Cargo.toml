@@ -1,6 +1,6 @@
 [package]
 
-name = "cc"
+name = "rcc"
 version = "0.0.1"
 authors = ["John Hodge <tpg@mutabah.net>"]
 
@@ -9,3 +9,6 @@ log = "0.4"
 env_logger = "0.5"
 structopt = "0.2"
 utf8reader = "*"
+
+cranelift-frontend = "0.58"
+cranelift-codegen = "0.58"
