@@ -505,6 +505,12 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_node(v, node_p);
 			},
 
+		NodeKind::ImplicitCast(ref ty, ref v) => {
+			self.write_node(v, node_p);
+			self.write_str("/*: ");
+			self.write_type(ty, |_|{});
+			self.write_str("*/");
+			},
 		NodeKind::Cast(ref ty, ref v) => {
 			self.write_str("(");
 			self.write_type(ty, |_|{});

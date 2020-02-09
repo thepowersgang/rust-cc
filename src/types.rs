@@ -25,7 +25,6 @@ pub enum BaseType
 	
 	Pointer(Rc<Type>),
 	Array(Rc<Type>, ArraySize),
-	// TODO: make this a struct with a custom PartialEq impl that ignores names
 	Function(FunctionType),
 }
 #[derive(Clone,PartialEq,Debug)]
@@ -294,6 +293,46 @@ impl Type
 			basetype: basetype,
 			qualifiers: qualifiers,
 			})
+	}
+
+	pub fn deref(&self) -> Option<TypeRef>
+	{
+		match self.basetype
+		{
+		BaseType::Pointer(ref ty) => Some( ty.clone() ),
+		BaseType::Array(ref ty, _) => Some( ty.clone() ),
+		_ => None,
+		}
+	}
+	pub fn get_field(&self, name: &str) -> Option<(u32, TypeRef)> {
+		match self.basetype
+		{
+		BaseType::Struct(ref r) => {
+			let b = r.borrow();
+			match b.items
+			{
+			None => todo!("Proper error when getting field of opaque"),
+			Some(ref body) => {
+				let mut ofs = 0;
+				for (fld_ty, fld_name) in &body.fields
+				{
+					if fld_name == name {
+						return Some( (ofs, fld_ty.clone()) );
+					}
+					ofs += fld_ty.get_size().expect("Opaque type in struct");
+				}
+				None
+				},
+			}
+			},
+		BaseType::Union(ref r) => todo!("Type::get_field({:?}, {})", self, name),
+		BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
+		_ => None,
+		}
+	}
+
+	pub fn get_size(&self) -> Option<u32> {
+		todo!("Type::get_size(): {:?}", self);
 	}
 }
 

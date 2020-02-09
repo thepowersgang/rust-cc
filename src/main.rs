@@ -21,6 +21,7 @@ mod types;
 mod ast;
 
 mod codegen;
+mod typecheck;
 
 #[derive(StructOpt)]
 struct Options
@@ -60,6 +61,15 @@ fn main()
 	//   > Add promotions/demotions/conversions
 	//   > Annotate ternary with if it's in LValue position
 	//   > Collate variables and determine if they're addressed
+	program.visit_functions_mut(|(name,ty,code)| {
+		match ty.basetype
+		{
+		crate::types::BaseType::Function(ref fcn_ty) => {
+			typecheck::handle_function(name, fcn_ty, code)
+			},
+		_ => {},
+		}
+		});
 
 	// Convert to cranelift?
 	if false

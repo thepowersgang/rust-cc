@@ -422,7 +422,7 @@ impl<'a> Lexer<'a>
 			else
 			{
 				// Integer
-				let is_unsigned = ::types::Signedness::from_bool_signed(if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false });
+				let is_unsigned = ::types::Signedness::from_bool_signed(if ch=='u'||ch=='U' { ch = try_eof!(self.getc(), intret(self,caph)); false } else { true });
 				let is_long     = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false };
 				let is_longlong = if ch=='l'||ch=='L' { ch = try_eof!(self.getc(), intret(self,caph)); true } else { false };
 				self.ungetc(ch);

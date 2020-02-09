@@ -228,6 +228,34 @@ impl Program
 				}
 				})
 	}
+	#[cfg(false_)]
+	pub fn iter_functions_mut(&mut self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &mut Block)> {
+		self.symbols.iter_mut()
+			.filter_map(|(name, s)| {
+				match s.value
+				{
+				Some(SymbolValue::Code(ref mut e)) => Some( (&name[..], &s.symtype, e) ),
+				_ => None,
+				}
+				})
+	}
+	pub fn visit_functions_mut(&mut self, mut cb: impl FnMut( (&str, &crate::types::TypeRef, &mut Block) )) {
+		for n in self.item_order.iter()
+		{
+			match n
+			{
+			ItemRef::Value(ref name) => {
+				let s = self.symbols.get_mut(name).unwrap();
+				match s.value
+				{
+				Some(SymbolValue::Code(ref mut e)) => cb( (&name[..], &s.symtype, e) ),
+				_ => {},
+				}
+				},
+			_ => {},
+			}
+		}
+	}
 }
 
 pub type Block = StatementList;
@@ -238,6 +266,7 @@ pub type VarDefList = Vec<VariableDefinition>;
 pub enum Statement
 {
 	Empty,
+	// TODO: Store the base type (for later printing)
 	VarDef(VarDefList),
 	Expr(Node),
 
@@ -277,7 +306,6 @@ pub enum Statement
 #[derive(Debug)]
 pub struct VariableDefinition
 {
-	// TODO: Store the base type (for later printing)
 	pub ty: ::types::TypeRef,
 	pub name: String,
 	pub value: Initialiser,
@@ -329,6 +357,7 @@ pub enum NodeKind
 	AssignOp(BinOp, Box<Node>, Box<Node>),
 	Intrinsic(String, Vec<::types::TypeRef>, Vec<Box<Node>>),
 	
+	ImplicitCast(::types::TypeRef, Box<Node>),
 	Cast(::types::TypeRef,Box<Node>),
 	SizeofType(::types::TypeRef),
 	SizeofExpr(Box<Node>),
@@ -491,6 +520,7 @@ impl Node
 		| NodeKind::AssignOp(_, _, _)
 			=> NodePrecedence::Assignment,
 
+		NodeKind::ImplicitCast(_, ref i) => i.get_precedence(),
 		NodeKind::Cast(_, _) => NodePrecedence::Unary,	// TODO: Double-check
 		NodeKind::SizeofType(_) => NodePrecedence::Value,
 		NodeKind::SizeofExpr(_) => NodePrecedence::Value,
