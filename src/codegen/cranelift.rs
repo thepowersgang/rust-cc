@@ -223,17 +223,17 @@ impl Builder<'_>
 
 	fn handle_node(&mut self, node: &crate::ast::Node) -> ValueRef
 	{
-		use crate::ast::Node;
-		match *node
+		use crate::ast::NodeKind;
+		match node.kind
 		{
-		Node::StmtList(ref nodes) => {
+		NodeKind::StmtList(ref nodes) => {
 			let (last, nodes) = nodes.split_last().unwrap();
 			for n in nodes {
 				self.handle_node(n);
 			}
 			self.handle_node(last)
 			},
-		Node::Identifier(ref name) => {
+		NodeKind::Identifier(ref name, ref binding) => {
 			for s in &self.stack
 			{
 				if let Some(v) = s.locals.get(name)
@@ -243,9 +243,9 @@ impl Builder<'_>
 			}
 			panic!("TODO: Ident")
 			},
-		Node::Integer(val) => ValueRef::Temporary(self.builder.ins().iconst(cr_tys::I32, val as i64)),
+		NodeKind::Integer(val, ty) => ValueRef::Temporary(self.builder.ins().iconst(cr_tys::I32, val as i64)),
 		
-		Node::Ternary(ref cond, ref val_true, ref val_false) => {
+		NodeKind::Ternary(ref cond, ref val_true, ref val_false) => {
 			let cond_v = self.handle_node(cond);
 			let cond_v = self.get_value(cond_v);
 			let true_blk = self.builder.create_block();
@@ -272,8 +272,8 @@ impl Builder<'_>
 			// NOTE: Ternary an LValue. This needs to be handled
 			panic!("TODO: handle_node - Ternary - result {:?} and {:?}", val_true, val_false);
 			},
-		Node::UniOp(ref op, ref val) => panic!("TODO: handle_node - UniOp"),
-		Node::BinOp(ref op, ref val_l, ref val_r) => {
+		NodeKind::UniOp(ref op, ref val) => panic!("TODO: handle_node - UniOp"),
+		NodeKind::BinOp(ref op, ref val_l, ref val_r) => {
 			let val_l = self.handle_node(val_l);
 			let val_r = self.handle_node(val_r);
 			let val_l = self.get_value(val_l);

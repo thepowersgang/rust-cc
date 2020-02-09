@@ -434,15 +434,15 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 	fn write_node(&mut self, node: &super::Node, max_p: super::NodePrecedence)
 	{
 		let node_p = node.get_precedence();
-		// TODO: Parenthesis around values if precence is lower than a specified minimum
+		// Parenthesis around values if precence is lower than a specified minimum
 		if node_p < max_p {
 			self.write_str("(");
 		}
-		use super::Node;
+		use super::NodeKind;
 		use super::{UniOp,BinOp};
-		match node
+		match node.kind
 		{
-		&Node::StmtList(ref subnodes) => {
+		NodeKind::StmtList(ref subnodes) => {
 			self.write_node(&subnodes[0], node_p.down());
 			for sn in &subnodes[1..] {
 				self.write_str(", ");
@@ -450,12 +450,12 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			}
 			},
 
-		&Node::Identifier(ref n) => self.write_str(n),
-		&Node::String(ref s) => write!(self, "{:?}", s),
-		&Node::Integer(v) => write!(self, "{}", v),
-		&Node::Float(v) => write!(self, "{}", v),
+		NodeKind::Identifier(ref n, _) => self.write_str(n),
+		NodeKind::String(ref s) => write!(self, "{:?}", s),
+		NodeKind::Integer(v, ty) => write!(self, "{} /*{:?}*/", v, ty),
+		NodeKind::Float(v, ty) => write!(self, "{} /*{:?}*/", v, ty),
 
-		&Node::FcnCall(ref fcn, ref values) => {
+		NodeKind::FcnCall(ref fcn, ref values) => {
 			self.write_node(fcn, node_p);
 			self.write_str("(");
 			if values.len() > 0 {
@@ -468,12 +468,12 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str(")");
 			},
 
-		&Node::Assign(ref dst, ref v) => {
+		NodeKind::Assign(ref dst, ref v) => {
 			self.write_node(dst, node_p);
 			self.write_str(" = ");
 			self.write_node(v, node_p);
 			},
-		&Node::AssignOp(ref op, ref dst, ref v) => {
+		NodeKind::AssignOp(ref op, ref dst, ref v) => {
 			self.write_node(dst, node_p);
 			match op
 			{
@@ -505,22 +505,22 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_node(v, node_p);
 			},
 
-		&Node::Cast(ref ty, ref v) => {
+		NodeKind::Cast(ref ty, ref v) => {
 			self.write_str("(");
 			self.write_type(ty, |_|{});
 			self.write_str(")");
 			self.write_node(v, node_p);
 			},
-		&Node::SizeofType(ref ty) => {
+		NodeKind::SizeofType(ref ty) => {
 			self.write_str("sizeof ");
 			self.write_type(ty, |_|{});
 			},
-		&Node::SizeofExpr(ref v) => {
+		NodeKind::SizeofExpr(ref v) => {
 			self.write_str("sizeof(");
 			self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			self.write_str(")");
 			},
-		Node::Intrinsic(ref name, ref tys, ref vals) => {
+		NodeKind::Intrinsic(ref name, ref tys, ref vals) => {
 			self.write_str("__magiccall__(");
 			write!(self, "{:?} : ", name);
 			for v in vals {
@@ -535,14 +535,14 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str(")");
 			},
 
-		&Node::Ternary(ref c, ref t, ref f) => {
+		NodeKind::Ternary(ref c, ref t, ref f) => {
 			self.write_node(c, node_p.down());
 			self.write_str("?");
 			self.write_node(t, node_p.down());
 			self.write_str(":");
 			self.write_node(f, node_p);
 			},
-		&Node::UniOp(ref op, ref v) => {
+		NodeKind::UniOp(ref op, ref v) => {
 			match op
 			{
 			&UniOp::Neg => self.write_str("- "),
@@ -557,7 +557,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			}
 			self.write_node(v, node_p);
 			},
-		&Node::BinOp(ref op, ref l, ref r) => {
+		NodeKind::BinOp(ref op, ref l, ref r) => {
 			self.write_node(l, node_p);
 			match op
 			{
@@ -587,18 +587,18 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			}
 			self.write_node(r, node_p);
 			},
-		&Node::Index(ref v, ref i) => {
+		NodeKind::Index(ref v, ref i) => {
 			self.write_node(v, node_p);
 			self.write_str("[");
 			self.write_node(i, super::NodePrecedence::CommaOperator.up());
 			self.write_str("]");
 			},
-		&Node::DerefMember(ref v, ref n) => {
+		NodeKind::DerefMember(ref v, ref n) => {
 			self.write_node(v, node_p);
 			self.write_str("->");
 			self.write_str(n);
 			},
-		&Node::Member(ref v, ref n) => {
+		NodeKind::Member(ref v, ref n) => {
 			self.write_node(v, node_p);
 			self.write_str(".");
 			self.write_str(n);

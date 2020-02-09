@@ -75,7 +75,7 @@ fn main()
 		}
 	}
 
-	if false
+	if true
 	{
 		let stdout = ::std::io::stdout();
 		::ast::pretty_print::write(stdout.lock(), &program);

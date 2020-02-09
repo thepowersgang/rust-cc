@@ -277,14 +277,16 @@ impl<'ast> super::ParseState<'ast>
 			t @ Token::Ident(_) => {
 				self.lex.put_back(t);
 				let rv = self.parse_expr_list()?;
-				if let ::ast::Node::Identifier(i) = rv
+				// If the expression was just an ident, AND it's followed by a colon: It's a label
+				if let ::ast::NodeKind::Identifier(i,_) = rv.kind
 				{
 					if peek_token!(self.lex, Token::Colon) {
 						::ast::Statement::Label(i)
 					}
 					else {
+						// Otherwise, check for the semicolon and return a bare ident
 						syntax_assert!(self.lex.get_token()?, Token::Semicolon);
-						::ast::Statement::Expr( ::ast::Node::Identifier(i) )
+						::ast::Statement::Expr( ::ast::Node::new( ::ast::NodeKind::Identifier(i, None) ) )
 					}
 				}
 				else {

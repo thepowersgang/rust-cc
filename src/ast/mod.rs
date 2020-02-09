@@ -304,14 +304,23 @@ pub enum ExprOrDef
 	Definition(VarDefList),
 }
 #[derive(Debug)]
-pub enum Node
+pub struct Node
+{
+	pub kind: NodeKind,
+	/// Result type
+	pub ty: Option<::types::TypeRef>,
+	/// Indicates that this node needs to be assignable
+	pub is_lvalue: Option<bool>,
+}
+#[derive(Debug)]
+pub enum NodeKind
 {
 	StmtList(Vec<Node>),	// Comma operator
 	
-	Identifier(String),
+	Identifier(String, Option<IdentRef>),
 	String(String),
-	Integer(u64),
-	Float(f64),
+	Integer(u64, crate::types::IntClass),
+	Float(f64, crate::types::FloatClass),
 
 	// TODO: Specialise this for expression/literal calls?
 	FcnCall(Box<Node>, Vec<Node>),
@@ -331,6 +340,13 @@ pub enum Node
 	Index(Box<Node>, Box<Node>),
 	DerefMember(Box<Node>, String),
 	Member(Box<Node>, String),
+}
+#[derive(Debug)]
+pub enum IdentRef
+{
+	Local(usize),
+	Function,
+	Static,
 }
 // Lower precedence is weaker binding
 #[derive(Debug,PartialOrd,PartialEq,Copy,Clone)]
@@ -428,52 +444,60 @@ pub enum UniOp
 
 impl Node
 {
+	pub fn new(kind: NodeKind) -> Node
+	{
+		Node {
+			kind: kind,
+			ty: None,
+			is_lvalue: None,
+			}
+	}
 	/// Attempt to interpret the node as a trivally constant integer
 	pub fn literal_integer(&self) -> Option<u64>
 	{
-		match self
+		match self.kind
 		{
-		&Node::Integer(v) => Some(v),
-		&Node::UniOp(ref op,ref a) => match (op,a.literal_integer())
+		NodeKind::Integer(v, _ty) => Some(v),
+		NodeKind::UniOp(ref op,ref a) => match (op,a.literal_integer())
 			{
 			(&UniOp::Neg,Some(a)) => Some(!a + 1),
 			_ => None,
 			},
-		&Node::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
+		NodeKind::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
 			{
 			(&BinOp::Sub,Some(a),Some(b)) => Some(a-b),
 			_ => None,
 			},
-		&Node::Identifier(_) => None,	// TODO: Look up ident in the global/constant scope
+		NodeKind::Identifier(..) => None,	// TODO: Look up ident in the global/constant scope
 		_ => None,
 		}
 	}
 
 	pub fn get_precedence(&self) -> NodePrecedence
 	{
-		match *self
+		match self.kind
 		{
-		Node::StmtList(_) => NodePrecedence::CommaOperator,
+		NodeKind::StmtList(_) => NodePrecedence::CommaOperator,
 
-		Node::Identifier(_)
-		| Node::String(_)
-		| Node::Integer(_)
-		| Node::Float(_)
+		NodeKind::Identifier(..)
+		| NodeKind::String(_)
+		| NodeKind::Integer(..)
+		| NodeKind::Float(..)
 			=> NodePrecedence::Value,
 
-		Node::FcnCall(_, _) => NodePrecedence::MemberAccess,
+		NodeKind::FcnCall(_, _) => NodePrecedence::MemberAccess,
 
-		Node::Assign(_, _)
-		| Node::AssignOp(_, _, _)
+		NodeKind::Assign(_, _)
+		| NodeKind::AssignOp(_, _, _)
 			=> NodePrecedence::Assignment,
 
-		Node::Cast(_, _) => NodePrecedence::Unary,	// TODO: Double-check
-		Node::SizeofType(_) => NodePrecedence::Value,
-		Node::SizeofExpr(_) => NodePrecedence::Value,
-		Node::Intrinsic(..) => NodePrecedence::Value,
+		NodeKind::Cast(_, _) => NodePrecedence::Unary,	// TODO: Double-check
+		NodeKind::SizeofType(_) => NodePrecedence::Value,
+		NodeKind::SizeofExpr(_) => NodePrecedence::Value,
+		NodeKind::Intrinsic(..) => NodePrecedence::Value,
 
-		Node::Ternary(_,_,_) => NodePrecedence::Ternary,
-		Node::UniOp(ref op, _) => match *op
+		NodeKind::Ternary(_,_,_) => NodePrecedence::Ternary,
+		NodeKind::UniOp(ref op, _) => match *op
 			{
 			UniOp::Neg => NodePrecedence::Unary,
 			UniOp::BitNot   => NodePrecedence::Unary,
@@ -488,7 +512,7 @@ impl Node
 			| UniOp::Deref
 				=> NodePrecedence::DeRef,
 			},
-		Node::BinOp(ref op, _, _) => match *op
+		NodeKind::BinOp(ref op, _, _) => match *op
 			{
 			BinOp::LogicAnd
 			| BinOp::LogicOr
@@ -521,9 +545,9 @@ impl Node
 				=> NodePrecedence::MulDivMod,
 			},
 
-		Node::Index(_, _) => NodePrecedence::MemberAccess,
-		Node::DerefMember(_, _) => NodePrecedence::MemberAccess,
-		Node::Member(_, _) => NodePrecedence::MemberAccess,
+		NodeKind::Index(_, _) => NodePrecedence::MemberAccess,
+		NodeKind::DerefMember(_, _) => NodePrecedence::MemberAccess,
+		NodeKind::Member(_, _) => NodePrecedence::MemberAccess,
 		}
 	}
 }

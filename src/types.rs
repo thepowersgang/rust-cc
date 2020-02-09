@@ -144,7 +144,7 @@ impl ::std::fmt::Debug for Qualifiers {
 }
 
 /// Various integer types
-#[derive(Debug,PartialEq,Clone)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 pub enum IntClass
 {
 	/// Fixed-size type
@@ -161,13 +161,13 @@ pub enum IntClass
 	LongLong(Signedness),
 }
 impl IntClass {
-	pub fn char() -> Self { IntClass::Char(None) }
-	//pub fn uchar() -> Self { IntClass::Char(Some(Unsigned)) }
-	//pub fn schar() -> Self { IntClass::Char(Some(Signed)) }
+	pub const fn char() -> Self { IntClass::Char(None) }
+	//pub const fn uchar() -> Self { IntClass::Char(Some(Unsigned)) }
+	//pub const fn schar() -> Self { IntClass::Char(Some(Signed)) }
 	pub const fn int() -> Self { IntClass::Int(Signed) }
 }
 
-#[derive(Debug,PartialEq,Clone)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 pub enum FloatClass
 {
 	Float,

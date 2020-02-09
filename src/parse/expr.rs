@@ -3,6 +3,12 @@
 use parse::Token;
 use parse::ParseResult;
 
+/// Shortcut for creating a new node
+macro_rules! node {
+	( $ty:ident $($args:tt)* ) => {
+		crate::ast::Node::new( crate::ast::NodeKind::$ty $($args)* )
+	};
+}
 
 // Parse, left associative
 macro_rules! parse_left_assoc
@@ -47,7 +53,7 @@ impl<'ast> super::ParseState<'ast>
 			{
 				exprs.push( self.parse_expr()? );
 			}
-			Ok(::ast::Node::StmtList(exprs))
+			Ok(node!( StmtList(exprs) ))
 		}
 		else
 		{
@@ -61,14 +67,14 @@ impl<'ast> super::ParseState<'ast>
 		let rv = self.parse_expr_1()?;
 		Ok( match self.lex.get_token()?
 		{
-		Token::Assign => ::ast::Node::Assign(box rv, box self.parse_expr_0()?),
-		Token::AssignBitAnd => ::ast::Node::AssignOp(::ast::BinOp::BitAnd, box rv, box self.parse_expr_0()?),
-		Token::AssignBitOr  => ::ast::Node::AssignOp(::ast::BinOp::BitOr,  box rv, box self.parse_expr_0()?),
-		Token::AssignAdd  => ::ast::Node::AssignOp(::ast::BinOp::Add,  box rv, box self.parse_expr_0()?),
-		Token::AssignSub  => ::ast::Node::AssignOp(::ast::BinOp::Sub,  box rv, box self.parse_expr_0()?),
-		Token::AssignMul  => ::ast::Node::AssignOp(::ast::BinOp::Mul,  box rv, box self.parse_expr_0()?),
-		Token::AssignDiv  => ::ast::Node::AssignOp(::ast::BinOp::Div,  box rv, box self.parse_expr_0()?),
-		Token::AssignMod  => ::ast::Node::AssignOp(::ast::BinOp::Mod,  box rv, box self.parse_expr_0()?),
+		Token::Assign => node!( Assign(box rv, box self.parse_expr_0()?) ),
+		Token::AssignBitAnd => node!( AssignOp(::ast::BinOp::BitAnd, box rv, box self.parse_expr_0()?) ),
+		Token::AssignBitOr  => node!( AssignOp(::ast::BinOp::BitOr,  box rv, box self.parse_expr_0()?) ),
+		Token::AssignAdd  => node!( AssignOp(::ast::BinOp::Add,  box rv, box self.parse_expr_0()?) ),
+		Token::AssignSub  => node!( AssignOp(::ast::BinOp::Sub,  box rv, box self.parse_expr_0()?) ),
+		Token::AssignMul  => node!( AssignOp(::ast::BinOp::Mul,  box rv, box self.parse_expr_0()?) ),
+		Token::AssignDiv  => node!( AssignOp(::ast::BinOp::Div,  box rv, box self.parse_expr_0()?) ),
+		Token::AssignMod  => node!( AssignOp(::ast::BinOp::Mod,  box rv, box self.parse_expr_0()?) ),
 		t @ _ => {
 			self.lex.put_back(t);
 			rv
@@ -90,7 +96,7 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!(self.lex.get_token()?, Token::Colon);
 			let fv = box self.parse_expr_1()?;
 			debug!("Ternary - fv = {:?}", fv);
-			::ast::Node::Ternary(box rv, tv, fv)
+			node!( Ternary(box rv, tv, fv) )
 			}
 		t @ _ => {
 			self.lex.put_back(t);
@@ -101,50 +107,50 @@ impl<'ast> super::ParseState<'ast>
 	
 	/// Expression #2 - Boolean AND/OR
 	parse_left_assoc!{self, parse_expr_2, parse_expr_3, rv, {
-		Token::DoublePipe      => ::ast::Node::BinOp(::ast::BinOp::LogicOr,  box rv, box self.parse_expr_3()?),
-		Token::DoubleAmpersand => ::ast::Node::BinOp(::ast::BinOp::LogicAnd, box rv, box self.parse_expr_3()?),
+		Token::DoublePipe      => node!( BinOp(::ast::BinOp::LogicOr,  box rv, box self.parse_expr_3()?) ),
+		Token::DoubleAmpersand => node!( BinOp(::ast::BinOp::LogicAnd, box rv, box self.parse_expr_3()?) ),
 	}}
 	
 	/// Expresission #3 - Bitwise
 	parse_left_assoc!{self, parse_expr_3, parse_expr_4, rv, {
-		Token::Pipe      => ::ast::Node::BinOp(::ast::BinOp::BitOr , box rv, box self.parse_expr_4()?),
-		Token::Ampersand => ::ast::Node::BinOp(::ast::BinOp::BitAnd, box rv, box self.parse_expr_4()?),
-		Token::Caret     => ::ast::Node::BinOp(::ast::BinOp::BitXor, box rv, box self.parse_expr_4()?),
+		Token::Pipe      => node!( BinOp(::ast::BinOp::BitOr , box rv, box self.parse_expr_4()?) ),
+		Token::Ampersand => node!( BinOp(::ast::BinOp::BitAnd, box rv, box self.parse_expr_4()?) ),
+		Token::Caret     => node!( BinOp(::ast::BinOp::BitXor, box rv, box self.parse_expr_4()?) ),
 	}}
 	
 	/// Expression #4 - Comparison Operators
 	parse_left_assoc!{self, parse_expr_4, parse_expr_5, rv, {
-		Token::Equality  => ::ast::Node::BinOp(::ast::BinOp::CmpEqu , box rv, box self.parse_expr_5()?),
-		Token::NotEquals => ::ast::Node::BinOp(::ast::BinOp::CmpNEqu, box rv, box self.parse_expr_5()?),
-		Token::Lt  => ::ast::Node::BinOp(::ast::BinOp::CmpLt,  box rv, box self.parse_expr_5()?),
-		Token::LtE => ::ast::Node::BinOp(::ast::BinOp::CmpLtE, box rv, box self.parse_expr_5()?),
-		Token::Gt  => ::ast::Node::BinOp(::ast::BinOp::CmpGt,  box rv, box self.parse_expr_5()?),
-		Token::GtE => ::ast::Node::BinOp(::ast::BinOp::CmpGtE, box rv, box self.parse_expr_5()?),
+		Token::Equality  => node!( BinOp(::ast::BinOp::CmpEqu , box rv, box self.parse_expr_5()?) ),
+		Token::NotEquals => node!( BinOp(::ast::BinOp::CmpNEqu, box rv, box self.parse_expr_5()?) ),
+		Token::Lt  => node!( BinOp(::ast::BinOp::CmpLt,  box rv, box self.parse_expr_5()?) ),
+		Token::LtE => node!( BinOp(::ast::BinOp::CmpLtE, box rv, box self.parse_expr_5()?) ),
+		Token::Gt  => node!( BinOp(::ast::BinOp::CmpGt,  box rv, box self.parse_expr_5()?) ),
+		Token::GtE => node!( BinOp(::ast::BinOp::CmpGtE, box rv, box self.parse_expr_5()?) ),
 	}}
 	
 	/// Expression #5 - Bit Shifts
 	parse_left_assoc!{self, parse_expr_5, parse_expr_6, rv, {
-		Token::ShiftLeft  => ::ast::Node::BinOp(::ast::BinOp::ShiftLeft,  box rv, box self.parse_expr_6()?),
-		Token::ShiftRight => ::ast::Node::BinOp(::ast::BinOp::ShiftRight, box rv, box self.parse_expr_6()?),
+		Token::ShiftLeft  => node!( BinOp(::ast::BinOp::ShiftLeft,  box rv, box self.parse_expr_6()?) ),
+		Token::ShiftRight => node!( BinOp(::ast::BinOp::ShiftRight, box rv, box self.parse_expr_6()?) ),
 	}}
 	
 	/// Expresion #6 - Arithmatic
 	parse_left_assoc!{self, parse_expr_6, parse_expr_7, rv, {
-		Token::Plus  => ::ast::Node::BinOp(::ast::BinOp::Add, box rv, box self.parse_expr_7()?),
-		Token::Minus => ::ast::Node::BinOp(::ast::BinOp::Sub, box rv, box self.parse_expr_7()?),
+		Token::Plus  => node!( BinOp(::ast::BinOp::Add, box rv, box self.parse_expr_7()?) ),
+		Token::Minus => node!( BinOp(::ast::BinOp::Sub, box rv, box self.parse_expr_7()?) ),
 	}}
 	
 	/// Expression #7 - Multiply/Divide
 	parse_left_assoc!{self, parse_expr_7, parse_expr_8, rv, {
-		Token::Star    => ::ast::Node::BinOp(::ast::BinOp::Mul, box rv, box self.parse_expr_8()?),
-		Token::Slash   => ::ast::Node::BinOp(::ast::BinOp::Div, box rv, box self.parse_expr_8()?),
-		Token::Percent => ::ast::Node::BinOp(::ast::BinOp::Mod, box rv, box self.parse_expr_8()?),
+		Token::Star    => node!( BinOp(::ast::BinOp::Mul, box rv, box self.parse_expr_8()?) ),
+		Token::Slash   => node!( BinOp(::ast::BinOp::Div, box rv, box self.parse_expr_8()?) ),
+		Token::Percent => node!( BinOp(::ast::BinOp::Mod, box rv, box self.parse_expr_8()?) ),
 	}}
 	
 	/// Expression #8 - Unary Righthand
 	parse_left_assoc!{self, parse_expr_8, parse_expr_9, rv, {
-		Token::DoublePlus  => ::ast::Node::UniOp(::ast::UniOp::PostInc, box rv),
-		Token::DoubleMinus => ::ast::Node::UniOp(::ast::UniOp::PostDec, box rv),
+		Token::DoublePlus  => node!( UniOp(::ast::UniOp::PostInc, box rv) ),
+		Token::DoubleMinus => node!( UniOp(::ast::UniOp::PostDec, box rv) ),
 	}}
 	
 	/// Expression #9 - Unary left
@@ -152,13 +158,13 @@ impl<'ast> super::ParseState<'ast>
 	{
 		Ok( match self.lex.get_token()?
 		{
-		Token::Minus       => ::ast::Node::UniOp(::ast::UniOp::Neg,      box self.parse_expr_9()?),
-		Token::Tilde       => ::ast::Node::UniOp(::ast::UniOp::BitNot,   box self.parse_expr_9()?),
-		Token::Exclamation => ::ast::Node::UniOp(::ast::UniOp::LogicNot, box self.parse_expr_9()?),
-		Token::DoublePlus  => ::ast::Node::UniOp(::ast::UniOp::PreInc,   box self.parse_expr_9()?),
-		Token::DoubleMinus => ::ast::Node::UniOp(::ast::UniOp::PreDec,   box self.parse_expr_9()?),
-		Token::Star        => ::ast::Node::UniOp(::ast::UniOp::Deref,    box self.parse_expr_9()?),
-		Token::Ampersand   => ::ast::Node::UniOp(::ast::UniOp::Address, box self.parse_expr_member()?),	// different, as double addr is inval
+		Token::Minus       => node!( UniOp(::ast::UniOp::Neg,      box self.parse_expr_9()?) ),
+		Token::Tilde       => node!( UniOp(::ast::UniOp::BitNot,   box self.parse_expr_9()?) ),
+		Token::Exclamation => node!( UniOp(::ast::UniOp::LogicNot, box self.parse_expr_9()?) ),
+		Token::DoublePlus  => node!( UniOp(::ast::UniOp::PreInc,   box self.parse_expr_9()?) ),
+		Token::DoubleMinus => node!( UniOp(::ast::UniOp::PreDec,   box self.parse_expr_9()?) ),
+		Token::Star        => node!( UniOp(::ast::UniOp::Deref,    box self.parse_expr_9()?) ),
+		Token::Ampersand   => node!( UniOp(::ast::UniOp::Address, box self.parse_expr_member()?) ),	// different, as double addr is inval
 		t @ _ => {
 			self.lex.put_back(t);
 			self.parse_expr_member()?
@@ -169,13 +175,13 @@ impl<'ast> super::ParseState<'ast>
 	
 	/// Expression - Member access
 	parse_left_assoc!{self, parse_expr_member, parse_expr_p, rv, {
-		Token::DerefMember => ::ast::Node::DerefMember(box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)),
-		Token::Period      => ::ast::Node::Member(     box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)),
+		Token::DerefMember => node!( DerefMember(box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)) ),
+		Token::Period      => node!( Member(     box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)) ),
 		Token::SquareOpen => {
-				let idx = box self.parse_expr()?;
-				syntax_assert!(self.lex => Token::SquareClose);
-				::ast::Node::Index(box rv, idx)
-				},
+			let idx = box self.parse_expr()?;
+			syntax_assert!(self.lex => Token::SquareClose);
+			node!( Index(box rv, idx) )
+			},
 		Token::ParenOpen => {
 			let mut args = Vec::new();
 			if ! peek_token!(self.lex, Token::ParenClose)
@@ -189,7 +195,7 @@ impl<'ast> super::ParseState<'ast>
 					syntax_assert!(self.lex => Token::Comma);
 				}
 			}
-			::ast::Node::FcnCall(box rv, args)
+			node!( FcnCall(box rv, args) )
 			},
 	}}
 	
@@ -207,7 +213,7 @@ impl<'ast> super::ParseState<'ast>
 					syntax_error!("Unexpected identifier in cast");
 				}
 				syntax_assert!(self.lex => Token::ParenClose);
-				::ast::Node::Cast(fulltype, box self.parse_expr_9()?)
+				node!( Cast(fulltype, box self.parse_expr_9()?) )
 				},
 			None => {
 				let rv = self.parse_expr()?;
@@ -268,9 +274,9 @@ impl<'ast> super::ParseState<'ast>
 				}
 			}
 			syntax_assert!(self.lex => Token::ParenClose);
-			::ast::Node::Intrinsic(name, tys, vals)
+			node!( Intrinsic(name, tys, vals) )
 			},
-		Token::Ident(id) => ::ast::Node::Identifier(id),
+		Token::Ident(id) => node!( Identifier(id, None) ),
 		Token::String(s) => {
 			let mut val = s;
 			loop
@@ -280,11 +286,11 @@ impl<'ast> super::ParseState<'ast>
 				t @ _ => { self.lex.put_back(t); break; }
 				}
 			}
-			::ast::Node::String(val)
+			node!( String(val) )
 			},
-		Token::Integer(v,_,_) => ::ast::Node::Integer(v),
-		Token::Character(v) => ::ast::Node::Integer(v),
-		Token::Float(v,_,_) => ::ast::Node::Float(v),
+		Token::Integer(v,cls,_) => node!( Integer(v, cls) ),
+		Token::Character(v) => node!( Integer(v, crate::types::IntClass::char()) ),
+		Token::Float(v,cls,_) => node!( Float(v, cls) ),
 		Token::Rword_sizeof => {
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);
 			let rv = match self.get_base_type_opt()?
@@ -294,11 +300,11 @@ impl<'ast> super::ParseState<'ast>
 					if ! name.is_empty() {
 						syntax_error!("Unexpected name in sizeof");
 					}
-					::ast::Node::SizeofType(tr)
+					node!( SizeofType(tr) )
 					},
 				None => {
 					let val = if expect_paren { box self.parse_expr_0()? } else { box self.parse_expr_p()? };
-					::ast::Node::SizeofExpr(val)
+					node!( SizeofExpr(val) )
 					},
 				};
 			if expect_paren {
