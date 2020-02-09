@@ -1,12 +1,13 @@
 //!
 use crate::ast;
-use crate::types::TypeRef;
+use crate::types::{TypeRef,BaseType};
 type Ident = String;
 
-pub fn handle_function(name: &str, ty: &crate::types::FunctionType, code: &mut ast::Block)
+pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::FunctionType, code: &mut ast::Block)
 {
 	debug!("handle_function({}: {:?})", name, ty);
 	let mut ctx = Context {
+		program: program,
 		scopes: Default::default(),
 		variables: Default::default(),
 		ret_ty: ty.ret.clone(),
@@ -21,8 +22,9 @@ pub fn handle_function(name: &str, ty: &crate::types::FunctionType, code: &mut a
 	// TODO: Save the variable list.
 }
 
-struct Context
+struct Context<'a>
 {
+	program: &'a ast::Program,
 	ret_ty: TypeRef,
 	scopes: Vec<VarScope>,
 	variables: Vec<VarDef>,
@@ -41,7 +43,7 @@ struct VarDef
 	ty: TypeRef,
 }
 
-impl Context
+impl<'a> Context<'a>
 {
 	fn define_variable(&mut self, name: Ident, ty: TypeRef)
 	{
@@ -80,6 +82,7 @@ impl Context
 			}
 			},
 		Statement::Expr(ref mut e) => {
+			trace!("{:?}", e);
 			self.visit_node(e, false);
 			},
 		Statement::Block(ref mut stmts) => {
@@ -175,14 +178,22 @@ impl Context
 					return ty;
 				}
 			}
-			// TODO: Search global scope (wait, shouldn't this have happened during parse?)
+			// Search global scope (wait, shouldn't this have happened during parse?)
+			if let Some(v) = self.program.get_symbol(name) {
+				*binding = Some(ast::IdentRef::StaticItem);
+				return v.symtype.clone();
+			}
+			if let Some( (enm, idx) ) = self.program.find_enum_var(name) {
+				*binding = Some(ast::IdentRef::Enum( enm, idx ));
+				return crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::int()));
+			}
 			panic!("Unable to find '{}'", name);
 			},
 		NodeKind::Integer(_val, ty) => {
 			if req_lvalue {
 				self.err_no_lvalue();
 			}
-			crate::types::Type::new_ref_bare(crate::types::BaseType::Integer(ty))
+			crate::types::Type::new_ref_bare(BaseType::Integer(ty))
 			},
 		// ...
 		NodeKind::FcnCall(ref mut fcn, ref mut args) => {
@@ -193,7 +204,7 @@ impl Context
 			let fcn_ty = fcn.ty.as_ref().unwrap();
 			let fcn_ty = match fcn_ty.basetype
 				{
-				crate::types::BaseType::Function(ref f) => f,
+				BaseType::Function(ref f) => f,
 				_ => panic!("TODO: Error when calling a non-function. {:?}", fcn_ty),
 				};
 			for (arg_val, arg_ty_tup) in Iterator::zip( args.iter_mut(), fcn_ty.args.iter() )  {
@@ -215,8 +226,14 @@ impl Context
 			// NOTE: Allows lvalue
 			self.visit_node(slot, true);
 			self.visit_node(val, false);
-			if slot.ty != val.ty {
-				self.coerce_ty(slot.ty.as_ref().unwrap(), val);
+			let slot_ty = slot.ty.as_ref().unwrap();
+			if let BaseType::Pointer(..) = slot_ty.basetype
+			{
+				// TODO: Only add/sub allowed, and must be an integer (signed?)
+			}
+			else
+			{
+				self.coerce_ty(slot_ty, val);
 			}
 			// TODO: Ensure that the operation is valid for the type
 			slot.ty.clone().unwrap()
@@ -290,14 +307,14 @@ impl Context
 				}
 				self.visit_node(val, false);
 				// TODO: Check for bool-able
-				crate::types::Type::new_ref_bare(crate::types::BaseType::Bool)
+				crate::types::Type::new_ref_bare(BaseType::Bool)
 				},
 			ast::UniOp::Address => {
 				if req_lvalue {
 					self.err_no_lvalue();
 				}
 				self.visit_node(val, true);	// Needs a lvalue
-				crate::types::Type::new_ref_bare( crate::types::BaseType::Pointer(val.ty.clone().unwrap()) )
+				crate::types::Type::new_ref_bare( BaseType::Pointer(val.ty.clone().unwrap()) )
 				},
 			}
 			},
@@ -307,9 +324,6 @@ impl Context
 			}
 			self.visit_node(val_l, false);
 			self.visit_node(val_r, false);
-			if val_l.ty != val_r.ty {
-				todo!("Handle bin-op type mismatch using promotion: {:?} and {:?}: {:?} and {:?}", val_l.ty, val_r.ty, val_l, val_r);
-			}
 			use crate::ast::BinOp;
 			match *op
 			{
@@ -319,24 +333,48 @@ impl Context
 			| BinOp::CmpLtE
 			| BinOp::CmpGt
 			| BinOp::CmpGtE
-				=> crate::types::Type::new_ref_bare(crate::types::BaseType::Bool),
+				=> {
+					if val_l.ty.as_ref().unwrap().basetype != val_r.ty.as_ref().unwrap().basetype {
+						todo!("Handle bin-op type mismatch using promotion: {:?} and {:?}: {:?} {:?} and {:?}", val_l.ty, val_r.ty, op, val_l, val_r);
+					}
+					crate::types::Type::new_ref_bare(BaseType::Bool)
+				},
 			BinOp::LogicAnd
 			| BinOp::LogicOr
-				=> crate::types::Type::new_ref_bare(crate::types::BaseType::Bool),
+				=> {
+					let ty_bool = crate::types::Type::new_ref_bare(BaseType::Bool);
+					self.coerce_ty(&ty_bool, val_l);
+					self.coerce_ty(&ty_bool, val_r);
+					ty_bool
+				},
 			BinOp::ShiftLeft
 			| BinOp::ShiftRight
-				=> val_l.ty.clone().unwrap(),
+				=> {
+					if val_l.ty.as_ref().unwrap().basetype != val_r.ty.as_ref().unwrap().basetype {
+						todo!("Handle bin-op type mismatch using promotion: {:?} and {:?}: {:?} {:?} and {:?}", val_l.ty, val_r.ty, op, val_l, val_r);
+					}
+					val_l.ty.clone().unwrap()
+				},
 			BinOp::Mul
 			| BinOp::Div
 			| BinOp::Mod
 			| BinOp::Add
 			| BinOp::Sub
-				=> val_l.ty.clone().unwrap(),
+				=> {
+					if val_l.ty.as_ref().unwrap().basetype != val_r.ty.as_ref().unwrap().basetype {
+						todo!("Handle bin-op type mismatch using promotion: {:?} and {:?}: {:?} {:?} and {:?}", val_l.ty, val_r.ty, op, val_l, val_r);
+					}
+					val_l.ty.clone().unwrap()
+				},
 			BinOp::BitAnd
 			| BinOp::BitOr
 			| BinOp::BitXor
-				=> val_l.ty.clone().unwrap(),
-			_ => todo!("visit_node_inner(): BinOp {:?} {:?} {:?}", val_l, op, val_r),
+				=> {
+					if val_l.ty.as_ref().unwrap().basetype != val_r.ty.as_ref().unwrap().basetype {
+						todo!("Handle bin-op type mismatch using promotion: {:?} and {:?}: {:?} {:?} and {:?}", val_l.ty, val_r.ty, op, val_l, val_r);
+					}
+					val_l.ty.clone().unwrap()
+				},
 			}
 			},
 
@@ -396,8 +434,7 @@ impl Context
 
 	fn coerce_ty(&self, req_ty: &TypeRef, node: &mut ast::Node)
 	{
-		if req_ty != node.ty.as_ref().unwrap() {
-			use crate::types::BaseType;
+		if req_ty.basetype != node.ty.as_ref().unwrap().basetype {
 			let inner_node = ::std::mem::replace(node, null_node());
 			*node = ast::Node::new(ast::NodeKind::ImplicitCast(req_ty.clone(), Box::new(inner_node)));
 			node.is_lvalue = Some(false);
@@ -409,6 +446,14 @@ impl Context
 				};
 			match req_ty.basetype
 			{
+			BaseType::Bool => match inner_ty.basetype
+				{
+				BaseType::Bool => {},
+				BaseType::Integer(_) => {},
+				BaseType::Float(_) => {},
+				BaseType::Pointer(..) => {},
+				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				},
 			BaseType::Integer(ic) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},

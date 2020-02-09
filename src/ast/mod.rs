@@ -45,15 +45,15 @@ enum ItemRef
 }
 
 // TODO: Have a disinction between functions and globals?
-struct Symbol
+pub struct Symbol
 {
 	// TODO: Storage classes?
 	name: Ident,
-	symtype: ::types::TypeRef,
-	value: Option<SymbolValue>,
+	pub symtype: ::types::TypeRef,
+	pub value: Option<SymbolValue>,
 }
 #[derive(Debug)]
-enum SymbolValue
+pub enum SymbolValue
 {
 	Value(Initialiser),
 	Code(::std::cell::RefCell<FunctionBody>),
@@ -234,6 +234,19 @@ impl Program
 		}
 	}
 
+	pub fn get_symbol(&self, name: &Ident) -> Option<&Symbol> {
+		self.symbols.get(name)
+	}
+	pub fn find_enum_var(&self, name: &Ident) -> Option<(crate::types::EnumRef, usize)> {
+		for (enm_name, enm) in &self.enums
+		{
+			if let Some(idx) = enm.borrow().find_var(name) {
+				return Some( (enm.clone(), idx) );
+			}
+		}
+		None
+	}
+
 	pub fn iter_functions(&self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &::std::cell::RefCell<FunctionBody>)> {
 		self.item_order.iter()
 			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
@@ -364,8 +377,8 @@ pub enum NodeKind
 pub enum IdentRef
 {
 	Local(usize),
-	Function,
-	Static,
+	StaticItem,
+	Enum(::types::EnumRef, usize),
 }
 // Lower precedence is weaker binding
 #[derive(Debug,PartialOrd,PartialEq,Copy,Clone)]

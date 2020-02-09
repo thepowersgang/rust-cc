@@ -188,6 +188,7 @@ pub type StructRef = RcRefCellPtrEq<Struct>;
 pub type UnionRef  = RcRefCellPtrEq<Union>;
 pub type EnumRef   = RcRefCellPtrEq<Enum>;
 
+#[derive(Debug)]
 pub struct RcRefCellPtrEq<T>( Rc<RefCell<T>> );
 impl<T> Clone for RcRefCellPtrEq<T> {
 	fn clone(&self) -> Self {
@@ -236,6 +237,17 @@ pub struct Enum
 {
 	pub name: String,
 	items: Option<Vec<(u64,String)>>,
+}
+impl Enum
+{
+	pub fn find_var(&self, name: &str) -> Option<usize> {
+		if let Some(ref items) = self.items {
+			items.iter().position(|v| v.1 == name)
+		}
+		else {
+			None
+		}
+	}
 }
 
 impl ::std::fmt::Debug for Type

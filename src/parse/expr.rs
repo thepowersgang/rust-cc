@@ -276,7 +276,10 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!(self.lex => Token::ParenClose);
 			node!( Intrinsic(name, tys, vals) )
 			},
-		Token::Ident(id) => node!( Identifier(id, None) ),
+		Token::Ident(id) => {
+			// TODO: Look up the name here? (It's where it should be done...)
+			node!( Identifier(id, None) )
+			},
 		Token::String(s) => {
 			let mut val = s;
 			loop

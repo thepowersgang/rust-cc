@@ -66,7 +66,7 @@ fn main()
 		match ty.basetype
 		{
 		crate::types::BaseType::Function(ref fcn_ty) => {
-			typecheck::handle_function(name, fcn_ty, &mut fcn.borrow_mut().code)
+			typecheck::handle_function(&program, name, fcn_ty, &mut fcn.borrow_mut().code)
 			},
 		_ => {},
 		}
