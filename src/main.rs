@@ -61,25 +61,26 @@ fn main()
 	//   > Add promotions/demotions/conversions
 	//   > Annotate ternary with if it's in LValue position
 	//   > Collate variables and determine if they're addressed
-	program.visit_functions_mut(|(name,ty,code)| {
+	for (name,ty,fcn) in program.iter_functions()
+	{
 		match ty.basetype
 		{
 		crate::types::BaseType::Function(ref fcn_ty) => {
-			typecheck::handle_function(name, fcn_ty, code)
+			typecheck::handle_function(name, fcn_ty, &mut fcn.borrow_mut().code)
 			},
 		_ => {},
 		}
-		});
+	}
 
 	// Convert to cranelift?
 	if false
 	{
 		let mut c = codegen::Context::new();
-		for (name,ty,code) in program.iter_functions()
+		for (name,ty,fcn) in program.iter_functions()
 		{
 			match ty.basetype
 			{
-			crate::types::BaseType::Function(ref fcn) => c.lower_function(name, fcn, code),
+			crate::types::BaseType::Function(ref fcn_ty) => c.lower_function(name, fcn_ty, &fcn.borrow().code),
 			_ => {},
 			}
 		}

@@ -59,9 +59,9 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		self.write_type(&sym.symtype, |f| f.write_str(&sym.name));
 		match sym.value
 		{
-		Some(::ast::SymbolValue::Code(ref block)) => {
+		Some(::ast::SymbolValue::Code(ref fcn)) => {
 			self.write_str("\n");
-			self.write_block(block, 0);
+			self.write_block(&fcn.borrow().code, 0);
 			self.write_str("\n");
 			},
 		Some(::ast::SymbolValue::Value(ref v)) => {

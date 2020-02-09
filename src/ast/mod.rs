@@ -6,6 +6,11 @@ use std::collections::hash_map::Entry;
 
 pub mod pretty_print;
 
+pub type Ident = String;
+
+#[derive(Debug)]
+pub struct Span;
+
 #[derive(Default)]
 /// Representation of a C program/compilation unit
 pub struct Program
@@ -13,23 +18,23 @@ pub struct Program
 	/// Item definition order
 	item_order: Vec<ItemRef>,
 
-	typedefs: HashMap<String, ::types::TypeRef>,
-	structs: HashMap<String, ::types::StructRef>,
-	unions: HashMap<String, ::types::UnionRef>,
-	enums: HashMap<String, ::types::EnumRef>,
+	typedefs: HashMap<Ident, ::types::TypeRef>,
+	structs: HashMap<Ident, ::types::StructRef>,
+	unions: HashMap<Ident, ::types::UnionRef>,
+	enums: HashMap<Ident, ::types::EnumRef>,
 	// Aka global variables/functions
-	symbols: HashMap<String, Symbol>,
+	symbols: HashMap<Ident, Symbol>,
 }
 /// Referece to a defined item (typedef/struct/value/...)
 enum ItemRef
 {
-	ValueDecl(String),
-	Value(String),
+	ValueDecl(Ident),
+	Value(Ident),
 
-	Typedef(String),
-	Struct(String),
-	Union(String),
-	Enum(String),
+	Typedef(Ident),
+	Struct(Ident),
+	Union(Ident),
+	Enum(Ident),
 
 	//CppDefine {
 	//	name: String,
@@ -43,7 +48,7 @@ enum ItemRef
 struct Symbol
 {
 	// TODO: Storage classes?
-	name: String,
+	name: Ident,
 	symtype: ::types::TypeRef,
 	value: Option<SymbolValue>,
 }
@@ -51,7 +56,20 @@ struct Symbol
 enum SymbolValue
 {
 	Value(Initialiser),
-	Code(Block),
+	Code(::std::cell::RefCell<FunctionBody>),
+}
+#[derive(Debug)]
+pub struct FunctionBody
+{
+	pub code: Block,
+	pub var_table: Vec<VarTableEnt>,
+}
+#[derive(Debug)]
+pub struct VarTableEnt
+{
+	pub span: Span,
+	pub name: Ident,
+	pub ty: crate::types::TypeRef,
 }
 
 impl Program
@@ -63,15 +81,15 @@ impl Program
 		}
 	}
 	
-	pub fn define_function(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Block>)
+	pub fn define_function(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Block>)
 	{
-		self.define_symbol(typeid, name, value.map(SymbolValue::Code))
+		self.define_symbol(typeid, name, value.map(|v| SymbolValue::Code(::std::cell::RefCell::new(FunctionBody { code: v, var_table: Vec::new() }))))
 	}
-	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: String, value: Option<Initialiser>)
+	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
 	{
 		self.define_symbol(typeid, name, value.map(SymbolValue::Value))
 	}
-	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: String, value: Option<SymbolValue>)
+	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<SymbolValue>)
 	{
 		if value.is_some() {
 			self.item_order.push(ItemRef::Value(name.clone()));
@@ -112,7 +130,7 @@ impl Program
 		}
 	}
 	
-	pub fn set_typedef(&mut self, name: String, typeid: ::types::TypeRef) -> bool
+	pub fn set_typedef(&mut self, name: Ident, typeid: ::types::TypeRef) -> bool
 	{
 		self.item_order.push(ItemRef::Typedef(name.clone()));
 		self.typedefs.insert(name, typeid).is_none()
@@ -183,7 +201,7 @@ impl Program
 			Ok( sr )
 		}
 	}
-	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,String)>) -> Result<::types::UnionRef,()> {
+	pub fn make_union(&mut self, name: &str, items: Vec<(::types::TypeRef,Ident)>) -> Result<::types::UnionRef,()> {
 		if name != "" {
 			self.item_order.push(ItemRef::Union(name.to_owned()));
 		}
@@ -199,7 +217,7 @@ impl Program
 			Ok( ur )
 		}
 	}
-	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,String)>) -> Result<::types::EnumRef,Option<String>> {
+	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,Ident)>) -> Result<::types::EnumRef,Option<Ident>> {
 		if name != "" {
 			self.item_order.push(ItemRef::Enum(name.to_owned()));
 		}
@@ -216,7 +234,7 @@ impl Program
 		}
 	}
 
-	pub fn iter_functions(&self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &Block)> {
+	pub fn iter_functions(&self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &::std::cell::RefCell<FunctionBody>)> {
 		self.item_order.iter()
 			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
 			.filter_map(move |name| {
@@ -227,34 +245,6 @@ impl Program
 				_ => None,
 				}
 				})
-	}
-	#[cfg(false_)]
-	pub fn iter_functions_mut(&mut self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &mut Block)> {
-		self.symbols.iter_mut()
-			.filter_map(|(name, s)| {
-				match s.value
-				{
-				Some(SymbolValue::Code(ref mut e)) => Some( (&name[..], &s.symtype, e) ),
-				_ => None,
-				}
-				})
-	}
-	pub fn visit_functions_mut(&mut self, mut cb: impl FnMut( (&str, &crate::types::TypeRef, &mut Block) )) {
-		for n in self.item_order.iter()
-		{
-			match n
-			{
-			ItemRef::Value(ref name) => {
-				let s = self.symbols.get_mut(name).unwrap();
-				match s.value
-				{
-				Some(SymbolValue::Code(ref mut e)) => cb( (&name[..], &s.symtype, e) ),
-				_ => {},
-				}
-				},
-			_ => {},
-			}
-		}
 	}
 }
 
@@ -300,14 +290,14 @@ pub enum Statement
 	CaseSingle(u64),
 	CaseRange(u64, u64),
 
-	Goto(String),
-	Label(String),
+	Goto(Ident),
+	Label(Ident),
 }
 #[derive(Debug)]
 pub struct VariableDefinition
 {
 	pub ty: ::types::TypeRef,
-	pub name: String,
+	pub name: Ident,
 	pub value: Initialiser,
 }
 #[derive(Debug)]
@@ -322,7 +312,7 @@ pub enum Initialiser
 	/// Array literal `{[0] = a, [1] = b, [2] = c}`
 	ArrayLiteral(Vec<(Node,Node)>),	// 
 	/// Struct literal `{.a = a, .b = b, .c = c}`
-	StructLiteral(Vec<(String,Node)>),
+	StructLiteral(Vec<(Ident,Node)>),
 }
 /// Either a evaluatable expression, or a variable definition
 #[derive(Debug)]
@@ -345,7 +335,7 @@ pub enum NodeKind
 {
 	StmtList(Vec<Node>),	// Comma operator
 	
-	Identifier(String, Option<IdentRef>),
+	Identifier(Ident, Option<IdentRef>),
 	String(String),
 	Integer(u64, crate::types::IntClass),
 	Float(f64, crate::types::FloatClass),
@@ -367,8 +357,8 @@ pub enum NodeKind
 	BinOp(BinOp, Box<Node>, Box<Node>),
 	
 	Index(Box<Node>, Box<Node>),
-	DerefMember(Box<Node>, String),
-	Member(Box<Node>, String),
+	DerefMember(Box<Node>, Ident),
+	Member(Box<Node>, Ident),
 }
 #[derive(Debug)]
 pub enum IdentRef
