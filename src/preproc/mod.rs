@@ -604,6 +604,16 @@ impl Preproc
 			Token::Ident(v) => {
 				self.start_of_line = false;
 
+				match &v[..]
+				{
+				"__FILE__" => return Ok(Token::String(format!("{}", self.lexers.cur_path().display()))),
+				"__LINE__" => {
+					let line = 0;
+					return Ok(Token::Integer(line, ::types::IntClass::Int(::types::Signedness::Signed), format!("{}", line)))
+					},
+				_ => {},
+				}
+
 				match self.macros.get(&v) {
 				Some(macro_def) => {
 					let arg_mapping: HashMap<&str,Vec<Token>> = if let Some(ref args) = macro_def.arg_names {
@@ -1311,11 +1321,15 @@ impl TokenSourceStack
 
 	fn cur_path(&self) -> &::std::path::Path
 	{
-		match self.last()
+		for e in self.lexers.iter().rev()
 		{
-		InnerLexer::File(h) => h.filename.as_ref().expect("TODO: Error when using include in stdin"),
-		InnerLexer::MacroExpansion(_) => panic!(""),
+			match e
+			{
+			InnerLexer::File(h) => return h.filename.as_ref().expect("TODO: Error when using include in stdin"),
+			InnerLexer::MacroExpansion(_) => {},
+			}
 		}
+		panic!("");
 	}
 
 	fn get_token(&mut self) -> Result<Token>

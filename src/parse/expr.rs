@@ -276,6 +276,9 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!(self.lex => Token::ParenClose);
 			node!( Intrinsic(name, tys, vals) )
 			},
+		Token::Ident(ref id) if id == "__func__" => {
+			node!( String(format!("dunno")) )
+			},
 		Token::Ident(id) => {
 			// TODO: Look up the name here? (It's where it should be done...)
 			node!( Identifier(id, None) )

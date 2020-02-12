@@ -164,6 +164,29 @@ impl IntClass {
 	//pub const fn uchar() -> Self { IntClass::Char(Some(Unsigned)) }
 	//pub const fn schar() -> Self { IntClass::Char(Some(Signed)) }
 	pub const fn int() -> Self { IntClass::Int(Signed) }
+
+	pub fn signedness(&self) -> Signedness {
+		match *self
+		{
+		IntClass::Bits(s,_) => s,
+		IntClass::Char(s) => s.unwrap_or(Signedness::Unsigned),
+		IntClass::Short(s) => s,
+		IntClass::Int(s) => s,
+		IntClass::Long(s) => s,
+		IntClass::LongLong(s) => s,
+		}
+	}
+	pub fn clone_with_sgn(&self, s: Signedness) -> Self {
+		match *self
+		{
+		IntClass::Bits(_,b) => IntClass::Bits(s,b),
+		IntClass::Char(_) => IntClass::Char(Some(s)),
+		IntClass::Short(_) => IntClass::Short(s),
+		IntClass::Int(_) => IntClass::Int(s),
+		IntClass::Long(_) => IntClass::Long(s),
+		IntClass::LongLong(_) => IntClass::LongLong(s),
+		}
+	}
 }
 
 #[derive(Debug,PartialEq,Clone,Copy)]

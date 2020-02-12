@@ -111,6 +111,7 @@ impl<'ast> super::ParseState<'ast>
 {
 	fn parse_function(&mut self, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
+		// TODO: Store function name for `__func__`
 		let code = self.parse_block()?;
 		debug!("parse_function: code = {:?}", code);
 		self.ast.define_function(typeid, ident, Some(code));

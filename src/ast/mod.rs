@@ -334,14 +334,30 @@ pub enum ExprOrDef
 	Expr(Node),
 	Definition(VarDefList),
 }
-#[derive(Debug)]
+/// Expression node
 pub struct Node
 {
 	pub kind: NodeKind,
+	pub meta: Option<NodeMeta>,
+}
+/// Custom Debug formatter that reduces noise
+impl ::std::fmt::Debug for Node
+{
+	fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+		self.kind.fmt(f)?;
+		if let Some(ref v) = self.meta {
+			f.write_str(" ")?;
+			v.fmt(f)?;
+		}
+		Ok( () )
+	}
+}
+#[derive(Debug)]
+pub struct NodeMeta {
 	/// Result type
-	pub ty: Option<::types::TypeRef>,
+	pub ty: ::types::TypeRef,
 	/// Indicates that this node needs to be assignable
-	pub is_lvalue: Option<bool>,
+	pub is_lvalue: bool,
 }
 #[derive(Debug)]
 pub enum NodeKind
@@ -480,8 +496,7 @@ impl Node
 	{
 		Node {
 			kind: kind,
-			ty: None,
-			is_lvalue: None,
+			meta: None,
 			}
 	}
 	/// Attempt to interpret the node as a trivally constant integer
