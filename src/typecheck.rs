@@ -91,6 +91,7 @@ impl<'a> Context<'a>
 
 		// TODO: if and loops
 		Statement::IfStatement { ref mut cond, ref mut true_arm, ref mut else_arm } => {
+			trace!("if( {:?} )", cond);
 			self.scopes.push(Default::default());
 			self.visit_expr_def(cond);
 			// TODO: Ensure that this is bool-like
@@ -101,6 +102,7 @@ impl<'a> Context<'a>
 			self.scopes.pop();
 			},
 		Statement::WhileLoop { ref mut cond, ref mut body } => {
+			trace!("while( {:?} )", cond);
 			self.scopes.push(Default::default());
 			self.visit_expr_def(cond);
 			// TODO: Ensure that this is bool-like
@@ -108,6 +110,7 @@ impl<'a> Context<'a>
 			self.scopes.pop();
 			},
 		Statement::DoWhileLoop { ref mut body, ref mut cond } => {
+			trace!("do {{ ... }} while( {:?} )", cond);
 			self.scopes.push(Default::default());
 			self.visit_block(body);
 			self.visit_node(cond, false);
@@ -115,6 +118,7 @@ impl<'a> Context<'a>
 			self.scopes.pop();
 			},
 		Statement::ForLoop { ref mut init, ref mut cond, ref mut inc, ref mut body } => {
+			trace!("for( {:?}; {:?}; {:?} )", init, cond, inc);
 			self.scopes.push(Default::default());
 			if let Some(init) = init {
 				self.visit_expr_def(init);
@@ -149,6 +153,20 @@ impl<'a> Context<'a>
 				// TODO: Check type is void
 			}
 			},
+
+		Statement::Switch(ref mut val, ref mut body) => {
+			trace!("switch {:?}", val);
+			self.visit_node(val, false);
+			// TODO: Check that the value is an int?
+			// TODO: Push the value's type for match values?
+			self.visit_block(body);
+			},
+		Statement::CaseDefault => {},
+		Statement::CaseSingle(_v) => {},
+		Statement::CaseRange(_v1, _v2) => {},
+
+		Statement::Goto(ref _lbl) => {},
+		Statement::Label(ref _lbl) => {},
 
 		// TODO: Rest
 
@@ -300,6 +318,26 @@ impl<'a> Context<'a>
 			},
 		NodeKind::Intrinsic(ref op, ref tys, ref mut vals) => match &op[..]
 			{
+			"va_start" => {
+				if req_lvalue {
+					self.err_no_lvalue();
+				}
+				for n in vals {
+					self.visit_node(n, false);
+				}
+				//crate::types::c::void()
+				crate::types::Type::new_ref_bare(BaseType::Void)
+				},
+			"va_end" => {
+				if req_lvalue {
+					self.err_no_lvalue();
+				}
+				for n in vals {
+					self.visit_node(n, false);
+				}
+				//crate::types::c::void()
+				crate::types::Type::new_ref_bare(BaseType::Void)
+				},
 			"va_arg" => {
 				if req_lvalue {
 					self.err_no_lvalue();
@@ -320,6 +358,11 @@ impl<'a> Context<'a>
 			self.visit_node(val, false);
 			// TODO: Check cast validity
 			ty.clone()
+			},
+		NodeKind::SizeofType(ref _ty) => {
+			crate::types::Type::new_ref_bare(BaseType::Integer(
+					crate::types::IntClass::Long(crate::types::Signedness::Unsigned)
+					))
 			},
 
 		// ...
@@ -595,6 +638,14 @@ impl<'a> Context<'a>
 				},
 			_ => todo!("max_ty Integers {:?} {:?}", i1, i2),
 			}),
+		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
+			if i1.basetype != i2.basetype {
+				todo!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2);
+			}
+			let mut q = i1.qualifiers.clone();
+			q.merge_from(&i2.qualifiers);
+			crate::types::Type::new_ref(i1.basetype.clone(), q)
+			}),
 		_ => todo!("Pick 'max' of {:?} and {:?}", ty1, ty2),
 		}))
 	}
@@ -631,6 +682,7 @@ impl<'a> Context<'a>
 			BaseType::Pointer(ref i1) => match inner_ty.basetype
 				{
 				BaseType::Pointer(ref i2) => {},	// TODO: Const/restrict/etc warnings
+				BaseType::Array(_, _) => {},	// TODO: Const/restrict/etc warnings
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
 			_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
