@@ -311,6 +311,7 @@ pub struct VariableDefinition
 {
 	pub ty: ::types::TypeRef,
 	pub name: Ident,
+	pub index: Option<usize>,
 	pub value: Initialiser,
 }
 #[derive(Debug)]

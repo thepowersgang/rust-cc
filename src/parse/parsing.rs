@@ -163,13 +163,13 @@ impl<'ast> super::ParseState<'ast>
 					else
 					{
 						let init = self.parse_var_init()?;
-						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, value: init } ];
+						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, index: None, value: init } ];
 						while peek_token!(self.lex, Token::Comma)
 						{
 							let (typeid, ident) = self.get_full_type(basetype.clone())?;
 							let init = self.parse_var_init()?;
 							
-							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, value: init } );
+							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, index: None, value: init } );
 						}
 						Some(rv)
 					}

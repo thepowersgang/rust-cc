@@ -66,21 +66,21 @@ fn main()
 		match ty.basetype
 		{
 		crate::types::BaseType::Function(ref fcn_ty) => {
-			typecheck::handle_function(&program, name, fcn_ty, &mut fcn.borrow_mut().code)
+			typecheck::handle_function(&program, name, fcn_ty, &mut fcn.borrow_mut())
 			},
 		_ => {},
 		}
 	}
 
 	// Convert to cranelift?
-	if false
+	if true
 	{
 		let mut c = codegen::Context::new();
 		for (name,ty,fcn) in program.iter_functions()
 		{
 			match ty.basetype
 			{
-			crate::types::BaseType::Function(ref fcn_ty) => c.lower_function(name, fcn_ty, &fcn.borrow().code),
+			crate::types::BaseType::Function(ref fcn_ty) => c.lower_function(name, fcn_ty, &fcn.borrow()),
 			_ => {},
 			}
 		}

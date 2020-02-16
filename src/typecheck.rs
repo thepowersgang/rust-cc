@@ -1,9 +1,8 @@
 //!
-use crate::ast;
+use crate::ast::{self, Ident};
 use crate::types::{TypeRef,BaseType};
-type Ident = String;
 
-pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::FunctionType, code: &mut ast::Block)
+pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::FunctionType, fcn_body: &mut ast::FunctionBody)
 {
 	debug!("handle_function({}: {:?})", name, ty);
 	let mut ctx = Context {
@@ -18,8 +17,17 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 		ctx.define_variable(name.clone(), ty.clone());
 	}
 
-	ctx.visit_block(code);
-	// TODO: Save the variable list.
+	ctx.visit_block(&mut fcn_body.code);
+
+	// Save the variable list.
+	for e in ctx.variables
+	{
+		fcn_body.var_table.push(ast::VarTableEnt {
+			span: ast::Span,
+			name: e.name,
+			ty: e.ty,
+			});
+	}
 }
 
 struct Context<'a>
@@ -40,15 +48,17 @@ enum ValDef
 }
 struct VarDef
 {
+	name: Ident,
 	ty: TypeRef,
 }
 
 impl<'a> Context<'a>
 {
-	fn define_variable(&mut self, name: Ident, ty: TypeRef)
+	fn define_variable(&mut self, name: Ident, ty: TypeRef) -> usize
 	{
 		let idx = self.variables.len();
 		self.variables.push(VarDef {
+			name: name.clone(),
 			ty: ty,
 			});
 		let scope = self.scopes.last_mut().unwrap();
@@ -57,6 +67,7 @@ impl<'a> Context<'a>
 			panic!("Multiple defintions of `{}`", name);
 		}
 		scope.variables.insert(name, ValDef::Variable(idx));
+		idx
 	}
 
 	fn visit_block(&mut self, blk: &mut ast::Block)
@@ -77,7 +88,7 @@ impl<'a> Context<'a>
 		Statement::VarDef(ref mut list) => {
 			for var_def in list
 			{
-				self.define_variable(var_def.name.clone(), var_def.ty.clone());
+				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
 				self.visit_init(&var_def.ty, &mut var_def.value);
 			}
 			},
@@ -182,7 +193,7 @@ impl<'a> Context<'a>
 		ast::ExprOrDef::Definition(ref mut defs) => {
 			for var_def in defs
 			{
-				self.define_variable(var_def.name.clone(), var_def.ty.clone());
+				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
 				self.visit_init(&var_def.ty, &mut var_def.value);
 			}
 			},
@@ -439,6 +450,22 @@ impl<'a> Context<'a>
 			}
 			self.visit_node(val_l, false);
 			self.visit_node(val_r, false);
+
+			if let BaseType::Array(ref inner, _) = node_ty(&val_l).basetype {
+				let ptr_ty = crate::types::Type::new_ref(
+					BaseType::Pointer(inner.clone()),
+					node_ty(&val_l).qualifiers.clone(),
+					);
+				self.coerce_ty(&ptr_ty, val_l);
+			}
+			if let BaseType::Array(ref inner, _) = node_ty(&val_r).basetype {
+				let ptr_ty = crate::types::Type::new_ref(
+					BaseType::Pointer(inner.clone()),
+					node_ty(&val_r).qualifiers.clone(),
+					);
+				self.coerce_ty(&ptr_ty, val_r);
+			}
+
 			use crate::ast::BinOp;
 			match *op
 			{
@@ -539,11 +566,29 @@ impl<'a> Context<'a>
 			},
 
 		// TODO: This is actually `*(val + idx)` - should implement it as so
-		NodeKind::Index(ref mut val, ref mut idx) => {
-			// NOTE: Is always an LValue
-			self.visit_node(val, false);	// Already a pointer, so will be LValue output
-			self.visit_node(idx, false);
-			node_ty(&val).deref().expect("Can't index")
+		NodeKind::Index(ref mut val, ref mut idx) => if false {
+				// NOTE: Is always an LValue
+				self.visit_node(val, false);	// Already a pointer, so will be LValue output
+				self.visit_node(idx, false);
+				node_ty(&val).deref().expect("Can't index")
+			}
+			else {
+				// - Get the value and field name
+				let (val, idx) = match *node_kind {
+					NodeKind::Index(ref mut val, ref mut idx) => {
+						(
+							::std::mem::replace(val, Box::new( null_node() ) ),
+							::std::mem::replace(idx, Box::new( null_node() ) ),
+							)
+						},
+					_ => unreachable!(),
+					};
+				// - Update the node to be `(*val).NAME`
+				*node_kind = NodeKind::UniOp(ast::UniOp::Deref,
+					Box::new(ast::Node::new(NodeKind::BinOp(ast::BinOp::Add, val, idx)))
+					);
+				// - Recurse
+				self.visit_node_inner(node_kind, req_lvalue)
 			},
 		// Implemented as `(*val).NAME` (using replacement)
 		NodeKind::DerefMember(..) => {
@@ -605,35 +650,35 @@ impl<'a> Context<'a>
 		{
 		(BaseType::Integer(i1), BaseType::Integer(i2)) => BaseType::Integer(match i1
 			{
-			IntClass::Char(s1) => match i2
+			IntClass::Char(_s1) => match i2
 				{
-				IntClass::Bits(s2, n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				_ => i2.clone_with_sgn( sgn(&i1.signedness(), &i2.signedness()) ),
 				},
 			IntClass::Short(s1) => match i2
 				{
-				IntClass::Bits(s2, n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Long(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Int(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
-				_ => i1.clone_with_sgn( sgn(&i1.signedness(), &i2.signedness()) ),
+				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			IntClass::Int(s1) => match i2
 				{
-				IntClass::Bits(s2, n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Long(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
-				_ => i1.clone_with_sgn( sgn(&i1.signedness(), &i2.signedness()) ),
+				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			IntClass::Long(s1) => match i2
 				{
-				IntClass::Bits(s2, n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
-				_ => i1.clone_with_sgn( sgn(&i1.signedness(), &i2.signedness()) ),
+				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			IntClass::LongLong(s1) => match i2
 				{
-				IntClass::Bits(s2, n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			_ => todo!("max_ty Integers {:?} {:?}", i1, i2),
@@ -673,15 +718,15 @@ impl<'a> Context<'a>
 				BaseType::Pointer(..) => {},
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
-			BaseType::Integer(ic) => match inner_ty.basetype
+			BaseType::Integer(_ic) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},
-				BaseType::Integer(ici) => {},	// TODO: Warn on signed-ness?
+				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
-			BaseType::Pointer(ref i1) => match inner_ty.basetype
+			BaseType::Pointer(ref _i1) => match inner_ty.basetype
 				{
-				BaseType::Pointer(ref i2) => {},	// TODO: Const/restrict/etc warnings
+				BaseType::Pointer(ref _i2) => {},	// TODO: Const/restrict/etc warnings
 				BaseType::Array(_, _) => {},	// TODO: Const/restrict/etc warnings
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},

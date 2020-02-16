@@ -15,8 +15,8 @@ impl Context
 			}
 	}
 
-	pub fn lower_function(&mut self, name: &str, ty: &crate::types::FunctionType, code: &crate::ast::Block)
+	pub fn lower_function(&mut self, name: &str, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
-		self.inner.lower_function(name, ty, code)
+		self.inner.lower_function(name, ty, body)
 	}
 }

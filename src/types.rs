@@ -367,7 +367,16 @@ impl Type
 	}
 
 	pub fn get_size(&self) -> Option<u32> {
-		todo!("Type::get_size(): {:?}", self);
+		match self.basetype
+		{
+		BaseType::Pointer(_) => Some(4),
+		BaseType::Integer(IntClass::Char(_)) => Some(1),
+		BaseType::Integer(IntClass::Short(_)) => Some(2),
+		BaseType::Integer(IntClass::Int(_)) => Some(4),
+		BaseType::Integer(IntClass::Long(_)) => Some(4),
+		BaseType::Integer(IntClass::LongLong(_)) => Some(8),
+		_ => todo!("Type::get_size(): {:?}", self),
+		}
 	}
 }
 
