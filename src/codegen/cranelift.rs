@@ -179,6 +179,7 @@ impl Builder<'_>
 		Statement::WhileLoop { ref cond, ref body } => {
 			trace!("while {:?}", cond);
 			let blk_top = self.builder.create_block();
+			let blk_body = self.builder.create_block();
 			let blk_exit = self.builder.create_block();
 			self.builder.ins().jump(blk_top, &[]);
 
@@ -189,7 +190,10 @@ impl Builder<'_>
 			let cond_v = self.handle_expr_def(cond);
 			let cond_v = self.get_value(cond_v);
 			self.builder.ins().brz(cond_v, blk_exit, &[]);
+			self.builder.ins().jump(blk_body, &[]);
 
+			self.builder.switch_to_block(blk_body);
+			self.builder.seal_block(blk_body);
 			self.stack.push(Scope::new());
 			for stmt in body {
 				self.handle_stmt(stmt);
