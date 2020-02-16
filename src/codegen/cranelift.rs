@@ -208,7 +208,8 @@ impl Builder<'_>
 			if let Some(val) = opt_val
 			{
 				let val = self.handle_node(val);
-				panic!("TODO: Convert value reference into a return value");
+				let val = self.get_value(val);
+				self.builder.ins().return_(&[val]);
 			}
 			else
 			{
@@ -241,11 +242,13 @@ impl Builder<'_>
 					return v.clone();
 				}
 			}
-			panic!("TODO: Ident")
+			panic!("TODO: Ident {:?}", name)
 			},
 		NodeKind::Integer(val, ty) => ValueRef::Temporary(self.builder.ins().iconst(cr_tys::I32, val as i64)),
 		
 		NodeKind::Ternary(ref cond, ref val_true, ref val_false) => {
+			let is_lvalue = node.meta.as_ref().unwrap().is_lvalue;
+
 			let cond_v = self.handle_node(cond);
 			let cond_v = self.get_value(cond_v);
 			let true_blk = self.builder.create_block();
@@ -257,33 +260,88 @@ impl Builder<'_>
 			self.builder.switch_to_block(true_blk);
 			self.builder.seal_block(true_blk);
 			let val_true = self.handle_node(val_true);
-			// TODO: Define a position for the result based on the type of `val_true`
+			let val_true = if is_lvalue {
+					panic!("TODO: handle_node - Ternary (LValue) - result true {:?}", val_true);
+				}
+				else {
+					self.get_value(val_true)
+				};
 			self.builder.ins().jump(done_blk, &[]);
 
 			self.builder.switch_to_block(else_blk);
 			self.builder.seal_block(else_blk);
 			let val_false = self.handle_node(val_false);
-			// TODO: Save the value
+			let val_false = if is_lvalue {
+					panic!("TODO: handle_node - Ternary (LValue) - result true {:?}", val_false);
+				}
+				else {
+					self.get_value(val_false)
+				};
 			self.builder.ins().jump(done_blk, &[]);
 
 			self.builder.switch_to_block(done_blk);
 			self.builder.seal_block(done_blk);
 
 			// NOTE: Ternary an LValue. This needs to be handled
-			panic!("TODO: handle_node - Ternary - result {:?} and {:?}", val_true, val_false);
+			if is_lvalue {
+				panic!("TODO: handle_node - Ternary (LValue) - result {:?} and {:?}", val_true, val_false);
+			}
+			else {
+				ValueRef::Temporary( self.builder.ins().select( cond_v, val_true, val_false ) )
+			}
 			},
-		NodeKind::UniOp(ref op, ref val) => panic!("TODO: handle_node - UniOp"),
+		NodeKind::UniOp(ref op, ref val) => {
+			let ty = &val.meta.as_ref().unwrap().ty;
+			let val = self.handle_node(val);
+			let val = self.get_value(val);
+			panic!("TODO: handle_node - UniOp - {:?} {:?} {:?}", op, ty, val)
+			},
 		NodeKind::BinOp(ref op, ref val_l, ref val_r) => {
+			let ty_l = &val_l.meta.as_ref().unwrap().ty;
 			let val_l = self.handle_node(val_l);
 			let val_r = self.handle_node(val_r);
 			let val_l = self.get_value(val_l);
 			let val_r = self.get_value(val_r);
 
-			use crate::ast::BinOp;
-			ValueRef::Temporary(match op
+			enum TyC {
+				Float,
+				Unsigned,
+				Signed,
+			}
+			use crate::types::BaseType;
+			let ty = match ty_l.basetype
 				{
-				BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThan, val_l, val_r),
-				_ => panic!("TODO: handle_node - BinOp"),
+				BaseType::Float(_) => TyC::Float,
+				BaseType::Pointer(_) => TyC::Unsigned,
+				BaseType::Integer(ref ic) => match ic.signedness()
+					{
+					crate::types::Signedness::Unsigned => TyC::Unsigned,
+					crate::types::Signedness::Signed => TyC::Signed,
+					},
+				_ => panic!("Invalid type for bin-op: {:?}", ty_l),
+				};
+
+			use crate::ast::BinOp;
+			ValueRef::Temporary(match ty
+				{
+				TyC::Signed => match op
+					{
+					BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThan, val_l, val_r),
+					BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::SignedGreaterThan, val_l, val_r),
+					_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
+					},
+				TyC::Unsigned => match op
+					{
+					BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedLessThan, val_l, val_r),
+					BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedGreaterThan, val_l, val_r),
+					_ => panic!("TODO: handle_node - BinOp Unsigned - {:?}", op),
+					},
+				TyC::Float => match op
+					{
+					BinOp::CmpLt => self.builder.ins().fcmp(cr_cc::FloatCC::LessThan, val_l, val_r),
+					BinOp::CmpGt => self.builder.ins().fcmp(cr_cc::FloatCC::GreaterThan, val_l, val_r),
+					_ => panic!("TODO: handle_node - BinOp Float - {:?}", op),
+					},
 				})
 			},
 
@@ -292,8 +350,12 @@ impl Builder<'_>
 	}
 	fn handle_expr_def(&mut self, node: &crate::ast::ExprOrDef) -> ValueRef
 	{
-		//use crate::ast::Node;
-		panic!("TODO: handle_node");
+		use crate::ast::ExprOrDef;
+		match node
+		{
+		ExprOrDef::Expr(ref e) => self.handle_node(e),
+		_ => panic!("TODO: handle_expr_def - {:?}", node),
+		}
 	}
 
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
