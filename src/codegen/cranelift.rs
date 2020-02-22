@@ -411,6 +411,12 @@ impl Builder<'_>
 			}
 			},
 		NodeKind::Integer(val, ty) => ValueRef::Temporary(self.builder.ins().iconst(cvt_ty(&crate::types::Type::new_ref_bare(BaseType::Integer(ty))), val as i64)),
+		NodeKind::Float(val, ty) => match ty.size()
+			{
+			4 => ValueRef::Temporary(self.builder.ins().f32const(val as f32)),
+			8 => ValueRef::Temporary(self.builder.ins().f64const(val)),
+			sz => panic!("NodeKind::Float sz={:?}", sz),
+			},
 
 		NodeKind::FcnCall(ref fcn, ref args) => {
 			let fcn = self.handle_node(fcn);

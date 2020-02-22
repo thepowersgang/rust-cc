@@ -221,6 +221,18 @@ pub enum FloatClass
 	Double,
 	LongDouble,
 }
+impl FloatClass
+{
+	pub fn size(&self) -> u32
+	{
+		match self
+		{
+		FloatClass::Float => 4,
+		FloatClass::Double => 8,
+		FloatClass::LongDouble => 8,
+		}
+	}
+}
 
 #[derive(Debug,PartialEq,Clone)]
 pub enum StorageClass
@@ -401,6 +413,7 @@ impl Type
 		BaseType::Integer(IntClass::Int(_)) => Some(4),
 		BaseType::Integer(IntClass::Long(_)) => Some(4),
 		BaseType::Integer(IntClass::LongLong(_)) => Some(8),
+		BaseType::Float(fc) => Some(fc.size()),
 
 		BaseType::Array(ref inner, ref sz) => Some(inner.get_size()? * sz.get_value() as u32),
 		_ => todo!("Type::get_size(): {:?}", self),
