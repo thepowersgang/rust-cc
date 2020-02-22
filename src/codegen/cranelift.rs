@@ -801,6 +801,13 @@ impl Builder<'_>
 					let val = self.get_value(val);
 					self.builder.ins().store( ::cranelift_codegen::ir::MemFlags::new(), val,  base, ofs as i32 );
 				},
+			ValueRef::StackSlot(.., ref ty)
+			| ValueRef::Pointer(.., ref ty)
+			if cvt_ty_opt(ty).is_some()
+				=> {
+					let val = self.get_value(val);
+					self.builder.ins().store( ::cranelift_codegen::ir::MemFlags::new(), val,  base, ofs as i32 );
+				},
 			_ => todo!("{:?} = {:?}", slot, val),
 			},
 		_ => todo!("{:?} = {:?}", slot, val),
@@ -825,7 +832,15 @@ impl Scope
 
 fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 {
-	match ty.basetype
+	match cvt_ty_opt(ty)
+	{
+	Some(t) => t,
+	None => panic!("{:?} isn't valid as a cranelift type", ty),
+	}
+}
+fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
+{
+	Some(match ty.basetype
 	{
 	BaseType::Void => panic!("Attempting to convert `void` to a cranelift type"),
 	BaseType::Bool => cr_tys::B8,
@@ -839,8 +854,9 @@ fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 		1 => cr_tys::I8,
 		sz => todo!("Convert integer {:?} ({}) to cranelift", ic, sz),
 		},
+	BaseType::Struct(_) => return None,
 	_ => todo!("Convert {:?} to cranelift", ty),
-	}
+	})
 }
 
 fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signature
