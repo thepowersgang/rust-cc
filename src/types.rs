@@ -40,16 +40,39 @@ pub enum ArraySize
 	Fixed(u64),
 	Expr(ArraySizeExpr),
 }
+impl ArraySize {
+	pub fn get_value(&self) -> u64 {
+		match *self
+		{
+		ArraySize::None => panic!("No array size?"),
+		ArraySize::Fixed(v) => v,
+		ArraySize::Expr(ref e) => e.get_value(),
+		}
+	}
+}
 impl From<ArraySizeExpr> for ArraySize {
 	fn from(v: ArraySizeExpr) -> Self {
 		ArraySize::Expr(v)
 	}
 }
 #[derive(Clone)]
-pub struct ArraySizeExpr(Rc<::ast::Node>);
+pub struct ArraySizeExpr(Rc<::ast::Node>, ::std::cell::Cell<Option<u64>>);
 impl ArraySizeExpr {
 	pub fn new(n: ::ast::Node) -> Self {
-		ArraySizeExpr(Rc::new(n))
+		ArraySizeExpr(Rc::new(n), Default::default())
+	}
+	pub fn get_value(&self) -> u64 {
+		if let Some(v) = self.1.get() {
+			return v;
+		}
+		match self.0.literal_integer()
+		{
+		Some(v) => {
+			self.1.set( Some(v) );
+			v
+			},
+		None => todo!("ArraySizeExpr::get_value - {:?} (not suppored by `literal_integer`)", self.0),
+		}
 	}
 }
 impl PartialEq for ArraySizeExpr {
@@ -376,6 +399,8 @@ impl Type
 		BaseType::Integer(IntClass::Int(_)) => Some(4),
 		BaseType::Integer(IntClass::Long(_)) => Some(4),
 		BaseType::Integer(IntClass::LongLong(_)) => Some(8),
+
+		BaseType::Array(ref inner, ref sz) => Some(inner.get_size()? * sz.get_value() as u32),
 		_ => todo!("Type::get_size(): {:?}", self),
 		}
 	}

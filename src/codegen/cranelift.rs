@@ -243,7 +243,34 @@ impl Builder<'_>
 			},
 
 		Statement::DoWhileLoop { ref body, ref cond } => {
-			todo!("do {{ ... }} while {:?}", cond);
+			let blk_body = self.builder.create_block();
+			let blk_foot = self.builder.create_block();	// target of continue
+			let blk_exit = self.builder.create_block();	// target of break
+			self.builder.ins().jump(blk_body, &[]);
+
+			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
+			self.builder.switch_to_block(blk_body);
+			// NOTE: no seal yet, reverse jumps happen.
+			self.stack.push(Scope::new());
+			self.handle_block(body);
+			self.stack.pop();	// Body scope
+			
+			self.builder.ins().jump(blk_foot, &[]);
+			self.builder.switch_to_block(blk_foot);
+			self.builder.seal_block(blk_foot);
+			self.stack.pop();	// Loop scope
+
+			{
+				let cond_v = self.handle_node(cond);
+				let cond_v = self.get_value(cond_v);
+				self.builder.ins().brz(cond_v, blk_exit, &[]);
+			}
+
+			self.builder.ins().jump(blk_body, &[]);
+			self.builder.seal_block(blk_body);	// Seal the loop body, jumps now known.
+
+			self.builder.switch_to_block(blk_exit);
+			self.builder.seal_block(blk_exit);
 			},
 		Statement::ForLoop { ref init, ref cond, ref inc, ref body } => {
 			if let Some(init) = init {

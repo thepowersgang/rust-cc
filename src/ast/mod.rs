@@ -514,6 +514,7 @@ impl Node
 			},
 		NodeKind::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
 			{
+			(&BinOp::Add,Some(a),Some(b)) => Some(a+b),
 			(&BinOp::Sub,Some(a),Some(b)) => Some(a-b),
 			_ => None,
 			},
