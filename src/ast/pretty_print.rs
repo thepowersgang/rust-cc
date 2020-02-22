@@ -269,11 +269,11 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 					self.write_str(", ");
 				}
 				b = true;
-				if aname == "..." {
-					self.write_str("...");
-					break ;
-				}
 				self.write_type(aty, |f| f.write_str(aname));
+			}
+			if info.is_variadic {
+				self.write_str(", ");
+				self.write_str("...");
 			}
 			self.write_str(")");
 			self.write_type_qualifiers(&ty.qualifiers);

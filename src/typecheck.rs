@@ -292,18 +292,15 @@ impl<'a> Context<'a>
 			for arg_val in args.iter_mut() {
 				self.visit_node(arg_val, false);
 			}
-			// Variadic functions have `void` as the last arg
-			if let Some(BaseType::Void) = fcn_ty.args.last().as_ref().map(|v| &v.0.basetype) {
-				for (arg_val, arg_ty_tup) in Iterator::zip( args.iter_mut(), fcn_ty.args[..fcn_ty.args.len()-1].iter() )  {
-					self.coerce_ty(&arg_ty_tup.0, arg_val);
-				}
-				for arg_val in args.iter_mut() {
-					// Any restriction on values?
-				}
+			for (arg_val, arg_ty_tup) in Iterator::zip( args.iter_mut(), fcn_ty.args.iter() )  {
+				self.coerce_ty(&arg_ty_tup.0, arg_val);
 			}
-			else {
-				for (arg_val, arg_ty_tup) in Iterator::zip( args.iter_mut(), fcn_ty.args.iter() )  {
-					self.coerce_ty(&arg_ty_tup.0, arg_val);
+			// Variadic functions have `void` as the last arg
+			if fcn_ty.is_variadic {
+				for arg_val in args.iter_mut().skip(fcn_ty.args.len()) {
+					// Any restriction on values?
+					// - float must be double
+					// - integers must be `int` or larger
 				}
 			}
 

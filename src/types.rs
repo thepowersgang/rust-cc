@@ -98,6 +98,7 @@ pub struct FunctionType
 {
 	pub ret: Rc<Type>,
 	pub args: Vec<(Rc<Type>, String)>,
+	pub is_variadic: bool,
 	pub attributes: Attributes,
 }
 impl PartialEq for FunctionType
@@ -107,6 +108,7 @@ impl PartialEq for FunctionType
 			&& self.args.len() == v.args.len()
 			// Checks just the base types (ignoring qualifiers like `const` on the top level)
 			&& Iterator::zip( self.args.iter(), v.args.iter() ).all( |(a,b)| a.0.basetype == b.0.basetype )
+			&& self.is_variadic == v.is_variadic
 	}
 }
 

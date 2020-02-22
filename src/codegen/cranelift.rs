@@ -903,5 +903,8 @@ fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signatu
 	for (arg_ty, _arg_name) in &ty.args {
 		sig.params.push( AbiParam::new(cvt_ty(&arg_ty)) );
 	}
+	if ty.is_variadic {
+		// TODO: Encode variadic types (cranelif can't do that yet)
+	}
 	sig
 }

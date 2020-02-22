@@ -10,7 +10,7 @@ enum TypeNode
 	/// A pointer (with qualifiers for the pointer value - not the pointee)
 	Ptr(Box<TypeNode>, ::types::Qualifiers),
 	/// Function type (return type and arguments, with optional names)
-	Fcn(Box<TypeNode>, Vec<(::types::TypeRef,String)>, ::types::Attributes),
+	Fcn(Box<TypeNode>, Vec<(::types::TypeRef,String)>, bool, ::types::Attributes),
 	/// Array type, with optional size node
 	Array(Box<TypeNode>, Option<::ast::Node>),
 }
@@ -232,8 +232,8 @@ impl<'ast> super::ParseState<'ast>
 					rettype = ::types::Type::new_ref( ::types::BaseType::Pointer(rettype), qual );
 					*sub
 					},
-				TypeNode::Fcn(sub, args, attributes) => {
-					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function( ::types::FunctionType { ret: rettype, args, attributes } ) );
+				TypeNode::Fcn(sub, args, is_variadic, attributes) => {
+					rettype = ::types::Type::new_ref_bare( ::types::BaseType::Function( ::types::FunctionType { ret: rettype, args, is_variadic, attributes } ) );
 					*sub
 					},
 				TypeNode::Array(sub, size) => {
@@ -317,12 +317,13 @@ impl<'ast> super::ParseState<'ast>
 		Token::ParenOpen => {
 			debug!("get_fulltype_fcn - Parentheses");
 			let mut args = Vec::new();
+			let mut is_variadic = false;
 			let mut attributes = ::types::Attributes::default();
 			// Arguments!
 			loop
 			{
 				if peek_token!(self.lex, Token::Vargs) {
-					args.push( ( ::types::Type::new_ref_bare(::types::BaseType::Void), "...".to_string()) );
+					is_variadic = true;
 					break;
 				}
 				let basetype = self.get_base_type()?;
@@ -363,7 +364,7 @@ impl<'ast> super::ParseState<'ast>
 					)?;
 			}
 
-			Ok( TypeNode::Fcn(box inner, args, attributes) )
+			Ok( TypeNode::Fcn(box inner, args, is_variadic, attributes) )
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
