@@ -247,14 +247,14 @@ impl Program
 		None
 	}
 
-	pub fn iter_functions(&self) -> impl Iterator<Item=(&str, &crate::types::TypeRef, &::std::cell::RefCell<FunctionBody>)> {
+	pub fn iter_functions(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &::std::cell::RefCell<FunctionBody>)> {
 		self.item_order.iter()
 			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
 			.filter_map(move |name| {
 				let s = &self.symbols[name];
 				match s.value
 				{
-				Some(SymbolValue::Code(ref e)) => Some( (&name[..], &s.symtype, e) ),
+				Some(SymbolValue::Code(ref e)) => Some( (name, &s.symtype, e) ),
 				_ => None,
 				}
 				})
@@ -395,6 +395,7 @@ pub enum IdentRef
 {
 	Local(usize),
 	StaticItem,
+	Function,
 	Enum(::types::EnumRef, usize),
 }
 // Lower precedence is weaker binding

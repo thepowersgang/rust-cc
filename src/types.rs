@@ -207,6 +207,7 @@ pub enum StorageClass
 }
 
 pub type TypeRef = Rc<Type>;
+// TODO: Use a type that handles the name too?
 pub type StructRef = RcRefCellPtrEq<Struct>;
 pub type UnionRef  = RcRefCellPtrEq<Union>;
 pub type EnumRef   = RcRefCellPtrEq<Enum>;
@@ -440,6 +441,13 @@ impl Enum
 	{
 		assert!( self.items.is_none() );
 		self.items = Some(items);
+	}
+
+	pub fn get_item_val(&self, idx: usize) -> Option<u64> {
+		self.items.as_ref()
+			.expect("Enum::get_item_val on opaque enum")
+			.get(idx)
+			.map(|v| v.0)
 	}
 }
 

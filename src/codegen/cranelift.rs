@@ -1,51 +1,56 @@
 
+use std::collections::HashMap;
 use cranelift_codegen::ir::entities as cr_e;
 use cranelift_codegen::ir::condcodes as cr_cc;
 use cranelift_codegen::ir::types as cr_tys;
 use cranelift_codegen::ir::InstBuilder;
 use crate::types::{TypeRef,BaseType};
+use crate::ast::Ident;
 
 pub struct Context
 {
+	functions: HashMap<Ident, ::cranelift_codegen::ir::ExternalName>,
 }
 impl Context
 {
 	pub fn new() -> Self
 	{
 		Context {
+			functions: Default::default(),
 			}
 	}
 
-	pub fn lower_function(&mut self, name: &str, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
+	fn get_function(&mut self, name: &Ident) -> ::cranelift_codegen::ir::ExternalName
+	{
+		let idx = self.functions.len();
+		self.functions.entry(name.clone())
+			.or_insert_with(|| ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, })
+			.clone()
+	}
+
+	pub fn lower_function(&mut self, name: &Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
 		debug!("lower_function({}: {:?})", name, ty);
 		use cranelift_codegen::entity::EntityRef;	// provides ::new on Variable
-		use cranelift_codegen::isa::CallConv;
-		use cranelift_codegen::ir::{AbiParam, ExternalName, Function, Signature};
+		use cranelift_codegen::ir::Function;
 		use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
-		// 1. Signature
-		let mut sig = Signature::new(CallConv::SystemV);
-		// - Return
-		if let BaseType::Void = ty.ret.basetype {
-		}
-		else {
-			sig.returns.push(AbiParam::new(cvt_ty(&ty.ret)));
-		}
+		let sig = make_sig(ty);
 		// - Arguments
 		let mut vars = Vec::<ValueRef>::new();
-		for (idx,(arg_ty, arg_name)) in Iterator::enumerate(ty.args.iter()) {
+		for (idx,(_arg_ty, _arg_name)) in Iterator::enumerate(ty.args.iter()) {
 			let var = ::cranelift_frontend::Variable::new(idx);
-			sig.params.push( AbiParam::new(cvt_ty(&arg_ty)) );
 			vars.push( ValueRef::Variable(var) );
 		}
 
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
-		let mut func = Function::with_name_signature(ExternalName::user(0, 0), sig);
+		let mut func = Function::with_name_signature(self.get_function(name), sig);
 		let mut b = Builder {
+			context: self,
 			builder: FunctionBuilder::new(&mut func, &mut fn_builder_ctx),
 			stack: vec![ Scope::new() ],
 			vars: vars,
+			fcn_imports: Default::default(),
 			};
 
 		// Define variables
@@ -66,12 +71,12 @@ impl Context
 		b.builder.append_block_params_for_function_params(block0);
 		b.builder.switch_to_block(block0);
 		b.builder.seal_block(block0);
-		for (idx,(arg_ty, arg_name)) in Iterator::enumerate(ty.args.iter())
+		for (idx,(arg_ty, _arg_name)) in Iterator::enumerate(ty.args.iter())
 		{
 			match b.vars[idx]
 			{
 			ValueRef::Variable(ref v) => {
-				b.builder.declare_var(*v, cr_tys::I32);
+				b.builder.declare_var(*v, cvt_ty(arg_ty));
 				let tmp = b.builder.block_params(block0)[idx];
 				b.builder.def_var(*v, tmp);
 				},
@@ -96,18 +101,35 @@ impl Context
 #[derive(Debug,Clone)]
 enum ValueRef
 {
+	/// No value
+	Void,
+	/// Temporary value
 	Temporary(cr_e::Value),
+	/// A non-stack variable
 	Variable(::cranelift_frontend::Variable),
+	/// An item on the stack
 	StackSlot(cr_e::StackSlot, u32, TypeRef),
+	/// A pointer to an item on the stack
+	StackSlotAddr(cr_e::StackSlot, u32, TypeRef),
+	/// A value in global/static storage
+	Global(crate::ast::Ident, u32, TypeRef),
+	/// A pointer to an item in global/static storage
+	GlobalAddr(crate::ast::Ident, u32, TypeRef),
+	/// By-value use of a function (decays to a pointer)
+	Function(crate::ast::Ident, cr_e::FuncRef),
+	/// Pointer dereference
 	// pointer, offset, type
 	Pointer(cr_e::Value, u32, TypeRef),
 }
 
 struct Builder<'a>
 {
+	context: &'a mut Context,
 	builder: ::cranelift_frontend::FunctionBuilder<'a>,
 	stack: Vec<Scope>,
 	vars: Vec<ValueRef>,
+
+	fcn_imports: HashMap<Ident, cr_e::FuncRef>,
 }
 struct Scope
 {
@@ -209,9 +231,7 @@ impl Builder<'_>
 			self.builder.switch_to_block(blk_body);
 			self.builder.seal_block(blk_body);
 			self.stack.push(Scope::new());
-			for stmt in body {
-				self.handle_stmt(stmt);
-			}
+			self.handle_block(body);
 			self.stack.pop();	// Body scope
 
 			self.builder.ins().jump(blk_top, &[]);
@@ -222,8 +242,52 @@ impl Builder<'_>
 			self.builder.seal_block(blk_exit);
 			},
 
-		// DoWhileLoop
-		// For
+		Statement::DoWhileLoop { ref body, ref cond } => {
+			todo!("do {{ ... }} while {:?}", cond);
+			},
+		Statement::ForLoop { ref init, ref cond, ref inc, ref body } => {
+			if let Some(init) = init {
+				self.handle_expr_def(init);
+			}
+
+			let blk_top = self.builder.create_block();	// loop back
+			let blk_body = self.builder.create_block();
+			let blk_foot = self.builder.create_block();	// target of continue
+			let blk_exit = self.builder.create_block();	// target of break
+			self.builder.ins().jump(blk_top, &[]);
+
+			self.builder.switch_to_block(blk_top);
+			// NOTE: no seal yet, reverse jumps happen.
+
+			if let Some(cond) = cond {
+				let cond_v = self.handle_node(cond);
+				let cond_v = self.get_value(cond_v);
+				self.builder.ins().brz(cond_v, blk_exit, &[]);
+			}
+			self.builder.ins().jump(blk_body, &[]);
+
+			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
+			self.builder.switch_to_block(blk_body);
+			self.builder.seal_block(blk_body);
+			self.stack.push(Scope::new());
+			self.handle_block(body);
+			self.stack.pop();	// Body scope
+
+			self.builder.ins().jump(blk_foot, &[]);
+			self.builder.switch_to_block(blk_foot);
+			self.builder.seal_block(blk_foot);
+			self.stack.pop();	// Loop scope
+
+			if let Some(inc) = inc {
+				self.handle_node(inc);
+			}
+
+			self.builder.ins().jump(blk_top, &[]);
+			self.builder.seal_block(blk_top);	// Seal the loop body, jumps now known.
+
+			self.builder.switch_to_block(blk_exit);
+			self.builder.seal_block(blk_exit);
+			},
 
 		Statement::Continue => {
 			trace!("{}continue", self.indent());
@@ -290,13 +354,61 @@ impl Builder<'_>
 			self.handle_node(last)
 			},
 		NodeKind::Identifier(ref name, ref binding) => {
+			let ty = &node.meta.as_ref().unwrap().ty;
 			match binding
 			{
+			None => panic!("No binding on `NodeKind::Identifier`"),
 			Some(crate::ast::IdentRef::Local(idx)) => self.vars[*idx].clone(),
-			_ => panic!("TODO: Ident {:?} {:?}", name, binding)
+			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Global(name.clone(), 0, ty.clone()),
+			Some(crate::ast::IdentRef::Function) => {
+				let context = &mut self.context;
+				let builder = &mut self.builder;
+				let v = self.fcn_imports.entry(name.clone())
+					.or_insert_with(|| {
+						let func_data = ::cranelift_codegen::ir::ExtFuncData {
+							name: context.get_function(&name),
+							signature: builder.import_signature(make_sig(match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), })),
+							colocated: false,
+							};
+						builder.import_function(func_data)
+						})
+					.clone()
+					;
+				ValueRef::Function(name.clone(), v)
+				},
+			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
+				let val = enm.borrow().get_item_val(*idx).expect("Enum index out of range?");
+				let ty = crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::Int( crate::types::Signedness::Signed )));
+				ValueRef::Temporary(self.builder.ins().iconst(cvt_ty(&ty), val as i64))
+				},
 			}
 			},
-		NodeKind::Integer(val, ty) => ValueRef::Temporary(self.builder.ins().iconst(cr_tys::I32, val as i64)),
+		NodeKind::Integer(val, ty) => ValueRef::Temporary(self.builder.ins().iconst(cvt_ty(&crate::types::Type::new_ref_bare(BaseType::Integer(ty))), val as i64)),
+
+		NodeKind::FcnCall(ref fcn, ref args) => {
+			let fcn = self.handle_node(fcn);
+			let args: Vec<_> = args.iter()
+				.map(|v| {
+					let v = self.handle_node(v);
+					let v = self.get_value(v);
+					v
+					})
+				.collect()
+				;
+			let inst = if let ValueRef::Function(ref name, fcn_ref) = fcn {
+					self.builder.ins().call(fcn_ref, &args)
+				}
+				else {
+					todo!("FcnCall {:?} {:?}", fcn, args);
+				};
+			let res = self.builder.inst_results(inst);
+			match res
+			{
+			[] => ValueRef::Void,
+			[v] => ValueRef::Temporary(*v),
+			_ => panic!("Multiple return values from {:?}", fcn),
+			}
+			},
 
 		NodeKind::Assign(ref slot, ref val) => {
 			let slot = self.handle_node(slot);
@@ -405,6 +517,13 @@ impl Builder<'_>
 					};
 				ValueRef::Pointer(val, 0, ity)
 				},
+			UniOp::Address => todo!("handle_node - UniOp Address {:?}", val),
+			UniOp::Neg =>
+				match ty.basetype
+				{
+				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().ineg(val)),
+				_ => todo!("Neg on {:?}", ty),
+				},
 			UniOp::BitNot =>
 				match ty.basetype
 				{
@@ -420,7 +539,6 @@ impl Builder<'_>
 				BaseType::Pointer(_) => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
 				_ => todo!("LogicNot on {:?}", ty),
 				},
-			_ => panic!("TODO: handle_node - UniOp - {:?} {:?} {:?}", op, ty, val),
 			}
 			},
 		NodeKind::BinOp(ref op, ref val_l, ref val_r) => {
@@ -491,6 +609,11 @@ impl Builder<'_>
 		}
 		else {
 			let val = self.get_value(src_val);
+			let src_is_signed = match src_ty.basetype
+				{
+				BaseType::Integer(ic) => !ic.signedness().is_unsigned(),
+				_ => false,
+				};
 			let src_cty = cvt_ty(src_ty);
 			let dst_cty = cvt_ty(dst_ty);
 
@@ -508,7 +631,14 @@ impl Builder<'_>
 				| (cr_tys::B8, cr_tys::I32)
 				| (cr_tys::B8, cr_tys::I64)
 					=> self.builder.ins().uextend(dst_cty, val),
+				// * -> bool : non-zero
+				(cr_tys::I8, cr_tys::B8)
+				| (cr_tys::I16, cr_tys::B8)
+				| (cr_tys::I32, cr_tys::B8)
+				| (cr_tys::I64, cr_tys::B8)
+					=> self.builder.ins().icmp_imm(cr_cc::IntCC::NotEqual, val, 0),
 				// (u)int -> (u)int : ireduce/uextend/sextend
+				// - Reduction
 				(cr_tys::I16, cr_tys::I8)
 				| (cr_tys::I32, cr_tys::I8)
 				| (cr_tys::I32, cr_tys::I16)
@@ -516,7 +646,19 @@ impl Builder<'_>
 				| (cr_tys::I64, cr_tys::I16)
 				| (cr_tys::I64, cr_tys::I32)
 					=> self.builder.ins().ireduce(dst_cty, val),
-				// TODO: For extending, need to know if source is signed
+				// - Extension (signedness matters)
+				(cr_tys::I8, cr_tys::I16, )
+				| (cr_tys::I8 , cr_tys::I32, )
+				| (cr_tys::I16, cr_tys::I32, )
+				| (cr_tys::I8 , cr_tys::I64, )
+				| (cr_tys::I16, cr_tys::I64, )
+				| (cr_tys::I32, cr_tys::I64, )
+					=> if src_is_signed {
+						self.builder.ins().sextend(dst_cty, val)
+					}
+					else {
+						self.builder.ins().uextend(dst_cty, val)
+					},
 				// float -> float : fdemote/fpromote
 				// (u)int -> float : 
 				// float -> (u)int : fcvt_to_[us]int(_sat)
@@ -545,6 +687,7 @@ impl Builder<'_>
 			BaseType::Bool => return ValueRef::Temporary(match op
 				{
 				BinOp::LogicOr => self.builder.ins().bor(val_l, val_r),
+				BinOp::LogicAnd => self.builder.ins().band(val_l, val_r),
 				_ => panic!("TODO: handle_node - BinOp Bool {:?}", op),
 				}),
 			_ => panic!("Invalid type for bin-op: {:?}", ty_l),
@@ -557,18 +700,40 @@ impl Builder<'_>
 				{
 				BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThan, val_l, val_r),
 				BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::SignedGreaterThan, val_l, val_r),
+				BinOp::CmpLtE => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThanOrEqual, val_l, val_r),
+				BinOp::CmpGtE => self.builder.ins().icmp(cr_cc::IntCC::SignedGreaterThanOrEqual, val_l, val_r),
 				BinOp::CmpEqu => self.builder.ins().icmp(cr_cc::IntCC::Equal, val_l, val_r),
 				BinOp::CmpNEqu => self.builder.ins().icmp(cr_cc::IntCC::NotEqual, val_l, val_r),
+
+				BinOp::Add => self.builder.ins().iadd(val_l, val_r),
+				BinOp::Sub => self.builder.ins().isub(val_l, val_r),
+				BinOp::Mul => self.builder.ins().imul(val_l, val_r),
 				BinOp::Div => self.builder.ins().sdiv(val_l, val_r),
 				BinOp::Mod => self.builder.ins().srem(val_l, val_r),
+
 				BinOp::ShiftLeft => self.builder.ins().ishl(val_l, val_r),
+				BinOp::ShiftRight => self.builder.ins().sshr(val_l, val_r),
+
 				_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
 				},
 			TyC::Unsigned => match op
 				{
 				BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedLessThan, val_l, val_r),
 				BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedGreaterThan, val_l, val_r),
+				BinOp::CmpLtE => self.builder.ins().icmp(cr_cc::IntCC::UnsignedLessThanOrEqual, val_l, val_r),
+				BinOp::CmpGtE => self.builder.ins().icmp(cr_cc::IntCC::UnsignedGreaterThanOrEqual, val_l, val_r),
+				BinOp::CmpEqu => self.builder.ins().icmp(cr_cc::IntCC::Equal, val_l, val_r),
+				BinOp::CmpNEqu => self.builder.ins().icmp(cr_cc::IntCC::NotEqual, val_l, val_r),
+
 				BinOp::Add => self.builder.ins().iadd(val_l, val_r),
+				BinOp::Sub => self.builder.ins().isub(val_l, val_r),
+				BinOp::Mul => self.builder.ins().imul(val_l, val_r),
+				BinOp::Div => self.builder.ins().udiv(val_l, val_r),
+				BinOp::Mod => self.builder.ins().urem(val_l, val_r),
+
+				BinOp::ShiftLeft => self.builder.ins().ishl(val_l, val_r),
+				BinOp::ShiftRight => self.builder.ins().ushr(val_l, val_r),
+
 				BinOp::BitAnd => self.builder.ins().band(val_l, val_r),
 				BinOp::BitOr => self.builder.ins().bor(val_l, val_r),
 				_ => panic!("TODO: handle_node - BinOp Unsigned - {:?}", op),
@@ -612,6 +777,10 @@ impl Builder<'_>
 	{
 		match slot
 		{
+		ValueRef::Variable(ref var) => {
+			let val = self.get_value(val);
+			self.builder.def_var(*var, val);
+			},
 		ValueRef::StackSlot(ref ss, ofs, ref _ty) =>
 			match val
 			{
@@ -656,7 +825,6 @@ impl Scope
 
 fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 {
-	use crate::types::{IntClass, Signedness};
 	match ty.basetype
 	{
 	BaseType::Void => panic!("Attempting to convert `void` to a cranelift type"),
@@ -668,8 +836,29 @@ fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 		8 => cr_tys::I64,
 		4 => cr_tys::I32,
 		2 => cr_tys::I16,
+		1 => cr_tys::I8,
 		sz => todo!("Convert integer {:?} ({}) to cranelift", ic, sz),
 		},
 	_ => todo!("Convert {:?} to cranelift", ty),
 	}
+}
+
+fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signature
+{
+	use cranelift_codegen::isa::CallConv;
+	use cranelift_codegen::ir::{AbiParam, Signature};
+
+	let mut sig = Signature::new(CallConv::SystemV);
+	// - Return
+	if let BaseType::Void = ty.ret.basetype {
+	}
+	else {
+		sig.returns.push( AbiParam::new(cvt_ty(&ty.ret)) );
+	}
+	// - Arguments
+	sig.params.reserve( ty.args.len() );
+	for (arg_ty, _arg_name) in &ty.args {
+		sig.params.push( AbiParam::new(cvt_ty(&arg_ty)) );
+	}
+	sig
 }

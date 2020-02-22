@@ -239,7 +239,13 @@ impl<'a> Context<'a>
 			}
 			// Search global scope (wait, shouldn't this have happened during parse?)
 			if let Some(v) = self.program.get_symbol(name) {
-				*binding = Some(ast::IdentRef::StaticItem);
+				if let BaseType::Function(_) = v.symtype.basetype {
+					// Special type for functions, as they have strange typecheck decay rules
+					*binding = Some(ast::IdentRef::Function);
+				}
+				else {
+					*binding = Some(ast::IdentRef::StaticItem);
+				}
 				return v.symtype.clone();
 			}
 			if let Some( (enm, idx) ) = self.program.find_enum_var(name) {
