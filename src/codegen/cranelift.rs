@@ -117,13 +117,27 @@ struct Scope
 
 impl Builder<'_>
 {
+	fn indent(&self) -> impl ::std::fmt::Display {
+		struct Indent(usize);
+		impl ::std::fmt::Display for Indent {
+			fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+				for _ in 0 .. self.0 {
+					f.write_str(" ")?;
+				}
+				Ok( () )
+			}
+		}
+		Indent(self.stack.len())
+	}
 	fn handle_block(&mut self, stmts: &crate::ast::StatementList)
 	{
+		trace!("{}>>", self.indent());
 		self.stack.push(Scope::new());
 		for stmt in stmts {
 			self.handle_stmt(stmt);
 		}
 		self.stack.pop();
+		trace!("{}<<", self.indent());
 	}
 	fn handle_stmt(&mut self, stmt: &crate::ast::Statement)
 	{
@@ -132,21 +146,21 @@ impl Builder<'_>
 		{
 		Statement::Empty => {},
 		Statement::VarDef(ref list) => {
-			trace!("{:?}", stmt);
+			trace!("{}{:?}", self.indent(), stmt);
 			for var_def in list
 			{
 				self.define_var(var_def);
 			}
 			},
 		Statement::Expr(ref e) => {
-			trace!("{:?}", stmt);
+			trace!("{}{:?}", self.indent(), stmt);
 			let _v = self.handle_node(e);
 			},
 		Statement::Block(ref stmts) => {
 			self.handle_block(stmts);
 			},
 		Statement::IfStatement { ref cond, ref true_arm, ref else_arm } => {
-			trace!("if {:?}", cond);
+			trace!("{}if {:?}", self.indent(), cond);
 			let cond_v = self.handle_expr_def(cond);
 			let cond_v = self.get_value(cond_v);
 			let true_blk = self.builder.create_block();
@@ -177,7 +191,7 @@ impl Builder<'_>
 			},
 
 		Statement::WhileLoop { ref cond, ref body } => {
-			trace!("while {:?}", cond);
+			trace!("{}while {:?}", self.indent(), cond);
 			let blk_top = self.builder.create_block();
 			let blk_body = self.builder.create_block();
 			let blk_exit = self.builder.create_block();
@@ -212,31 +226,37 @@ impl Builder<'_>
 		// For
 
 		Statement::Continue => {
-			trace!("continue");
+			trace!("{}continue", self.indent());
 			for e in self.stack.iter().rev()
 			{
 				if let Some(blk) = e.blk_continue {
 					self.builder.ins().jump(blk, &[]);
-					// TODO: Close the current block?
+
+					let blk_orphan = self.builder.create_block();
+					self.builder.switch_to_block(blk_orphan);
+					self.builder.seal_block(blk_orphan);
 					return ;
 				}
 			}
 			panic!("Continue without a loop");
 			},
 		Statement::Break => {
-			trace!("break");
+			trace!("{}break", self.indent());
 			for e in self.stack.iter().rev()
 			{
 				if let Some(blk) = e.blk_break {
 					self.builder.ins().jump(blk, &[]);
-					// TODO: Close the current block?
+
+					let blk_orphan = self.builder.create_block();
+					self.builder.switch_to_block(blk_orphan);
+					self.builder.seal_block(blk_orphan);
 					return ;
 				}
 			}
 			panic!("Break without a loop");
 			},
 		Statement::Return(ref opt_val) => {
-			trace!("return {:?}", opt_val);
+			trace!("{}return {:?}", self.indent(), opt_val);
 			if let Some(val) = opt_val
 			{
 				let val = self.handle_node(val);
@@ -248,6 +268,9 @@ impl Builder<'_>
 				// Void return - easy
 				self.builder.ins().return_(&[]);
 			}
+			let blk_orphan = self.builder.create_block();
+			self.builder.switch_to_block(blk_orphan);
+			self.builder.seal_block(blk_orphan);
 			},
 
 		_ => panic!("TODO: {:?}", stmt),
@@ -281,53 +304,26 @@ impl Builder<'_>
 			self.assign_value(slot.clone(), val);
 			slot
 			},
+		NodeKind::AssignOp(ref op, ref slot, ref val) => {
+			let ty = &val.meta.as_ref().unwrap().ty;
+			let slot = self.handle_node(slot);
+			let val = self.handle_node(val);
+			let val_l = self.get_value(slot.clone());
+			let val_r = self.get_value(val);
+			let new_val = self.handle_binop(op, ty, val_l, val_r);
+			self.assign_value(slot.clone(), new_val);
+			slot
+			},
 
+		NodeKind::Cast(ref ty, ref val) => {
+			let src_ty = &val.meta.as_ref().unwrap().ty;
+			let val = self.handle_node(val);
+			self.handle_cast(ty, val, src_ty, /*is_implicit=*/false)
+			},
 		NodeKind::ImplicitCast(ref ty, ref val) => {
 			let src_ty = &val.meta.as_ref().unwrap().ty;
 			let val = self.handle_node(val);
-			if let BaseType::Array(..) = src_ty.basetype {
-				match ty.basetype
-				{
-				BaseType::Pointer(..) => {},
-				_ => panic!("Invalid ImplicitCast from {:?} to {:?}", src_ty, ty),
-				}
-				match val
-				{
-				ValueRef::StackSlot(ss, ofs, _ty) => {
-					ValueRef::Temporary(self.builder.ins().stack_addr(cr_tys::I32, ss, ofs as i32))
-					},
-				ValueRef::Pointer(base, ofs, _ty) => {
-					ValueRef::Temporary(self.builder.ins().iadd_imm(base, ofs as i64))
-					},
-				_ => todo!("ImplicitCast {:?} {:?} to {:?}", val, src_ty, ty),
-				}
-			}
-			else {
-				let val = self.get_value(val);
-				let src_cty = cvt_ty(src_ty);
-				let dst_cty = cvt_ty(ty);
-
-				ValueRef::Temporary(match (src_cty, dst_cty)
-					{
-					// equal - No-op
-					(cr_tys::I8 , cr_tys::I8 ) => val,
-					(cr_tys::I16, cr_tys::I16) => val,
-					(cr_tys::I32, cr_tys::I32) => val,
-					(cr_tys::I64, cr_tys::I64) => val,
-					// (u)int -> (u)int : ireduce/uextend/sextend
-					(cr_tys::I16, cr_tys::I8)
-					| (cr_tys::I32, cr_tys::I8)
-					| (cr_tys::I32, cr_tys::I16)
-					| (cr_tys::I64, cr_tys::I8)
-					| (cr_tys::I64, cr_tys::I16)
-					| (cr_tys::I64, cr_tys::I32)
-						=> self.builder.ins().ireduce(dst_cty, val),
-					// (u)int -> float : ireduce/uextend/sextend
-					// float -> float : fdemote/fpromote
-					// float -> (u)int : fcvt_to_[us]int(_sat)
-					_ => todo!("ImplicitCast {:?} {:?} to {:?} ({:?} to {:?})", val, src_cty, dst_cty, src_ty, ty),
-					})
-			}
+			self.handle_cast(ty, val, src_ty, /*is_implicit=*/false)
 			},
 		
 		NodeKind::Ternary(ref cond, ref val_true, ref val_false) => {
@@ -409,6 +405,21 @@ impl Builder<'_>
 					};
 				ValueRef::Pointer(val, 0, ity)
 				},
+			UniOp::BitNot =>
+				match ty.basetype
+				{
+				//BaseType::Bool => ValueRef::Temporary(self.builder.ins().bnot(val)),
+				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().bnot(val)),
+				_ => todo!("BitNot on {:?}", ty),
+				},
+			UniOp::LogicNot =>
+				match ty.basetype
+				{
+				BaseType::Bool => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
+				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
+				BaseType::Pointer(_) => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
+				_ => todo!("LogicNot on {:?}", ty),
+				},
 			_ => panic!("TODO: handle_node - UniOp - {:?} {:?} {:?}", op, ty, val),
 			}
 			},
@@ -419,47 +430,7 @@ impl Builder<'_>
 			let val_l = self.get_value(val_l);
 			let val_r = self.get_value(val_r);
 
-			enum TyC {
-				Float,
-				Unsigned,
-				Signed,
-			}
-			let ty = match ty_l.basetype
-				{
-				BaseType::Float(_) => TyC::Float,
-				BaseType::Pointer(_) => TyC::Unsigned,
-				BaseType::Integer(ref ic) => match ic.signedness()
-					{
-					crate::types::Signedness::Unsigned => TyC::Unsigned,
-					crate::types::Signedness::Signed => TyC::Signed,
-					},
-				_ => panic!("Invalid type for bin-op: {:?}", ty_l),
-				};
-
-			use crate::ast::BinOp;
-			ValueRef::Temporary(match ty
-				{
-				TyC::Signed => match op
-					{
-					BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThan, val_l, val_r),
-					BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::SignedGreaterThan, val_l, val_r),
-					BinOp::Div => self.builder.ins().sdiv(val_l, val_r),
-					_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
-					},
-				TyC::Unsigned => match op
-					{
-					BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedLessThan, val_l, val_r),
-					BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedGreaterThan, val_l, val_r),
-					BinOp::Add => self.builder.ins().iadd(val_l, val_r),
-					_ => panic!("TODO: handle_node - BinOp Unsigned - {:?}", op),
-					},
-				TyC::Float => match op
-					{
-					BinOp::CmpLt => self.builder.ins().fcmp(cr_cc::FloatCC::LessThan, val_l, val_r),
-					BinOp::CmpGt => self.builder.ins().fcmp(cr_cc::FloatCC::GreaterThan, val_l, val_r),
-					_ => panic!("TODO: handle_node - BinOp Float - {:?}", op),
-					},
-				})
+			self.handle_binop(op, ty_l, val_l, val_r)
 			},
 			
 		NodeKind::Index(..) => panic!("Unexpected Index op"),
@@ -497,6 +468,120 @@ impl Builder<'_>
 		}
 	}
 
+	/// Common processing of cast operations (between `ImplicitCast` and `Cast`)
+	fn handle_cast(&mut self, dst_ty: &TypeRef, src_val: ValueRef, src_ty: &TypeRef, is_implicit: bool) -> ValueRef
+	{
+		let cast_name = if is_implicit { "ImplicitCast" } else { "Cast" };
+		if let BaseType::Array(..) = src_ty.basetype {
+			match dst_ty.basetype
+			{
+			BaseType::Pointer(..) => {},
+			_ => panic!("Invalid {} from {:?} to {:?}", cast_name, src_ty, dst_ty),
+			}
+			match src_val
+			{
+			ValueRef::StackSlot(ss, ofs, _ty) => {
+				ValueRef::Temporary(self.builder.ins().stack_addr(cr_tys::I32, ss, ofs as i32))
+				},
+			ValueRef::Pointer(base, ofs, _ty) => {
+				ValueRef::Temporary(self.builder.ins().iadd_imm(base, ofs as i64))
+				},
+			_ => todo!("{} {:?} {:?} to {:?}", cast_name, src_val, src_ty, dst_ty),
+			}
+		}
+		else {
+			let val = self.get_value(src_val);
+			let src_cty = cvt_ty(src_ty);
+			let dst_cty = cvt_ty(dst_ty);
+
+			ValueRef::Temporary(match (src_cty, dst_cty)
+				{
+				// equal - No-op
+				(cr_tys::B8 , cr_tys::B8 ) => val,
+				(cr_tys::I8 , cr_tys::I8 ) => val,
+				(cr_tys::I16, cr_tys::I16) => val,
+				(cr_tys::I32, cr_tys::I32) => val,
+				(cr_tys::I64, cr_tys::I64) => val,
+				// bool -> * : uextend
+				(cr_tys::B8, cr_tys::I8) => val,
+				(cr_tys::B8, cr_tys::I16)
+				| (cr_tys::B8, cr_tys::I32)
+				| (cr_tys::B8, cr_tys::I64)
+					=> self.builder.ins().uextend(dst_cty, val),
+				// (u)int -> (u)int : ireduce/uextend/sextend
+				(cr_tys::I16, cr_tys::I8)
+				| (cr_tys::I32, cr_tys::I8)
+				| (cr_tys::I32, cr_tys::I16)
+				| (cr_tys::I64, cr_tys::I8)
+				| (cr_tys::I64, cr_tys::I16)
+				| (cr_tys::I64, cr_tys::I32)
+					=> self.builder.ins().ireduce(dst_cty, val),
+				// TODO: For extending, need to know if source is signed
+				// float -> float : fdemote/fpromote
+				// (u)int -> float : 
+				// float -> (u)int : fcvt_to_[us]int(_sat)
+				_ => todo!("{} {:?} {:?} to {:?} ({:?} to {:?})", cast_name, val, src_cty, dst_cty, src_ty, dst_ty),
+				})
+		}
+	}
+
+	/// Common processing of binary operations (for both `BinOp` and `AssignOp`)
+	fn handle_binop(&mut self, op: &crate::ast::BinOp, ty_l: &TypeRef, val_l: cr_e::Value, val_r: cr_e::Value) -> ValueRef
+	{
+		enum TyC {
+			Float,
+			Unsigned,
+			Signed,
+		}
+		let ty = match ty_l.basetype
+			{
+			BaseType::Float(_) => TyC::Float,
+			BaseType::Pointer(_) => TyC::Unsigned,
+			BaseType::Integer(ref ic) => match ic.signedness()
+				{
+				crate::types::Signedness::Unsigned => TyC::Unsigned,
+				crate::types::Signedness::Signed => TyC::Signed,
+				},
+			BaseType::Bool => return ValueRef::Temporary(match op
+				{
+				BinOp::LogicOr => self.builder.ins().bor(val_l, val_r),
+				_ => panic!("TODO: handle_node - BinOp Bool {:?}", op),
+				}),
+			_ => panic!("Invalid type for bin-op: {:?}", ty_l),
+			};
+
+		use crate::ast::BinOp;
+		ValueRef::Temporary(match ty
+			{
+			TyC::Signed => match op
+				{
+				BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::SignedLessThan, val_l, val_r),
+				BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::SignedGreaterThan, val_l, val_r),
+				BinOp::CmpEqu => self.builder.ins().icmp(cr_cc::IntCC::Equal, val_l, val_r),
+				BinOp::CmpNEqu => self.builder.ins().icmp(cr_cc::IntCC::NotEqual, val_l, val_r),
+				BinOp::Div => self.builder.ins().sdiv(val_l, val_r),
+				BinOp::Mod => self.builder.ins().srem(val_l, val_r),
+				BinOp::ShiftLeft => self.builder.ins().ishl(val_l, val_r),
+				_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
+				},
+			TyC::Unsigned => match op
+				{
+				BinOp::CmpLt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedLessThan, val_l, val_r),
+				BinOp::CmpGt => self.builder.ins().icmp(cr_cc::IntCC::UnsignedGreaterThan, val_l, val_r),
+				BinOp::Add => self.builder.ins().iadd(val_l, val_r),
+				BinOp::BitAnd => self.builder.ins().band(val_l, val_r),
+				BinOp::BitOr => self.builder.ins().bor(val_l, val_r),
+				_ => panic!("TODO: handle_node - BinOp Unsigned - {:?}", op),
+				},
+			TyC::Float => match op
+				{
+				BinOp::CmpLt => self.builder.ins().fcmp(cr_cc::FloatCC::LessThan, val_l, val_r),
+				BinOp::CmpGt => self.builder.ins().fcmp(cr_cc::FloatCC::GreaterThan, val_l, val_r),
+				_ => panic!("TODO: handle_node - BinOp Float - {:?}", op),
+				},
+			})
+	}
+
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
 		use crate::ast::Initialiser;
@@ -519,6 +604,7 @@ impl Builder<'_>
 		ValueRef::Temporary(val) => val,
 		ValueRef::Variable(var) => self.builder.use_var(var),
 		ValueRef::StackSlot(ref ss, ofs, ref ty) => self.builder.ins().stack_load(cvt_ty(ty), *ss, ofs as i32),
+		ValueRef::Pointer(ref pv, ofs, ref ty) => self.builder.ins().load(cvt_ty(ty), ::cranelift_codegen::ir::MemFlags::new(), *pv, ofs as i32),
 		_ => panic!("TODO: get_value {:?}", vr),
 		}
 	}
@@ -579,6 +665,7 @@ fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 	BaseType::Pointer(..) => cr_tys::I32,
 	BaseType::Integer(ic) => match ty.get_size().unwrap()
 		{
+		8 => cr_tys::I64,
 		4 => cr_tys::I32,
 		2 => cr_tys::I16,
 		sz => todo!("Convert integer {:?} ({}) to cranelift", ic, sz),

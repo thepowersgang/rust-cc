@@ -449,7 +449,7 @@ impl NodePrecedence
 	}
 }
 
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub enum BinOp
 {
 	LogicAnd,
@@ -477,7 +477,7 @@ pub enum BinOp
 	Mod,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub enum UniOp
 {
 	Neg,
