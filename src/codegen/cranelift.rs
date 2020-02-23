@@ -4,8 +4,11 @@ use cranelift_codegen::ir::entities as cr_e;
 use cranelift_codegen::ir::condcodes as cr_cc;
 use cranelift_codegen::ir::types as cr_tys;
 use cranelift_codegen::ir::InstBuilder;
+use cranelift_module::Linkage;
+
 use crate::types::{TypeRef,BaseType};
 use crate::ast::Ident;
+use crate::ast::Initialiser;
 
 extern crate target_lexicon;
 
@@ -13,6 +16,7 @@ pub struct Context
 {
 	module: ::cranelift_module::Module<::cranelift_object::ObjectBackend>,
 	functions: HashMap<Ident, ::cranelift_codegen::ir::ExternalName>,
+	globals: HashMap<Ident, ::cranelift_module::DataId>,
 }
 impl Context
 {
@@ -33,6 +37,7 @@ impl Context
 				::cranelift_module::default_libcall_names(),
 				).expect("Can't create object builder")),
 			functions: Default::default(),
+			globals: Default::default(),
 			}
 	}
 
@@ -42,6 +47,71 @@ impl Context
 		self.functions.entry(name.clone())
 			.or_insert_with(|| ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, })
 			.clone()
+	}
+	fn create_string(&mut self, val: Vec<u8>) -> ::cranelift_module::DataId
+	{
+		// Declare
+		let did = self.module.declare_data("", Linkage::Local, /*writeable*/false, /*align*/None)
+			.expect("Failed to declare");
+		// Define
+		let mut data_ctx = ::cranelift_module::DataContext::new();
+		data_ctx.define({ let mut val = val; val.push(0); val.into_boxed_slice() });
+		self.module.define_data(did, &data_ctx);
+		did
+	}
+
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	{
+		debug!("lower_value({}: {:?} = {:?})", name, ty, val);
+
+		let did = match self.module.declare_data(name.as_str(), Linkage::Export, /*writable*/!ty.qualifiers.is_const(), /*align*/None)
+			{
+			Ok(did) => did,
+			Err(e) => panic!("lower_value: {:?} - Error {:?}", name, e),
+			};
+
+		let size = ty.get_size().expect("Global with zero size") as usize;
+		let mut data_ctx = ::cranelift_module::DataContext::new();
+		data_ctx.define_zeroinit( size );
+		self.init_data_ctx(&mut data_ctx, 0, ty, val);
+		self.module.define_data(did, &data_ctx);
+
+		self.globals.insert(name.clone(), did);
+	}
+
+	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, offset: usize, ty: &TypeRef, init: &Initialiser)
+	{
+		match init
+		{
+		Initialiser::None => {
+			},
+		Initialiser::ListLiteral(ref vals) => {
+			let inner_ty = match ty.basetype
+				{
+				BaseType::Array(ref inner, _) => inner,
+				_ => todo!("init_data_ctx: ListLiteral with {:?}", ty),
+				};
+			let inner_size = inner_ty.get_size().unwrap() as usize;
+			for (ofs, val) in Iterator::zip( (0 .. ).map(|i| i * inner_size), vals.iter() )
+			{
+				self.init_data_ctx_node(data_ctx, offset + ofs, inner_ty, val);
+			}
+			},
+		_ => todo!("init_data_ctx: init={:?}", init),
+		}
+	}
+	fn init_data_ctx_node(&mut self, data_ctx: &mut ::cranelift_module::DataContext, offset: usize, ty: &TypeRef, val: &crate::ast::Node)
+	{
+		use crate::ast::NodeKind;
+		match val.kind
+		{
+		NodeKind::String(ref val) => {
+			let did = self.create_string(val.clone().into_bytes());
+			let gv = self.module.declare_data_in_data(did, data_ctx);
+			data_ctx.write_data_addr(offset as u32, gv, /*addend*/0);	// TODO: What controls the size of this write?
+			},
+		_ => todo!("init_data_ctx_node: val={:?}", val),
+		}
 	}
 
 	pub fn lower_function(&mut self, name: &Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
@@ -438,13 +508,7 @@ impl Builder<'_>
 			sz => panic!("NodeKind::Float sz={:?}", sz),
 			},
 		NodeKind::String(ref val) => {
-			// Declare
-			let did = self.context.module.declare_data("", ::cranelift_module::Linkage::Local, /*writeable*/false, /*align*/None)
-				.expect("Failed to declare");
-			// Define
-			let mut data_ctx = ::cranelift_module::DataContext::new();
-			data_ctx.define( (val.clone() + "\0").into_bytes().into_boxed_slice() );
-			self.context.module.define_data(did, &data_ctx);
+			let did = self.context.create_string(val.clone().into_bytes());
 			// Get value
 			let gv = self.context.module.declare_data_in_func(did, self.builder.func);
 			ValueRef::Temporary(self.builder.ins().symbol_value( cr_tys::I8, gv ))
@@ -830,7 +894,6 @@ impl Builder<'_>
 
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
-		use crate::ast::Initialiser;
 		let idx = var_def.index.unwrap();
 		let slot = self.vars[idx].clone();
 		match var_def.value

@@ -78,12 +78,21 @@ fn main()
 	if true
 	{
 		let mut c = codegen::Context::new();
-		for (name,ty,fcn) in program.iter_functions()
+		for (name,ty,sym) in program.iter_symbols()
 		{
-			match ty.basetype
+			match sym
 			{
-			crate::types::BaseType::Function(ref fcn_ty) => c.lower_function(name, fcn_ty, &fcn.borrow()),
-			_ => {},
+			ast::SymbolValue::Code(ref fcn) => {
+				let fcn_ty = match ty.basetype
+					{
+					crate::types::BaseType::Function(ref fcn_ty) => fcn_ty,
+					_ => panic!("ERROR: Code without a function type"),
+					};
+				c.lower_function(name, fcn_ty, &fcn.borrow());
+				},
+			ast::SymbolValue::Value(ref init) => {
+				c.lower_value(name, ty, init);
+				},
 			}
 		}
 	}

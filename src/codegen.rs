@@ -15,6 +15,10 @@ impl Context
 			}
 	}
 
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	{
+		self.inner.lower_value(name, ty, val)
+	}
 	pub fn lower_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
 		self.inner.lower_function(name, ty, body)

@@ -259,6 +259,31 @@ impl Program
 				}
 				})
 	}
+	pub fn iter_symbols(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &SymbolValue)> {
+		self.item_order.iter()
+			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
+			.filter_map(move |name| {
+				let s = &self.symbols[name];
+				match s.value
+				{
+				Some(ref v) => Some( (name, &s.symtype, v,) ),
+				None => {
+					if false /*s.symtype.qualifiers.is_extern()*/ {
+						None
+					}
+					else if let crate::types::BaseType::Function(..) = s.symtype.basetype {
+						None
+					}
+					else {
+						// Non-extern statics with no value should have `Initialiser::None`
+						//static NONE_INIT: SymbolValue = SymbolValue::Value(Initialiser::None);
+						//Some( (name, &s.symtype, &NONE_INIT,) )
+						todo!("");
+					}
+					},
+				}
+				})
+	}
 }
 
 pub type Block = StatementList;

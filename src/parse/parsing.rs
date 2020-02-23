@@ -434,6 +434,7 @@ impl<'ast> super::ParseState<'ast>
 			self.ast.define_variable(typeid, ident, None);
 		}
 		else {
+			// TODO: If the type is an array with no size, get the size from the initialiser
 			self.ast.define_variable(typeid, ident, Some(init));
 		}
 
