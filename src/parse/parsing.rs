@@ -434,7 +434,17 @@ impl<'ast> super::ParseState<'ast>
 			self.ast.define_variable(typeid, ident, None);
 		}
 		else {
-			// TODO: If the type is an array with no size, get the size from the initialiser
+			let mut typeid = typeid;
+			// If the type is an array with no size, get the size from the initialiser
+			if let ::types::BaseType::Array(ref ty, ::types::ArraySize::None) = typeid.basetype {
+				let len = match init
+					{
+					::ast::Initialiser::ListLiteral(ref elems) => elems.len(),
+					::ast::Initialiser::Value(::ast::Node { kind: ::ast::NodeKind::String(ref val), .. }) => val.len() + 1,
+					_ => todo!("Get array size from {:?}", init),
+					};
+				typeid = ::types::Type::new_ref(::types::BaseType::Array(ty.clone(), ::types::ArraySize::Fixed(len as u64)), typeid.qualifiers.clone());
+			}
 			self.ast.define_variable(typeid, ident, Some(init));
 		}
 
