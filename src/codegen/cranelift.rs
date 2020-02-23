@@ -125,12 +125,12 @@ enum ValueRef
 	Variable(::cranelift_frontend::Variable),
 	/// An item on the stack
 	StackSlot(cr_e::StackSlot, u32, TypeRef),
-	/// A pointer to an item on the stack
-	StackSlotAddr(cr_e::StackSlot, u32, TypeRef),
+	///// A pointer to an item on the stack
+	//StackSlotAddr(cr_e::StackSlot, u32, TypeRef),
 	/// A value in global/static storage
 	Global(crate::ast::Ident, u32, TypeRef),
-	/// A pointer to an item in global/static storage
-	GlobalAddr(crate::ast::Ident, u32, TypeRef),
+	///// A pointer to an item in global/static storage
+	//GlobalAddr(crate::ast::Ident, u32, TypeRef),
 	/// By-value use of a function (decays to a pointer)
 	Function(crate::ast::Ident, cr_e::FuncRef),
 	/// Pointer dereference
@@ -402,7 +402,11 @@ impl Builder<'_>
 			{
 			None => panic!("No binding on `NodeKind::Identifier`"),
 			Some(crate::ast::IdentRef::Local(idx)) => self.vars[*idx].clone(),
-			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Global(name.clone(), 0, ty.clone()),
+			Some(crate::ast::IdentRef::StaticItem) => {
+				//let context = &mut self.context;
+				//let builder = &mut self.builder;
+				ValueRef::Global(name.clone(), 0, ty.clone())
+				},
 			Some(crate::ast::IdentRef::Function) => {
 				let context = &mut self.context;
 				let builder = &mut self.builder;
@@ -546,31 +550,35 @@ impl Builder<'_>
 		NodeKind::UniOp(ref op, ref val) => {
 			let ty = &val.meta.as_ref().unwrap().ty;
 			let val_in = self.handle_node(val);
-			let val = self.get_value(val_in.clone());
 			use crate::ast::UniOp;
 			match op
 			{
 			UniOp::PostDec => {
+				let val = self.get_value(val_in.clone());
 				let ov = self.builder.ins().iadd_imm(val, -1);
 				self.assign_value(val_in, ValueRef::Temporary(ov));
 				ValueRef::Temporary(val)
 				},
 			UniOp::PostInc => {
+				let val = self.get_value(val_in.clone());
 				let ov = self.builder.ins().iadd_imm(val, 1);
 				self.assign_value(val_in, ValueRef::Temporary(ov));
 				ValueRef::Temporary(val)
 				},
 			UniOp::PreDec => {
+				let val = self.get_value(val_in.clone());
 				let ov = self.builder.ins().iadd_imm(val, -1);
 				self.assign_value(val_in, ValueRef::Temporary(ov));
 				ValueRef::Temporary(ov)
 				},
 			UniOp::PreInc => {
+				let val = self.get_value(val_in.clone());
 				let ov = self.builder.ins().iadd_imm(val, 1);
 				self.assign_value(val_in, ValueRef::Temporary(ov));
 				ValueRef::Temporary(ov)
 				},
 			UniOp::Deref => {
+				let val = self.get_value(val_in.clone());
 				let ity = match ty.basetype
 					{
 					BaseType::Pointer(ref ity) => ity.clone(),
@@ -578,27 +586,38 @@ impl Builder<'_>
 					};
 				ValueRef::Pointer(val, 0, ity)
 				},
-			UniOp::Address => todo!("handle_node - UniOp Address {:?}", val),
-			UniOp::Neg =>
+			UniOp::Address => match val_in
+				{
+				ValueRef::Temporary(_) => panic!("Taking address of temporary"),
+				ValueRef::StackSlot(ref ss, ofs, _) => ValueRef::Temporary(self.builder.ins().stack_addr(CRTY_PTR, *ss, ofs as i32)),
+				_ => todo!("handle_node - UniOp Address {:?}", val_in),
+				},
+			UniOp::Neg => {
+				let val = self.get_value(val_in.clone());
 				match ty.basetype
 				{
 				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().ineg(val)),
 				_ => todo!("Neg on {:?}", ty),
+				}
 				},
-			UniOp::BitNot =>
+			UniOp::BitNot => {
+				let val = self.get_value(val_in.clone());
 				match ty.basetype
 				{
 				//BaseType::Bool => ValueRef::Temporary(self.builder.ins().bnot(val)),
 				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().bnot(val)),
 				_ => todo!("BitNot on {:?}", ty),
+				}
 				},
-			UniOp::LogicNot =>
+			UniOp::LogicNot => {
+				let val = self.get_value(val_in.clone());
 				match ty.basetype
 				{
 				BaseType::Bool => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
 				BaseType::Integer(_) => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
 				BaseType::Pointer(_) => ValueRef::Temporary(self.builder.ins().icmp_imm(cr_cc::IntCC::Equal, val, 0)),
 				_ => todo!("LogicNot on {:?}", ty),
+				}
 				},
 			}
 			},
@@ -665,6 +684,7 @@ impl Builder<'_>
 			ValueRef::Pointer(base, ofs, _ty) => {
 				ValueRef::Temporary(self.builder.ins().iadd_imm(base, ofs as i64))
 				},
+			//ValueRef::Global(name, ofs, _ty) => {
 			_ => todo!("{} {:?} {:?} to {:?}", cast_name, src_val, src_ty, dst_ty),
 			}
 		}
@@ -899,14 +919,14 @@ fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 	None => panic!("{:?} isn't valid as a cranelift type", ty),
 	}
 }
+const CRTY_PTR: cr_tys::Type = cr_tys::I32;	//	cr_tys::R32,
 fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 {
 	Some(match ty.basetype
 	{
 	BaseType::Void => panic!("Attempting to convert `void` to a cranelift type"),
 	BaseType::Bool => cr_tys::B8,
-	//BaseType::Pointer(..) => cr_tys::R32,
-	BaseType::Pointer(..) => cr_tys::I32,
+	BaseType::Pointer(..) => CRTY_PTR,
 	BaseType::Integer(ic) => match ty.get_size().unwrap()
 		{
 		8 => cr_tys::I64,
