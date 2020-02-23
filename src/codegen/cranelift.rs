@@ -7,15 +7,31 @@ use cranelift_codegen::ir::InstBuilder;
 use crate::types::{TypeRef,BaseType};
 use crate::ast::Ident;
 
+extern crate target_lexicon;
+
 pub struct Context
 {
+	module: ::cranelift_module::Module<::cranelift_object::ObjectBackend>,
 	functions: HashMap<Ident, ::cranelift_codegen::ir::ExternalName>,
 }
 impl Context
 {
 	pub fn new() -> Self
 	{
+		let isa = {
+			use std::str::FromStr;
+			let shared_builder = ::cranelift_codegen::settings::builder();
+			let shared_flags = ::cranelift_codegen::settings::Flags::new(shared_builder);
+			let b = ::cranelift_codegen::isa::lookup( target_lexicon::triple!("x86_64-elf") ).unwrap();
+			b.finish(shared_flags)
+			};
 		Context {
+			module: ::cranelift_module::Module::new(::cranelift_object::ObjectBuilder::new(
+				isa,
+				"unknown_object.o".into(),
+				::cranelift_object::ObjectTrapCollection::Disabled,
+				::cranelift_module::default_libcall_names(),
+				).expect("Can't create object builder")),
 			functions: Default::default(),
 			}
 	}
@@ -416,6 +432,18 @@ impl Builder<'_>
 			4 => ValueRef::Temporary(self.builder.ins().f32const(val as f32)),
 			8 => ValueRef::Temporary(self.builder.ins().f64const(val)),
 			sz => panic!("NodeKind::Float sz={:?}", sz),
+			},
+		NodeKind::String(ref val) => {
+			// Declare
+			let did = self.context.module.declare_data("", ::cranelift_module::Linkage::Local, /*writeable*/false, /*align*/None)
+				.expect("Failed to declare");
+			// Define
+			let mut data_ctx = ::cranelift_module::DataContext::new();
+			data_ctx.define( (val.clone() + "\0").into_bytes().into_boxed_slice() );
+			self.context.module.define_data(did, &data_ctx);
+			// Get value
+			let gv = self.context.module.declare_data_in_func(did, self.builder.func);
+			ValueRef::Temporary(self.builder.ins().symbol_value( cr_tys::I8, gv ))
 			},
 
 		NodeKind::FcnCall(ref fcn, ref args) => {
