@@ -55,7 +55,7 @@ pub struct Symbol
 #[derive(Debug)]
 pub enum SymbolValue
 {
-	Value(Initialiser),
+	Value(::std::cell::RefCell<Initialiser>),
 	Code(::std::cell::RefCell<FunctionBody>),
 }
 #[derive(Debug)]
@@ -87,7 +87,7 @@ impl Program
 	}
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
 	{
-		self.define_symbol(typeid, name, value.map(SymbolValue::Value))
+		self.define_symbol(typeid, name, value.map(std::cell::RefCell::new).map(SymbolValue::Value))
 	}
 	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<SymbolValue>)
 	{

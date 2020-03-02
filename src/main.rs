@@ -63,12 +63,20 @@ fn main()
 	//   > Add promotions/demotions/conversions
 	//   > Annotate ternary with if it's in LValue position
 	//   > Collate variables and determine if they're addressed
-	for (name,ty,fcn) in program.iter_functions()
+	for (name,ty,sym) in program.iter_symbols()
 	{
-		match ty.basetype
+		match sym
 		{
-		crate::types::BaseType::Function(ref fcn_ty) => {
+		ast::SymbolValue::Code(ref fcn) => {
+			let fcn_ty = match ty.basetype
+				{
+				crate::types::BaseType::Function(ref fcn_ty) => fcn_ty,
+				_ => panic!("ERROR: Code without a function type"),
+				};
 			typecheck::handle_function(&program, name, fcn_ty, &mut fcn.borrow_mut())
+			},
+		ast::SymbolValue::Value(ref init) => {
+			typecheck::handle_global(&program, name, ty, &mut init.borrow_mut());
 			},
 		_ => {},
 		}
@@ -91,7 +99,7 @@ fn main()
 				c.lower_function(name, fcn_ty, &fcn.borrow());
 				},
 			ast::SymbolValue::Value(ref init) => {
-				c.lower_value(name, ty, init);
+				c.lower_value(name, ty, &init.borrow());
 				},
 			}
 		}

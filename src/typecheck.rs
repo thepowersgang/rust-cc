@@ -1,4 +1,5 @@
 //!
+//!
 use crate::ast::{self, Ident};
 use crate::types::{TypeRef,BaseType};
 
@@ -28,6 +29,17 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 			ty: e.ty,
 			});
 	}
+}
+pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::TypeRef, val: &mut ast::Initialiser)
+{
+	debug!("handle_global({}: {:?}): val={:?}", name, ty, val);
+
+	//match val
+	//{
+	//ast::Initialiser::Value(ref mut node) => {
+	//	},
+	//}
+	//todo!("handle_global({}: {:?}): val={:?}", name, ty, val);
 }
 
 struct Context<'a>

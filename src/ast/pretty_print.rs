@@ -65,7 +65,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str("\n");
 			},
 		Some(::ast::SymbolValue::Value(ref v)) => {
-			self.write_initialiser(v);
+			self.write_initialiser(&v.borrow());
 			self.write_str(";\n");
 			},
 		None => panic!("Value with no value - {:?}", sym.name),
