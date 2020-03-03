@@ -34,12 +34,47 @@ pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::Type
 {
 	debug!("handle_global({}: {:?}): val={:?}", name, ty, val);
 
-	//match val
-	//{
-	//ast::Initialiser::Value(ref mut node) => {
-	//	},
-	//}
-	//todo!("handle_global({}: {:?}): val={:?}", name, ty, val);
+	match val
+	{
+	ast::Initialiser::None => {},
+	ast::Initialiser::Value(ref mut node) => {
+		let mut ctx = Context {
+			program: program,
+			scopes: Default::default(),
+			variables: Default::default(),
+			ret_ty: ty.clone(),
+			};
+		ctx.visit_node(node, /*req_lvalue=*/false);
+		},
+	ast::Initialiser::ListLiteral(ref mut ents) => {
+		for (i,e) in Iterator::enumerate(ents.iter_mut())
+		{
+			let mut ctx = Context {
+				program: program,
+				scopes: Default::default(),
+				variables: Default::default(),
+				ret_ty: match ty.basetype
+					{
+					BaseType::Array(ref inner, _) => inner.clone(),
+					BaseType::Struct(ref s) =>
+						match s.borrow().items
+						{
+						Some(ref items) => match items.fields.get(i)
+							{
+							Some(&(ref ty, _)) => ty.clone(),
+							None => panic!("Too many initialisers for struct"),
+							},
+						None => panic!("Initialising an opaque type"),
+						},
+					_ => todo!("List literal {:?}", ty),
+					},
+				};
+			ctx.visit_node(e, /*req_lvalue=*/false);
+		}
+		},
+	ast::Initialiser::ArrayLiteral(_) => todo!("handle_global({}: {:?}): val={:?}", name, ty, val),
+	ast::Initialiser::StructLiteral(_) => todo!("handle_global({}: {:?}): val={:?}", name, ty, val),
+	}
 }
 
 struct Context<'a>
@@ -190,10 +225,6 @@ impl<'a> Context<'a>
 
 		Statement::Goto(ref _lbl) => {},
 		Statement::Label(ref _lbl) => {},
-
-		// TODO: Rest
-
-		_ => todo!("visit_stmt(): {:?}", stmt),
 		}
 	}
 
@@ -386,6 +417,12 @@ impl<'a> Context<'a>
 			ty.clone()
 			},
 		NodeKind::SizeofType(ref _ty) => {
+			crate::types::Type::new_ref_bare(BaseType::Integer(
+					crate::types::IntClass::Long(crate::types::Signedness::Unsigned)
+					))
+			},
+		NodeKind::SizeofExpr(ref mut val) => {
+			self.visit_node(val, false);
 			crate::types::Type::new_ref_bare(BaseType::Integer(
 					crate::types::IntClass::Long(crate::types::Signedness::Unsigned)
 					))

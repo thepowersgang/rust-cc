@@ -389,6 +389,7 @@ impl Type
 				let mut ofs = 0;
 				for (fld_ty, fld_name) in &body.fields
 				{
+					// TODO: Alignment
 					if fld_name == name {
 						return Some( (ofs, fld_ty.clone()) );
 					}
@@ -416,6 +417,7 @@ impl Type
 		BaseType::Float(fc) => Some(fc.size()),
 
 		BaseType::Array(ref inner, ref sz) => Some(inner.get_size()? * sz.get_value() as u32),
+		//BaseType::Struct(ref sr)
 		_ => todo!("Type::get_size(): {:?}", self),
 		}
 	}

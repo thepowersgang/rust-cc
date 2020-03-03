@@ -72,14 +72,20 @@ impl Context
 
 		let size = ty.get_size().expect("Global with zero size") as usize;
 		let mut data_ctx = ::cranelift_module::DataContext::new();
-		data_ctx.define_zeroinit( size );
-		self.init_data_ctx(&mut data_ctx, 0, ty, val);
+		if let Initialiser::None = val {
+			data_ctx.define_zeroinit( size );
+		}
+		else {
+			let mut data = vec![0; size].into_boxed_slice();
+			self.init_data_ctx(&mut data_ctx, &mut data, 0, ty, val);
+			data_ctx.define(data);
+		}
 		self.module.define_data(did, &data_ctx);
 
 		self.globals.insert(name.clone(), did);
 	}
 
-	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, offset: usize, ty: &TypeRef, init: &Initialiser)
+	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, init: &Initialiser)
 	{
 		match init
 		{
@@ -94,13 +100,14 @@ impl Context
 			let inner_size = inner_ty.get_size().unwrap() as usize;
 			for (ofs, val) in Iterator::zip( (0 .. ).map(|i| i * inner_size), vals.iter() )
 			{
-				self.init_data_ctx_node(data_ctx, offset + ofs, inner_ty, val);
+				self.init_data_ctx_node(data_ctx, data, offset + ofs, inner_ty, val);
 			}
 			},
+		Initialiser::Value(ref val) => self.init_data_ctx_node(data_ctx, data, offset, ty, val),
 		_ => todo!("init_data_ctx: init={:?}", init),
 		}
 	}
-	fn init_data_ctx_node(&mut self, data_ctx: &mut ::cranelift_module::DataContext, offset: usize, ty: &TypeRef, val: &crate::ast::Node)
+	fn init_data_ctx_node(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, val: &crate::ast::Node)
 	{
 		use crate::ast::NodeKind;
 		match val.kind
@@ -110,7 +117,23 @@ impl Context
 			let gv = self.module.declare_data_in_data(did, data_ctx);
 			data_ctx.write_data_addr(offset as u32, gv, /*addend*/0);	// TODO: What controls the size of this write?
 			},
-		_ => todo!("init_data_ctx_node: val={:?}", val),
+		// TODO: Const eval into float/integer, require actually const
+		_ => match val.const_eval_req()
+			{
+			crate::ast::ConstVal::Integer(v) =>
+				match cvt_ty(ty)
+				{
+				cr_tys::I32 => {
+					let p = &mut data[offset..][..4];
+					p[0] = (v >>  0 & 0xFF) as u8;
+					p[1] = (v >>  8 & 0xFF) as u8;
+					p[2] = (v >> 16 & 0xFF) as u8;
+					p[3] = (v >> 24 & 0xFF) as u8;
+					},
+				cty => todo!("init_data_ctx_node: v={:?} cty={:?}", v, cty),
+				},
+			v => todo!("init_data_ctx_node: v={:?}", v),
+			},
 		}
 	}
 

@@ -517,6 +517,14 @@ pub enum UniOp
 	Deref,
 }
 
+#[derive(Debug)]
+pub enum ConstVal
+{
+	None,
+	Integer(u64),
+	Float(f64),
+}
+
 impl Node
 {
 	pub fn new(kind: NodeKind) -> Node
@@ -525,6 +533,43 @@ impl Node
 			kind: kind,
 			meta: None,
 			}
+	}
+	pub fn const_eval_opt(&self) -> ConstVal
+	{
+		self.const_eval(false)
+	}
+	pub fn const_eval_req(&self) -> ConstVal
+	{
+		self.const_eval(true)
+	}
+	fn const_eval(&self, required: bool) -> ConstVal
+	{
+		match match self.kind
+			{
+			NodeKind::Integer(v, _ty) => ConstVal::Integer(v),
+			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(required))
+				{
+				(&UniOp::Neg,ConstVal::Integer(a)) => ConstVal::Integer(!a + 1),
+				_ => ConstVal::None,
+				},
+			NodeKind::BinOp(ref op,ref a,ref b) => match (op,a.const_eval(required), b.const_eval(required))
+				{
+				(&BinOp::Add,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a+b),
+				(&BinOp::Sub,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a-b),
+				(&BinOp::Div,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a/b),
+				(&BinOp::Mod,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a%b),
+				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
+				_ => ConstVal::None,
+				},
+			NodeKind::Identifier(..) => ConstVal::None,	// TODO: Look up ident in the global/constant scope
+			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
+			NodeKind::SizeofExpr(ref e) => ConstVal::Integer(e.meta.as_ref().unwrap().ty.get_size().expect("") as u64),
+			_ => ConstVal::None,
+			}
+		{
+		ConstVal::None if required => panic!("TODO: {:?}", self),
+		rv => rv,
+		}
 	}
 	/// Attempt to interpret the node as a trivally constant integer
 	pub fn literal_integer(&self) -> Option<u64>
