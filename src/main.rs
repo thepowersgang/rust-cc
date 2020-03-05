@@ -57,6 +57,12 @@ fn main()
 	Ok(_) => {}
 	}
 
+	if true
+	{
+		let stdout = ::std::io::stdout();
+		::ast::pretty_print::write(stdout.lock(), &program);
+	}
+
 	// TODO: Type check/annotate?
 	// - Need to annotate types and implicit conversion positions
 	//   > All node types

@@ -70,7 +70,7 @@ impl Context
 			Err(e) => panic!("lower_value: {:?} - Error {:?}", name, e),
 			};
 
-		let size = ty.get_size().expect("Global with zero size") as usize;
+		let size = ty.get_size().expect("Global with unknown size") as usize;
 		let mut data_ctx = ::cranelift_module::DataContext::new();
 		if let Initialiser::None = val {
 			data_ctx.define_zeroinit( size );

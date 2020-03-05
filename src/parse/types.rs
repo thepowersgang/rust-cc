@@ -436,6 +436,7 @@ impl<'ast> super::ParseState<'ast>
 	}
 	fn populate_struct(&mut self) -> ParseResult<::types::StructBody>
 	{
+		use crate::types::StructFieldTy;
 		let mut items = ::types::StructBody::default();
 		loop
 		{
@@ -450,6 +451,7 @@ impl<'ast> super::ParseState<'ast>
 			let (ft, ident) = self.get_full_type(basetype.clone())?;
 			
 			// - Handle bitfields
+			//  > TODO: Compact bitfields into a single entry?
 			if peek_token!(self.lex, Token::Colon)
 			{
 				// Ensure that `ft` is the correct type (an integer)
@@ -459,8 +461,7 @@ impl<'ast> super::ParseState<'ast>
 					ft @ _ => syntax_error!("Invalid type for bitfield, expected signed/unsigned, got {:?}", ft),
 					};
 				let i = syntax_assert!( self.lex.get_token()?, Token::Integer(i,_class,_s) => i as u8 );
-				let bt = ::types::BaseType::Integer(::types::IntClass::Bits(sign, i));
-				items.fields.push( (::types::Type::new_ref_bare(bt), ident) );
+				items.fields.push( (StructFieldTy::Bitfield(sign, i), ident) );
 				
 				if peek_token!(self.lex, Token::Comma) { parse_todo!("Comma separated bitfields"); }
 				/*
@@ -472,10 +473,11 @@ impl<'ast> super::ParseState<'ast>
 			}
 			else
 			{
-				items.fields.push( (ft, ident) );
+				items.fields.push( (StructFieldTy::Value(ft), ident) );
 				while peek_token!(self.lex, Token::Comma)
 				{
-					items.fields.push( self.get_full_type(basetype.clone())? );
+					let (ty, name) = self.get_full_type(basetype.clone())?;
+					items.fields.push( (StructFieldTy::Value(ty), name,) );
 				}
 			}
 			syntax_assert!( self.lex.get_token()?, Token::Semicolon );

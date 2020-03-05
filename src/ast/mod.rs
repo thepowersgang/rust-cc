@@ -419,7 +419,7 @@ pub enum NodeKind
 pub enum IdentRef
 {
 	Local(usize),
-	StaticItem,
+	StaticItem/*(*const Symbol)*/,
 	Function,
 	Enum(::types::EnumRef, usize),
 }
@@ -561,7 +561,10 @@ impl Node
 				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
 				_ => ConstVal::None,
 				},
-			NodeKind::Identifier(..) => ConstVal::None,	// TODO: Look up ident in the global/constant scope
+			NodeKind::Identifier(_, ref binding) => {
+				//panic!("{:?}", binding);
+				ConstVal::None
+				},	// TODO: Look up ident in the global/constant scope
 			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
 			NodeKind::SizeofExpr(ref e) => ConstVal::Integer(e.meta.as_ref().unwrap().ty.get_size().expect("") as u64),
 			_ => ConstVal::None,
@@ -574,22 +577,11 @@ impl Node
 	/// Attempt to interpret the node as a trivally constant integer
 	pub fn literal_integer(&self) -> Option<u64>
 	{
-		match self.kind
+		match self.const_eval_opt()
 		{
-		NodeKind::Integer(v, _ty) => Some(v),
-		NodeKind::UniOp(ref op,ref a) => match (op,a.literal_integer())
-			{
-			(&UniOp::Neg,Some(a)) => Some(!a + 1),
-			_ => None,
-			},
-		NodeKind::BinOp(ref op,ref a,ref b) => match (op,a.literal_integer(), b.literal_integer())
-			{
-			(&BinOp::Add,Some(a),Some(b)) => Some(a+b),
-			(&BinOp::Sub,Some(a),Some(b)) => Some(a-b),
-			_ => None,
-			},
-		NodeKind::Identifier(..) => None,	// TODO: Look up ident in the global/constant scope
-		_ => None,
+		ConstVal::None => None,
+		ConstVal::Integer(v) => Some(v),
+		_ => todo!("literal_integer: {:?}", self),
 		}
 	}
 

@@ -78,13 +78,21 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 		let nl = if true || use_newlines { "\n" } else { " " };
 		let indent = if true || use_newlines { "\t" } else { "" };
 		self.write_str("struct "); self.write_str(&s.name); self.write_str(nl);
-		if let Some(ref body) = s.items
+		if let Some(ref body) = s.get_items()
 		{
 			self.write_str("{"); self.write_str(nl);
 			for &(ref ty, ref name) in &body.fields
 			{
 				self.write_str(indent);
-				self.write_type(ty, |s| s.write_str(name));
+				match ty
+				{
+				crate::types::StructFieldTy::Value(ref ty) => {
+					self.write_type(ty, |s| s.write_str(name));
+					},
+				crate::types::StructFieldTy::Bitfield(s, bits) => {
+					write!(self, "{}signed {}: {}", if s.is_unsigned() { "" } else { "un" }, name, bits);
+					},
+				}
 				self.write_str(";"); self.write_str(nl);
 			}
 			self.write_str("}");
@@ -207,6 +215,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			use ::types::Signedness::*;
 			match r
 			{
+			IntClass::Bitfield(s,b) => panic!(""),
 			IntClass::Bits(s,b) => write!(self, "{}int{}_t ", if s.is_unsigned() { "u" } else { "" }, b),
 			IntClass::Char(s) => write!(self, "{}char ", match s { None => "", Some(Signed) => "signed ", Some(Unsigned) => "unsigned " }),
 			IntClass::Short(s) => write!(self, "{}short ", if s.is_unsigned() { "unsigned " } else { "" }),

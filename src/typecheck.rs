@@ -57,14 +57,10 @@ pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::Type
 					{
 					BaseType::Array(ref inner, _) => inner.clone(),
 					BaseType::Struct(ref s) =>
-						match s.borrow().items
+						match s.borrow().get_field_idx(i)
 						{
-						Some(ref items) => match items.fields.get(i)
-							{
-							Some(&(ref ty, _)) => ty.clone(),
-							None => panic!("Too many initialisers for struct"),
-							},
-						None => panic!("Initialising an opaque type"),
+						Some( (_, _, ty) ) => ty.clone(),
+						None => panic!("Too many initialisers for struct"),
 						},
 					_ => todo!("List literal {:?}", ty),
 					},

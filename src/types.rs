@@ -171,6 +171,8 @@ impl ::std::fmt::Debug for Qualifiers {
 #[derive(Debug,PartialEq,Clone,Copy)]
 pub enum IntClass
 {
+	/// Bitfield
+	Bitfield(Signedness,u8),
 	/// Fixed-size type
 	Bits(Signedness,u8),
 	/// `char` (three variants: char, signed char, and unsigned char)
@@ -194,6 +196,7 @@ impl IntClass {
 		match *self
 		{
 		IntClass::Bits(s,_) => s,
+		IntClass::Bitfield(s,_) => s,
 		IntClass::Char(s) => s.unwrap_or(Signedness::Unsigned),
 		IntClass::Short(s) => s,
 		IntClass::Int(s) => s,
@@ -204,6 +207,7 @@ impl IntClass {
 	pub fn clone_with_sgn(&self, s: Signedness) -> Self {
 		match *self
 		{
+		IntClass::Bitfield(_,b) => IntClass::Bitfield(s,b),
 		IntClass::Bits(_,b) => IntClass::Bits(s,b),
 		IntClass::Char(_) => IntClass::Char(Some(s)),
 		IntClass::Short(_) => IntClass::Short(s),
@@ -277,21 +281,43 @@ impl<T> RcRefCellPtrEq<T> {
 pub struct Struct
 {
 	pub name: String,
-	pub items: Option<StructBody>,
+	items: Option<StructBody>,
+	meta: Option<StructMetadata>,
+}
+#[derive(Debug,PartialEq)]
+pub enum StructFieldTy
+{
+	Bitfield(Signedness, u8),
+	Value(TypeRef),
 }
 #[derive(Default,Debug,PartialEq)]
 pub struct StructBody
 {
-	pub fields: Vec<(TypeRef, String)>,
+	pub fields: Vec<(StructFieldTy, String)>,
 	pub attributes: Attributes,
+}
+#[derive(Debug,PartialEq)]
+pub struct StructMetadata
+{
+	size: u32,
+	align: u32,
+	field_offsets: Vec<u32>,
 }
 
 #[derive(Debug,PartialEq)]
 pub struct Union
 {
 	pub name: String,
-	items: Option<Vec<(TypeRef,String)>>,
+	items: Option<UnionData>,
 }
+#[derive(Debug,PartialEq)]
+pub struct UnionData
+{
+	pub body: UnionBody,
+	pub size: u32,
+	pub align: u32,
+}
+pub type UnionBody = Vec<(TypeRef,String)>;
 
 #[derive(Debug,PartialEq)]
 pub struct Enum
@@ -382,22 +408,13 @@ impl Type
 		{
 		BaseType::Struct(ref r) => {
 			let b = r.borrow();
-			match b.items
+			for (ofs, fld_name, fld_ty) in b.iter_fields()
 			{
-			None => todo!("Proper error when getting field of opaque"),
-			Some(ref body) => {
-				let mut ofs = 0;
-				for (fld_ty, fld_name) in &body.fields
-				{
-					// TODO: Alignment
-					if fld_name == name {
-						return Some( (ofs, fld_ty.clone()) );
-					}
-					ofs += fld_ty.get_size().expect("Opaque type in struct");
+				if fld_name == name {
+					return Some( (ofs, fld_ty.clone()) );
 				}
-				None
-				},
 			}
+			None
 			},
 		BaseType::Union(ref r) => todo!("Type::get_field({:?}, {})", self, name),
 		BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
@@ -406,19 +423,31 @@ impl Type
 	}
 
 	pub fn get_size(&self) -> Option<u32> {
+		self.get_size_align().map(|(s,a)| s)
+	}
+	pub fn get_size_align(&self) -> Option<(u32,u32)> {
 		match self.basetype
 		{
-		BaseType::Pointer(_) => Some(4),
-		BaseType::Integer(IntClass::Char(_)) => Some(1),
-		BaseType::Integer(IntClass::Short(_)) => Some(2),
-		BaseType::Integer(IntClass::Int(_)) => Some(4),
-		BaseType::Integer(IntClass::Long(_)) => Some(4),
-		BaseType::Integer(IntClass::LongLong(_)) => Some(8),
-		BaseType::Float(fc) => Some(fc.size()),
+		BaseType::Pointer(_) => Some( (4, 4) ),
+		BaseType::Integer(IntClass::Char(_)) => Some( (1, 1) ),
+		BaseType::Integer(IntClass::Short(_)) => Some((2,2)),
+		BaseType::Integer(IntClass::Int(_)) => Some((4,4)),
+		BaseType::Integer(IntClass::Long(_)) => Some((4,4)),
+		BaseType::Integer(IntClass::LongLong(_)) => Some((8,8)),
+		BaseType::Float(fc) => Some( (fc.size(), fc.size()) ),
 
-		BaseType::Array(ref inner, ref sz) => Some(inner.get_size()? * sz.get_value() as u32),
-		//BaseType::Struct(ref sr)
-		_ => todo!("Type::get_size(): {:?}", self),
+		BaseType::Array(ref inner, ref sz) => inner.get_size_align().map(|(s,a)| (s * sz.get_value() as u32, a)),
+		BaseType::Struct(ref sr) => match sr.borrow().meta
+			{
+			Some(ref v) => Some( (v.size, v.align,) ),
+			None => None,
+			},
+		BaseType::Union(ref r) => match r.borrow().items
+			{
+			Some(ref v) => Some( (v.size, v.align,) ),
+			None => None,
+			},
+		_ => todo!("Type::get_size_align(): {:?}", self),
 		}
 	}
 }
@@ -430,6 +459,7 @@ impl Struct
 		RcRefCellPtrEq::new(Struct {
 			name: name.to_string(),
 			items: None,
+			meta: None,
 			})
 	}
 	
@@ -437,10 +467,125 @@ impl Struct
 	{
 		self.items.is_some()
 	}
-	pub fn set_items(&mut self, items: StructBody)
+	pub fn set_items(&mut self, mut items: StructBody)
 	{
 		assert!( self.items.is_none() );
+		
+		if let Some( &mut (StructFieldTy::Value(ref mut ty), _) ) = items.fields.last_mut() {
+			if let Some(BaseType::Array(_, ref mut sz @ ArraySize::None)) = Rc::get_mut(ty).map(|v| &mut v.basetype) {
+				*sz = ArraySize::Fixed(0);
+			}
+		}
+
 		self.items = Some(items);
+
+		// TODO: Store this type for later size calculation?
+		// - Size calc needs access to the locals list, OR that should be done during parse? (name lookup and mapping)
+		self.calculate_sizes();
+	}
+
+	fn calculate_sizes(&mut self)
+	{
+		let items = match self.items
+			{
+			Some(ref i) => i,
+			None => return,
+			};
+		let mut align = 1;
+		let mut ofs = 0;
+		let mut bitfield_ofs = 0;
+		let mut field_offsets = Vec::with_capacity(items.fields.len());
+		fn finish_bitfield(ofs: &mut u32, align: &mut u32, size: &mut u8) {
+			let bytes = match *size
+				{
+				0 ..= 8 => 1,
+				0 ..= 16 => 2,
+				0 ..= 32 => 4,
+				_ => panic!(""),
+				};
+			*align = ::std::cmp::max(*align, bytes);
+			*ofs = make_aligned(*ofs, bytes) + bytes;
+			*size = 0;
+		}
+
+		for (fld_ty, fld_name) in items.fields.iter()
+		{
+			match fld_ty
+			{
+			StructFieldTy::Value(fld_ty) => {
+				if bitfield_ofs > 0 {
+					finish_bitfield(&mut ofs, &mut align, &mut bitfield_ofs);
+				}
+				let (fld_size, fld_align) = fld_ty.get_size_align().expect("Opaque type in struct");
+
+				align = ::std::cmp::max(align, fld_align);
+				
+				ofs = make_aligned(ofs, fld_align);
+				field_offsets.push( ofs );
+				ofs += fld_size;
+				},
+			&StructFieldTy::Bitfield(sgn, bits) => {
+				if bitfield_ofs + bits > 32 {
+					if bits > 32 {
+						todo!("Error for over-sized bitfield");
+					}
+					finish_bitfield(&mut ofs, &mut align, &mut bitfield_ofs);
+				}
+				let s = bitfield_ofs;
+				//field_offsets.push( Bitfield(ofs, bitfield_ofs) );
+				bitfield_ofs += bits;
+				},
+			}
+		}
+		if bitfield_ofs > 0 {
+			finish_bitfield(&mut ofs, &mut align, &mut bitfield_ofs);
+		}
+		let inner_size = ofs;
+		self.meta = Some(StructMetadata {
+			size: make_aligned(inner_size, align),
+			align: align,
+			field_offsets: field_offsets,
+			});
+	}
+	pub fn get_items(&self) -> Option<&StructBody>
+	{
+		self.items.as_ref()
+	}
+
+	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef)>
+	{
+		let items = match self.items
+			{
+			Some(ref v) => v,
+			None => panic!("TODO: Better error when getting field of an opaque struct"),
+			};
+		items.iter_fields()
+	}
+	pub fn get_field_idx(&self, idx: usize) -> Option<(u32, &str, &TypeRef)> {
+		self.iter_fields().skip(idx).next()
+	}
+}
+impl StructBody
+{
+	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef)>
+	{
+		let mut ofs = 0;
+		self.fields.iter()
+			.map( move |(fld_ty, fld_name)| {
+				match fld_ty
+				{
+				StructFieldTy::Value(fld_ty) => {
+					let (size, align) = fld_ty.get_size_align().expect("Opaque type in struct");
+					ofs = make_aligned(ofs, align);
+					let o = ofs;
+					ofs += size;
+					(o, &fld_name[..], fld_ty)
+					},
+				StructFieldTy::Bitfield(sgn, bits) => {
+					todo!("Bitfield {:?} {}", sgn, bits);
+					},
+				}
+				})
 	}
 }
 
@@ -461,7 +606,24 @@ impl Union
 	pub fn set_items(&mut self, items: Vec<(TypeRef,String)>)
 	{
 		assert!( self.items.is_none() );
-		self.items = Some(items);
+		let mut max_size = 0;
+		let mut align = 1;
+		for (ty, _) in items.iter()
+		{
+			match ty.get_size_align()
+			{
+			Some( (s,a) ) => {
+				max_size = ::std::cmp::max(max_size, s);
+				align = ::std::cmp::max(align, a);
+				},
+			None => panic!("Incomplte type {:?}", ty),
+			}
+		}
+		self.items = Some(UnionData {
+			body: items,
+			size: make_aligned(max_size, align),
+			align: align,
+			});
 	}
 }
 
@@ -490,6 +652,18 @@ impl Enum
 			.expect("Enum::get_item_val on opaque enum")
 			.get(idx)
 			.map(|v| v.0)
+	}
+}
+
+fn make_aligned(ofs: u32, align: u32) -> u32
+{
+	assert!(align > 0);
+	let err = ofs % align;
+	if err > 0 {
+		ofs + (align - err)
+	}
+	else {
+		ofs
 	}
 }
 
