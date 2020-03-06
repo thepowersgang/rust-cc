@@ -34,6 +34,10 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				self.write_struct_def(&self.prog.structs[name].borrow(), true);
 				self.write_str(";\n");
 				},
+			&ItemRef::Enum(ref name) => {
+				self.write_enum_def(&self.prog.enums[name].borrow(), true);
+				self.write_str(";\n");
+				},
 			_ => {},
 			}
 		}
@@ -104,6 +108,31 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				}
 				self.write_str("))");
 			}
+		}
+	}
+	fn write_enum_def(&mut self, s: &::types::Enum, use_newlines: bool)
+	{
+		let nl = if true || use_newlines { "\n" } else { " " };
+		let indent = if true || use_newlines { "\t" } else { "" };
+		self.write_str("enum "); self.write_str(&s.name); self.write_str(nl);
+		if let Some(ref items) = s.get_items()
+		{
+			self.write_str("{"); self.write_str(nl);
+			for &(val, ref name) in items.iter()
+			{
+				self.write_str(indent);
+				write!(self, "{} = {},", name, val);
+				self.write_str(nl);
+			}
+			self.write_str("}");
+			/*if body.attributes.gcc.len() > 0
+			{
+				self.write_str("__attribute__((");
+				for a in &body.attributes.gcc {
+					self.write_str(&a.0);
+				}
+				self.write_str("))");
+			}*/
 		}
 	}
 

@@ -428,6 +428,7 @@ impl Type
 	pub fn get_size_align(&self) -> Option<(u32,u32)> {
 		match self.basetype
 		{
+		BaseType::Bool => Some( (1, 1) ),
 		BaseType::Pointer(_) => Some( (4, 4) ),
 		BaseType::Integer(IntClass::Char(_)) => Some( (1, 1) ),
 		BaseType::Integer(IntClass::Short(_)) => Some((2,2)),
@@ -645,6 +646,10 @@ impl Enum
 	{
 		assert!( self.items.is_none() );
 		self.items = Some(items);
+	}
+	pub fn get_items(&self) -> Option<&[(u64,String)]>
+	{
+		self.items.as_ref().map(|v| &v[..])
 	}
 
 	pub fn get_item_val(&self, idx: usize) -> Option<u64> {

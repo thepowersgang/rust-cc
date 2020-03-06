@@ -280,8 +280,15 @@ impl<'ast> super::ParseState<'ast>
 			node!( String(format!("dunno")) )
 			},
 		Token::Ident(id) => {
+			use crate::ast::IdentRef;
 			// TODO: Look up the name here? (It's where it should be done...)
-			node!( Identifier(id, None) )
+			let b = if let Some( (e,i) ) = self.ast.find_enum_var(&id) {
+					Some(IdentRef::Enum(e, i))
+				}
+				else {
+					None
+				};
+			node!( Identifier(id, b) )
 			},
 		Token::String(s) => {
 			let mut val = s;

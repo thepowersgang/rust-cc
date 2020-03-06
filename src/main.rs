@@ -59,8 +59,8 @@ fn main()
 
 	if true
 	{
-		let stdout = ::std::io::stdout();
-		::ast::pretty_print::write(stdout.lock(), &program);
+		let mut ofp = ::std::fs::File::create("DUMP_parsed.c").unwrap();
+		::ast::pretty_print::write(ofp, &program);
 	}
 
 	// TODO: Type check/annotate?

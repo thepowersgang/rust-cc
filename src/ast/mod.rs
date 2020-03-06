@@ -24,6 +24,8 @@ pub struct Program
 	enums: HashMap<Ident, ::types::EnumRef>,
 	// Aka global variables/functions
 	symbols: HashMap<Ident, Symbol>,
+
+	anon_enum_count: usize,
 }
 /// Referece to a defined item (typedef/struct/value/...)
 enum ItemRef
@@ -175,13 +177,22 @@ impl Program
 	}
 	pub fn get_enum(&mut self, name: &str) -> ::types::EnumRef
 	{
-		if name == "" {
-			::types::Enum::new_ref("")
-		}
-		else {
-			self.enums.entry(name.to_string())
-				.or_insert_with(|| ::types::Enum::new_ref(name))
-				.clone()
+		let name = if name == "" {
+				let name = format!("enum#{}", self.anon_enum_count);
+				self.anon_enum_count += 1;
+				name
+			}
+			else {
+				name.to_string()
+			};
+		use std::collections::hash_map::Entry;
+		match self.enums.entry(name.clone())
+		{
+		Entry::Occupied(e) => e.get().clone(),
+		Entry::Vacant(e) => {
+			let r = ::types::Enum::new_ref(e.key());
+			e.insert(r).clone()
+			}
 		}
 	}
 
@@ -218,10 +229,10 @@ impl Program
 		}
 	}
 	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,Ident)>) -> Result<::types::EnumRef,Option<Ident>> {
-		if name != "" {
-			self.item_order.push(ItemRef::Enum(name.to_owned()));
-		}
 		let er = self.get_enum(name);
+		if er.borrow().name != "" {
+			self.item_order.push(ItemRef::Enum(er.borrow().name.clone()));
+		}
 		let ispop = er.borrow().is_populated();
 		
 		if ispop {
@@ -561,10 +572,12 @@ impl Node
 				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
 				_ => ConstVal::None,
 				},
-			NodeKind::Identifier(_, ref binding) => {
-				//panic!("{:?}", binding);
-				ConstVal::None
-				},	// TODO: Look up ident in the global/constant scope
+			NodeKind::Identifier(_, ref binding) =>
+				match binding
+				{
+				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() ),
+				_ => ConstVal::None,
+				},
 			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
 			NodeKind::SizeofExpr(ref e) => ConstVal::Integer(e.meta.as_ref().unwrap().ty.get_size().expect("") as u64),
 			_ => ConstVal::None,
