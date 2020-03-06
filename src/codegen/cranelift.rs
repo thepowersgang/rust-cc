@@ -91,17 +91,23 @@ impl Context
 		{
 		Initialiser::None => {
 			},
-		Initialiser::ListLiteral(ref vals) => {
-			let inner_ty = match ty.basetype
-				{
-				BaseType::Array(ref inner, _) => inner,
-				_ => todo!("init_data_ctx: ListLiteral with {:?}", ty),
-				};
-			let inner_size = inner_ty.get_size().unwrap() as usize;
-			for (ofs, val) in Iterator::zip( (0 .. ).map(|i| i * inner_size), vals.iter() )
+		Initialiser::ListLiteral(ref vals) =>
+			match ty.basetype
 			{
-				self.init_data_ctx_node(data_ctx, data, offset + ofs, inner_ty, val);
-			}
+			BaseType::Array(ref inner_ty, _) => {
+				let inner_size = inner_ty.get_size().unwrap() as usize;
+				for (ofs, val) in Iterator::zip( (0 .. ).map(|i| i * inner_size), vals.iter() )
+				{
+					self.init_data_ctx_node(data_ctx, data, offset + ofs, inner_ty, val);
+				}
+				},
+			BaseType::Struct(ref s) => {
+				for (val, (ofs, _name, inner_ty)) in Iterator::zip( vals.iter(), s.borrow().iter_fields() )
+				{
+					self.init_data_ctx_node(data_ctx, data, offset + ofs as usize, inner_ty, val);
+				}
+				},
+			_ => todo!("init_data_ctx: ListLiteral with {:?}", ty),
 			},
 		Initialiser::Value(ref val) => self.init_data_ctx_node(data_ctx, data, offset, ty, val),
 		_ => todo!("init_data_ctx: init={:?}", init),
