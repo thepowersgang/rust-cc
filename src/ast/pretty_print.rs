@@ -244,7 +244,6 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			use ::types::Signedness::*;
 			match r
 			{
-			IntClass::Bitfield(s,b) => panic!(""),
 			IntClass::Bits(s,b) => write!(self, "{}int{}_t ", if s.is_unsigned() { "u" } else { "" }, b),
 			IntClass::Char(s) => write!(self, "{}char ", match s { None => "", Some(Signed) => "signed ", Some(Unsigned) => "unsigned " }),
 			IntClass::Short(s) => write!(self, "{}short ", if s.is_unsigned() { "unsigned " } else { "" }),

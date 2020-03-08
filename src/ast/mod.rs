@@ -534,6 +534,7 @@ pub enum ConstVal
 	None,
 	Integer(u64),
 	Float(f64),
+	Address(Ident),
 }
 
 impl Node
@@ -572,11 +573,23 @@ impl Node
 				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
 				_ => ConstVal::None,
 				},
-			NodeKind::Identifier(_, ref binding) =>
+			NodeKind::Identifier(ref name, ref binding) =>
 				match binding
 				{
 				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() ),
+				&Some(IdentRef::Function) => ConstVal::Address(name.clone()),
 				_ => ConstVal::None,
+				},
+			NodeKind::Cast(ref ty, ref val) =>
+				match val.const_eval(required)
+				{
+				v @ ConstVal::None => v,
+				v @ ConstVal::Address(..) => match ty.basetype {
+					crate::types::BaseType::Pointer(..) => v,
+					crate::types::BaseType::Integer(ref ic) if ic.size_align().0 >= 4 => v,
+					_ => ConstVal::None,
+					},
+				v @ _ => todo!("const_eval: {:?} - v={:?}", self, v),
 				},
 			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
 			NodeKind::SizeofExpr(ref e) => ConstVal::Integer(e.meta.as_ref().unwrap().ty.get_size().expect("") as u64),

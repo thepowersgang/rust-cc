@@ -285,6 +285,15 @@ impl<'ast> super::ParseState<'ast>
 			let b = if let Some( (e,i) ) = self.ast.find_enum_var(&id) {
 					Some(IdentRef::Enum(e, i))
 				}
+				else if let Some(v) = self.ast.get_symbol(&id) {
+					if let crate::types::BaseType::Function(_) = v.symtype.basetype {
+						// Special type for functions, as they have strange typecheck decay rules
+						Some(IdentRef::Function)
+					}
+					else {
+						Some(IdentRef::StaticItem)
+					}
+				}
 				else {
 					None
 				};

@@ -138,6 +138,16 @@ impl Context
 					},
 				cty => todo!("init_data_ctx_node: v={:?} cty={:?}", v, cty),
 				},
+			crate::ast::ConstVal::Address(ref name) =>
+				match cvt_ty(ty)
+				{
+				CRTY_PTR => {
+					//let fcn = data_ctx.import_function(self.get_function(name));
+					//data_ctx.write_function_addr(offset as u32, fcn);
+					todo!("init_data_ctx_node: &{:?} crty=PTR", name);
+					},
+				cty => todo!("init_data_ctx_node: &{:?} cty={:?}", name, cty),
+				}
 			v => todo!("init_data_ctx_node: v={:?}", v),
 			},
 		}

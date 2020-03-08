@@ -171,8 +171,8 @@ impl ::std::fmt::Debug for Qualifiers {
 #[derive(Debug,PartialEq,Clone,Copy)]
 pub enum IntClass
 {
-	/// Bitfield
-	Bitfield(Signedness,u8),
+	///// Bitfield
+	//Bitfield(Signedness,u8),
 	/// Fixed-size type
 	Bits(Signedness,u8),
 	/// `char` (three variants: char, signed char, and unsigned char)
@@ -196,7 +196,7 @@ impl IntClass {
 		match *self
 		{
 		IntClass::Bits(s,_) => s,
-		IntClass::Bitfield(s,_) => s,
+		//IntClass::Bitfield(s,_) => s,
 		IntClass::Char(s) => s.unwrap_or(Signedness::Unsigned),
 		IntClass::Short(s) => s,
 		IntClass::Int(s) => s,
@@ -207,13 +207,26 @@ impl IntClass {
 	pub fn clone_with_sgn(&self, s: Signedness) -> Self {
 		match *self
 		{
-		IntClass::Bitfield(_,b) => IntClass::Bitfield(s,b),
+		//IntClass::Bitfield(_,b) => IntClass::Bitfield(s,b),
 		IntClass::Bits(_,b) => IntClass::Bits(s,b),
 		IntClass::Char(_) => IntClass::Char(Some(s)),
 		IntClass::Short(_) => IntClass::Short(s),
 		IntClass::Int(_) => IntClass::Int(s),
 		IntClass::Long(_) => IntClass::Long(s),
 		IntClass::LongLong(_) => IntClass::LongLong(s),
+		}
+	}
+
+	pub fn size_align(&self) -> (u32, u32)
+	{
+		match self
+		{
+		IntClass::Bits(_,b) => todo!(""),
+		IntClass::Char(_) => (1, 1,),
+		IntClass::Short(_) => (2, 2,),
+		IntClass::Int(_) => (4, 4,),
+		IntClass::Long(_) => (4, 4,),
+		IntClass::LongLong(_) => (8, 8,),
 		}
 	}
 }
@@ -430,11 +443,7 @@ impl Type
 		{
 		BaseType::Bool => Some( (1, 1) ),
 		BaseType::Pointer(_) => Some( (4, 4) ),
-		BaseType::Integer(IntClass::Char(_)) => Some( (1, 1) ),
-		BaseType::Integer(IntClass::Short(_)) => Some((2,2)),
-		BaseType::Integer(IntClass::Int(_)) => Some((4,4)),
-		BaseType::Integer(IntClass::Long(_)) => Some((4,4)),
-		BaseType::Integer(IntClass::LongLong(_)) => Some((8,8)),
+		BaseType::Integer(ref ic) => Some(ic.size_align()),
 		BaseType::Float(fc) => Some( (fc.size(), fc.size()) ),
 
 		BaseType::Array(ref inner, ref sz) => inner.get_size_align().map(|(s,a)| (s * sz.get_value() as u32, a)),
