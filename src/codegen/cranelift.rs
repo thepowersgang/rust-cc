@@ -15,8 +15,14 @@ extern crate target_lexicon;
 pub struct Context
 {
 	module: ::cranelift_module::Module<::cranelift_object::ObjectBackend>,
-	functions: HashMap<Ident, ::cranelift_codegen::ir::ExternalName>,
+	functions: HashMap<Ident, FunctionRecord>,
 	globals: HashMap<Ident, ::cranelift_module::DataId>,
+}
+struct FunctionRecord
+{
+	name: ::cranelift_codegen::ir::ExternalName,
+	id: ::cranelift_module::FuncId,
+	sig: ::cranelift_codegen::ir::Signature,
 }
 impl Context
 {
@@ -41,12 +47,19 @@ impl Context
 			}
 	}
 
-	fn get_function(&mut self, name: &Ident) -> ::cranelift_codegen::ir::ExternalName
+	fn get_function(&mut self, name: &Ident, ty: &crate::types::FunctionType) -> &FunctionRecord
 	{
 		let idx = self.functions.len();
+		let module = &mut self.module;
 		self.functions.entry(name.clone())
-			.or_insert_with(|| ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, })
-			.clone()
+			.or_insert_with(|| {
+				let sig = make_sig(ty);
+				FunctionRecord {
+					name: ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, },
+					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
+					sig: sig,
+					}
+				})
 	}
 	fn create_string(&mut self, val: Vec<u8>) -> ::cranelift_module::DataId
 	{
@@ -142,9 +155,14 @@ impl Context
 				match cvt_ty(ty)
 				{
 				CRTY_PTR => {
+					if let Some(fr) = self.functions.get(name) {
+						todo!("init_data_ctx_node: &{:?} crty=PTR fcn", name);
+					}
+					else {
+						todo!("init_data_ctx_node: &{:?} crty=PTR", name);
+					}
 					//let fcn = data_ctx.import_function(self.get_function(name));
 					//data_ctx.write_function_addr(offset as u32, fcn);
-					todo!("init_data_ctx_node: &{:?} crty=PTR", name);
 					},
 				cty => todo!("init_data_ctx_node: &{:?} cty={:?}", name, cty),
 				}
@@ -153,6 +171,10 @@ impl Context
 		}
 	}
 
+	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
+	{
+		self.get_function(name, ty);
+	}
 	pub fn lower_function(&mut self, name: &Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
 		debug!("lower_function({}: {:?})", name, ty);
@@ -169,7 +191,10 @@ impl Context
 		}
 
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
-		let mut func = Function::with_name_signature(self.get_function(name), sig);
+		let mut func = {
+			let fr = self.get_function(name, ty);
+			Function::with_name_signature(fr.name.clone(), fr.sig.clone())
+			};
 		let mut b = Builder {
 			context: self,
 			builder: FunctionBuilder::new(&mut func, &mut fn_builder_ctx),
@@ -521,9 +546,10 @@ impl Builder<'_>
 				let builder = &mut self.builder;
 				let v = self.fcn_imports.entry(name.clone())
 					.or_insert_with(|| {
+						let fr = context.get_function(&name, match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), });
 						let func_data = ::cranelift_codegen::ir::ExtFuncData {
-							name: context.get_function(&name),
-							signature: builder.import_signature(make_sig(match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), })),
+							name: fr.name.clone(),
+							signature: builder.import_signature(fr.sig.clone()),
 							colocated: false,
 							};
 						builder.import_function(func_data)
@@ -1038,6 +1064,9 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 		sz => todo!("Convert integer {:?} ({}) to cranelift", ic, sz),
 		},
 	BaseType::Struct(_) => return None,
+	BaseType::Enum(_) => cr_tys::I32,
+	BaseType::MagicType(crate::types::MagicType::VaList) => CRTY_PTR,
+	BaseType::MagicType(crate::types::MagicType::Named(_,ref t)) if t == "*void" => CRTY_PTR,
 	_ => todo!("Convert {:?} to cranelift", ty),
 	})
 }
@@ -1057,7 +1086,14 @@ fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signatu
 	// - Arguments
 	sig.params.reserve( ty.args.len() );
 	for (arg_ty, _arg_name) in &ty.args {
-		sig.params.push( AbiParam::new(cvt_ty(&arg_ty)) );
+		sig.params.push( AbiParam::new(
+			if let BaseType::Array(..) = arg_ty.basetype {
+				// Arrays are pointers in arguments
+				CRTY_PTR
+			}
+			else {
+				cvt_ty(&arg_ty)
+			}) );
 	}
 	if ty.is_variadic {
 		// TODO: Encode variadic types (cranelif can't do that yet)

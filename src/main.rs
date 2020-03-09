@@ -92,11 +92,16 @@ fn main()
 	if true
 	{
 		let mut c = codegen::Context::new();
-		for (name,ty,sym) in program.iter_symbols()
+		for (name,ty,sym) in program.iter_symbols_with_prototypes()
 		{
 			match sym
 			{
-			ast::SymbolValue::Code(ref fcn) => {
+			None => match ty.basetype
+				{
+				crate::types::BaseType::Function(ref fcn_ty) => c.declare_function(name, fcn_ty),
+				_ => c.declare_value(name, ty),
+				},
+			Some(ast::SymbolValue::Code(ref fcn)) => {
 				let fcn_ty = match ty.basetype
 					{
 					crate::types::BaseType::Function(ref fcn_ty) => fcn_ty,
@@ -104,7 +109,7 @@ fn main()
 					};
 				c.lower_function(name, fcn_ty, &fcn.borrow());
 				},
-			ast::SymbolValue::Value(ref init) => {
+			Some(ast::SymbolValue::Value(ref init)) => {
 				c.lower_value(name, ty, &init.borrow());
 				},
 			}

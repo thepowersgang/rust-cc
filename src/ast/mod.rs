@@ -185,7 +185,6 @@ impl Program
 			else {
 				name.to_string()
 			};
-		use std::collections::hash_map::Entry;
 		match self.enums.entry(name.clone())
 		{
 		Entry::Occupied(e) => e.get().clone(),
@@ -271,15 +270,31 @@ impl Program
 				})
 	}
 	pub fn iter_symbols(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &SymbolValue)> {
+		self.iter_symbols_with_prototypes().filter_map(|v| match v
+			{
+			(n, t, Some(v)) => Some( (n,t,v,) ),
+			(n, t, None) => None,
+			}
+			)
+	}
+	pub fn iter_symbols_with_prototypes(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, Option<&SymbolValue>)> {
 		self.item_order.iter()
-			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
-			.filter_map(move |name| {
+			.filter_map(move |v| {
+				let (name, is_fwd) = match v
+					{
+					ItemRef::Value(ref n) => (n, false),
+					ItemRef::ValueDecl(ref n) => (n, true),
+					_ => return None,
+					};
 				let s = &self.symbols[name];
 				match s.value
 				{
-				Some(ref v) => Some( (name, &s.symtype, v,) ),
-				None => {
-					if false /*s.symtype.qualifiers.is_extern()*/ {
+				Some(ref v) if !is_fwd => Some( (name, &s.symtype, Some(v),) ),
+				_ => {
+					if true {
+						Some( (name, &s.symtype, None,) )
+					}
+					else if false /*s.symtype.qualifiers.is_extern()*/ {
 						None
 					}
 					else if let crate::types::BaseType::Function(..) = s.symtype.basetype {
