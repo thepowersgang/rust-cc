@@ -156,13 +156,12 @@ impl Context
 				{
 				CRTY_PTR => {
 					if let Some(fr) = self.functions.get(name) {
-						todo!("init_data_ctx_node: &{:?} crty=PTR fcn", name);
+						let fcn = data_ctx.import_function(self.functions[name].name.clone());
+						data_ctx.write_function_addr(offset as u32, fcn);
 					}
 					else {
 						todo!("init_data_ctx_node: &{:?} crty=PTR", name);
 					}
-					//let fcn = data_ctx.import_function(self.get_function(name));
-					//data_ctx.write_function_addr(offset as u32, fcn);
 					},
 				cty => todo!("init_data_ctx_node: &{:?} cty={:?}", name, cty),
 				}
