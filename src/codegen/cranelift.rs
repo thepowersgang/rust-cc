@@ -799,7 +799,11 @@ impl Builder<'_>
 	fn handle_cast(&mut self, dst_ty: &TypeRef, src_val: ValueRef, src_ty: &TypeRef, is_implicit: bool) -> ValueRef
 	{
 		let cast_name = if is_implicit { "ImplicitCast" } else { "Cast" };
-		if let BaseType::Array(..) = src_ty.basetype {
+		if let BaseType::Void = dst_ty.basetype {
+			let _ = self.get_value(src_val);
+			ValueRef::Void
+		}
+		else if let BaseType::Array(..) = src_ty.basetype {
 			match dst_ty.basetype
 			{
 			BaseType::Pointer(..) => {},
