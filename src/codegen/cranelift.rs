@@ -82,6 +82,7 @@ impl Context
 			Ok(did) => did,
 			Err(e) => panic!("lower_value: {:?} - Error {:?}", name, e),
 			};
+		self.globals.insert(name.clone(), did);
 
 		let size = ty.get_size().expect("Global with unknown size") as usize;
 		let mut data_ctx = ::cranelift_module::DataContext::new();
@@ -94,8 +95,6 @@ impl Context
 			data_ctx.define(data);
 		}
 		self.module.define_data(did, &data_ctx);
-
-		self.globals.insert(name.clone(), did);
 	}
 
 	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, init: &Initialiser)
@@ -200,6 +199,7 @@ impl Context
 			stack: vec![ Scope::new() ],
 			vars: vars,
 			fcn_imports: Default::default(),
+			global_imports: Default::default(),
 			};
 
 		// Define variables
@@ -279,6 +279,7 @@ struct Builder<'a>
 	vars: Vec<ValueRef>,
 
 	fcn_imports: HashMap<Ident, cr_e::FuncRef>,
+	global_imports: HashMap<Ident, cr_e::GlobalValue>,
 }
 struct Scope
 {
@@ -812,7 +813,20 @@ impl Builder<'_>
 			ValueRef::Pointer(base, ofs, _ty) => {
 				ValueRef::Temporary(self.builder.ins().iadd_imm(base, ofs as i64))
 				},
-			//ValueRef::Global(name, ofs, _ty) => {
+			ValueRef::Global(name, ofs, _ty) => {
+				let ctxt = &*self.context;
+				let func = &mut *self.builder.func;
+				let gv = self.global_imports.entry(name.clone()).or_insert_with(|| {
+					let did = match ctxt.globals.get(&name)
+						{
+						Some(r) => r.clone(),
+						None => panic!("TODO: Error when global not defined - {}", name),
+						};
+						ctxt.module.declare_data_in_func(did, func)
+					})
+					.clone();
+				ValueRef::Temporary(self.builder.ins().symbol_value(CRTY_PTR, gv))
+				},
 			_ => todo!("{} {:?} {:?} to {:?}", cast_name, src_val, src_ty, dst_ty),
 			}
 		}
