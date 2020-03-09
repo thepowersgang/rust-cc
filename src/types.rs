@@ -171,10 +171,8 @@ impl ::std::fmt::Debug for Qualifiers {
 #[derive(Debug,PartialEq,Clone,Copy)]
 pub enum IntClass
 {
-	///// Bitfield
-	//Bitfield(Signedness,u8),
-	/// Fixed-size type
-	Bits(Signedness,u8),
+	///// Fixed-size type
+	//Bits(Signedness,u8),
 	/// `char` (three variants: char, signed char, and unsigned char)
 	Char(Option<Signedness>),
 	/// `[un]signed short [int]`
@@ -195,8 +193,7 @@ impl IntClass {
 	pub fn signedness(&self) -> Signedness {
 		match *self
 		{
-		IntClass::Bits(s,_) => s,
-		//IntClass::Bitfield(s,_) => s,
+		//IntClass::Bits(s,_) => s,
 		IntClass::Char(s) => s.unwrap_or(Signedness::Unsigned),
 		IntClass::Short(s) => s,
 		IntClass::Int(s) => s,
@@ -207,8 +204,7 @@ impl IntClass {
 	pub fn clone_with_sgn(&self, s: Signedness) -> Self {
 		match *self
 		{
-		//IntClass::Bitfield(_,b) => IntClass::Bitfield(s,b),
-		IntClass::Bits(_,b) => IntClass::Bits(s,b),
+		//IntClass::Bits(_,b) => IntClass::Bits(s,b),
 		IntClass::Char(_) => IntClass::Char(Some(s)),
 		IntClass::Short(_) => IntClass::Short(s),
 		IntClass::Int(_) => IntClass::Int(s),
@@ -221,7 +217,7 @@ impl IntClass {
 	{
 		match self
 		{
-		IntClass::Bits(_,b) => todo!(""),
+		//IntClass::Bits(_,b) => todo!("size_align with Bits({})", b),
 		IntClass::Char(_) => (1, 1,),
 		IntClass::Short(_) => (2, 2,),
 		IntClass::Int(_) => (4, 4,),
@@ -436,7 +432,7 @@ impl Type
 	}
 
 	pub fn get_size(&self) -> Option<u32> {
-		self.get_size_align().map(|(s,a)| s)
+		self.get_size_align().map(|(s,_a)| s)
 	}
 	pub fn get_size_align(&self) -> Option<(u32,u32)> {
 		match self.basetype
@@ -518,7 +514,7 @@ impl Struct
 			*size = 0;
 		}
 
-		for (fld_ty, fld_name) in items.fields.iter()
+		for (fld_ty, _fld_name) in items.fields.iter()
 		{
 			match fld_ty
 			{
@@ -534,14 +530,13 @@ impl Struct
 				field_offsets.push( ofs );
 				ofs += fld_size;
 				},
-			&StructFieldTy::Bitfield(sgn, bits) => {
+			&StructFieldTy::Bitfield(_sgn, bits) => {
 				if bitfield_ofs + bits > 32 {
 					if bits > 32 {
 						todo!("Error for over-sized bitfield");
 					}
 					finish_bitfield(&mut ofs, &mut align, &mut bitfield_ofs);
 				}
-				let s = bitfield_ofs;
 				//field_offsets.push( Bitfield(ofs, bitfield_ofs) );
 				bitfield_ofs += bits;
 				},

@@ -105,7 +105,7 @@ impl<'a> Context<'a>
 			ty: ty,
 			});
 		let scope = self.scopes.last_mut().unwrap();
-		if let Some(v) = scope.variables.get(&name) {
+		if let Some(_v) = scope.variables.get(&name) {
 			// TODO: This could be just a warning (C standard doesn't allow multiple definitions, but we could)
 			panic!("Multiple defintions of `{}`", name);
 		}
@@ -336,9 +336,9 @@ impl<'a> Context<'a>
 			}
 			// Variadic functions have `void` as the last arg
 			if fcn_ty.is_variadic {
-				for arg_val in args.iter_mut().skip(fcn_ty.args.len()) {
+				for _ in args.iter_mut().skip(fcn_ty.args.len()) {
 					// Any restriction on values?
-					// - float must be double
+					// - float must be double?
 					// - integers must be `int` or larger
 				}
 			}
@@ -666,8 +666,6 @@ impl<'a> Context<'a>
 			Some( (_ofs, ty) ) => ty,
 			}
 			},
-
-		_ => todo!("visit_node_inner(): {:?}", node_kind),
 		}
 	}
 
@@ -698,14 +696,15 @@ impl<'a> Context<'a>
 		{
 		(BaseType::Integer(i1), BaseType::Integer(i2)) => BaseType::Integer(match i1
 			{
+			//IntClass::Bits(_s1, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 			IntClass::Char(_s1) => match i2
 				{
-				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				//IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				_ => i2.clone_with_sgn( sgn(&i1.signedness(), &i2.signedness()) ),
 				},
 			IntClass::Short(s1) => match i2
 				{
-				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				//IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Long(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Int(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
@@ -713,23 +712,22 @@ impl<'a> Context<'a>
 				},
 			IntClass::Int(s1) => match i2
 				{
-				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				//IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				IntClass::Long(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			IntClass::Long(s1) => match i2
 				{
-				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				//IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				IntClass::LongLong(s2) => i2.clone_with_sgn( sgn(s1, s2) ),
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			IntClass::LongLong(s1) => match i2
 				{
-				IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
+				//IntClass::Bits(_s2, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
-			_ => todo!("max_ty Integers {:?} {:?}", i1, i2),
 			}),
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
 			if i1.basetype != i2.basetype {

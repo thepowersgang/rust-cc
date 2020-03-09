@@ -17,11 +17,12 @@ pub struct Context
 	module: ::cranelift_module::Module<::cranelift_object::ObjectBackend>,
 	functions: HashMap<Ident, FunctionRecord>,
 	globals: HashMap<Ident, ::cranelift_module::DataId>,
+	string_count: usize,
 }
 struct FunctionRecord
 {
 	name: ::cranelift_codegen::ir::ExternalName,
-	id: ::cranelift_module::FuncId,
+	_id: ::cranelift_module::FuncId,
 	sig: ::cranelift_codegen::ir::Signature,
 }
 impl Context
@@ -44,6 +45,7 @@ impl Context
 				).expect("Can't create object builder")),
 			functions: Default::default(),
 			globals: Default::default(),
+			string_count: 0,
 			}
 	}
 
@@ -56,20 +58,22 @@ impl Context
 				let sig = make_sig(ty);
 				FunctionRecord {
 					name: ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, },
-					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
+					_id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
 					sig: sig,
 					}
 				})
 	}
 	fn create_string(&mut self, val: Vec<u8>) -> ::cranelift_module::DataId
 	{
+		let string_name = format!("str#{}", self.string_count);
+		self.string_count += 1;
 		// Declare
-		let did = self.module.declare_data("", Linkage::Local, /*writeable*/false, /*align*/None)
+		let did = self.module.declare_data(&string_name, Linkage::Local, /*writeable*/false, /*align*/None)
 			.expect("Failed to declare");
 		// Define
 		let mut data_ctx = ::cranelift_module::DataContext::new();
 		data_ctx.define({ let mut val = val; val.push(0); val.into_boxed_slice() });
-		self.module.define_data(did, &data_ctx);
+		self.module.define_data(did, &data_ctx).expect("create_string - define_data");
 		did
 	}
 
@@ -94,7 +98,7 @@ impl Context
 			self.init_data_ctx(&mut data_ctx, &mut data, 0, ty, val);
 			data_ctx.define(data);
 		}
-		self.module.define_data(did, &data_ctx);
+		self.module.define_data(did, &data_ctx).expect("lower_value - define_data");
 	}
 
 	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, init: &Initialiser)
@@ -155,7 +159,7 @@ impl Context
 				{
 				CRTY_PTR => {
 					if let Some(fr) = self.functions.get(name) {
-						let fcn = data_ctx.import_function(self.functions[name].name.clone());
+						let fcn = data_ctx.import_function(fr.name.clone());
 						data_ctx.write_function_addr(offset as u32, fcn);
 					}
 					else {
@@ -180,7 +184,6 @@ impl Context
 		use cranelift_codegen::ir::Function;
 		use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
-		let sig = make_sig(ty);
 		// - Arguments
 		let mut vars = Vec::<ValueRef>::new();
 		for (idx,(_arg_ty, _arg_name)) in Iterator::enumerate(ty.args.iter()) {
@@ -589,7 +592,7 @@ impl Builder<'_>
 					})
 				.collect()
 				;
-			let inst = if let ValueRef::Function(ref name, fcn_ref) = fcn {
+			let inst = if let ValueRef::Function(ref _name, fcn_ref) = fcn {
 					self.builder.ins().call(fcn_ref, &args)
 				}
 				else {
@@ -829,6 +832,9 @@ impl Builder<'_>
 						ctxt.module.declare_data_in_func(did, func)
 					})
 					.clone();
+				if ofs != 0 {
+					todo!("ValueRef::Global array cast to pointer - non-zero offset");
+				}
 				ValueRef::Temporary(self.builder.ins().symbol_value(CRTY_PTR, gv))
 				},
 			_ => todo!("{} {:?} {:?} to {:?}", cast_name, src_val, src_ty, dst_ty),

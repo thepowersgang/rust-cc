@@ -248,7 +248,7 @@ impl Program
 		self.symbols.get(name)
 	}
 	pub fn find_enum_var(&self, name: &Ident) -> Option<(crate::types::EnumRef, usize)> {
-		for (enm_name, enm) in &self.enums
+		for (_enm_name, enm) in &self.enums
 		{
 			if let Some(idx) = enm.borrow().find_var(name) {
 				return Some( (enm.clone(), idx) );
@@ -257,23 +257,11 @@ impl Program
 		None
 	}
 
-	pub fn iter_functions(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &::std::cell::RefCell<FunctionBody>)> {
-		self.item_order.iter()
-			.filter_map(move |v| match v { ItemRef::Value(ref n) => Some(n), _ => None })
-			.filter_map(move |name| {
-				let s = &self.symbols[name];
-				match s.value
-				{
-				Some(SymbolValue::Code(ref e)) => Some( (name, &s.symtype, e) ),
-				_ => None,
-				}
-				})
-	}
 	pub fn iter_symbols(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &SymbolValue)> {
 		self.iter_symbols_with_prototypes().filter_map(|v| match v
 			{
 			(n, t, Some(v)) => Some( (n,t,v,) ),
-			(n, t, None) => None,
+			(_n, _t, None) => None,
 			}
 			)
 	}
@@ -574,6 +562,7 @@ impl Node
 		match match self.kind
 			{
 			NodeKind::Integer(v, _ty) => ConstVal::Integer(v),
+			NodeKind::Float(v, _ty) => ConstVal::Float(v),
 			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(required))
 				{
 				(&UniOp::Neg,ConstVal::Integer(a)) => ConstVal::Integer(!a + 1),

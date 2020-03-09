@@ -57,9 +57,9 @@ fn main()
 	Ok(_) => {}
 	}
 
-	if true
+	if false
 	{
-		let mut ofp = ::std::fs::File::create("DUMP_parsed.c").unwrap();
+		let ofp = ::std::fs::File::create("DUMP_parsed.c").unwrap();
 		::ast::pretty_print::write(ofp, &program);
 	}
 
@@ -84,7 +84,6 @@ fn main()
 		ast::SymbolValue::Value(ref init) => {
 			typecheck::handle_global(&program, name, ty, &mut init.borrow_mut());
 			},
-		_ => {},
 		}
 	}
 

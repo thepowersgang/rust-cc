@@ -116,6 +116,7 @@ impl Conditional {
 struct TokenSourceStack
 {
 	lexers: Vec<InnerLexer>,
+	include_inner_eof: bool,
 }
 enum InnerLexer
 {
@@ -157,7 +158,7 @@ impl Preproc
 				lex::Lexer::new(box ::std::io::stdin().chars())
 			};
 		Ok(Preproc {
-			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.to_owned()) ),
+			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.to_owned()), options.include_handling != Handling::InternalOnly ),
 			start_of_line: true,
 			saved_tok: None,
 			macros: Default::default(),
@@ -1277,14 +1278,15 @@ impl InnerLexer
 
 impl TokenSourceStack
 {
-	fn new(lexer: lex::Lexer<'static>, filename: Option<::std::path::PathBuf>) -> TokenSourceStack
+	fn new(lexer: lex::Lexer<'static>, filename: Option<::std::path::PathBuf>, include_inner_eof: bool) -> TokenSourceStack
 	{
 		TokenSourceStack {
 			lexers: vec![ InnerLexer::File(LexHandle {
 				lexer: lexer,
 				filename: filename,
 				line: 1,
-				}) ]
+				}) ],
+			include_inner_eof,
 			}
 	}
 
@@ -1346,8 +1348,11 @@ impl TokenSourceStack
 			{
 			Token::EOF if self.lexers.len() > 1 => {
 				// EOF on inner parse: Pop and continue
-				// TODO: Return a marker token that indicates the end of a file?
 				self.lexers.pop();
+				// - Optionally return a marker token that indicates the end of a file.
+				if self.include_inner_eof {
+					return Ok(token::Preprocessor::EndOfInclude.into());
+				}
 				},
 			t => return Ok(t),
 			}
