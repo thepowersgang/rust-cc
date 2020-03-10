@@ -288,6 +288,13 @@ struct Scope
 {
 	blk_break: Option<cr_e::Block>,
 	blk_continue: Option<cr_e::Block>,
+	switch: Option<SwitchScope>,
+}
+#[derive(Default)]
+struct SwitchScope
+{
+	case_default: Option<cr_e::Block>,
+	case_labels: Vec<(u64, cr_e::Block)>,
 }
 
 impl Builder<'_>
@@ -517,7 +524,68 @@ impl Builder<'_>
 			self.builder.seal_block(blk_orphan);
 			},
 
-		_ => panic!("TODO: {:?}", stmt),
+		Statement::Switch(ref val, ref body) => {
+			trace!("{}switch {:?}", self.indent(), val);
+			let val = self.handle_node(val);
+			let val = self.get_value(val);
+			// - Make a block to contain the condition table (don't start it yet), and for the break target
+			let blk_cond = self.builder.create_block();
+			self.builder.ins().jump(blk_cond, &[]);
+			self.builder.seal_block(blk_cond);
+			let blk_end = self.builder.create_block();
+			let blk_body = self.builder.create_block();
+			self.builder.switch_to_block(blk_body);
+			self.builder.seal_block(blk_body);
+			// - Convert the body (first block should be an orphan)
+			self.stack.push(Scope::new_switch(blk_end));
+			self.handle_block(body);
+			let labels = self.stack.pop().and_then(|v| v.switch).expect("Didn't pop a switch scope");
+			self.builder.ins().jump(blk_end, &[]);
+			// - Generate table (using ::cranelift_frontend::Switch)
+			self.builder.switch_to_block(blk_cond);
+			let mut switch = ::cranelift_frontend::Switch::new();
+			for (v,b) in &labels.case_labels
+			{
+				switch.set_entry(*v, *b);
+			}
+			switch.emit(&mut self.builder, val, labels.case_default.unwrap_or(blk_end));
+			for (_v,b) in &labels.case_labels
+			{
+				// TODO: What if the same block is reused?
+				self.builder.seal_block(*b);
+			}
+			// - Finalise
+			self.builder.switch_to_block(blk_end);
+			self.builder.seal_block(blk_end);
+			},
+		Statement::CaseDefault => {
+			},
+		Statement::CaseSingle(v) => {
+			let blk = {	// TODO: if there's chanined cases, be more efficient
+				let blk = self.builder.create_block();
+				self.builder.ins().jump(blk, &[]);
+				self.builder.switch_to_block(blk);
+				blk
+				};
+			for e in self.stack.iter_mut().rev()
+			{
+				if let Some(ref mut sw) = e.switch {
+					sw.case_labels.push( (v, blk,) );
+					return;
+				}
+			}
+			panic!("TODO: Error for case outside a switch");
+			},
+		Statement::CaseRange(s, e) => {
+			todo!("CaseRange({} ..= {})", s, e);
+			},
+
+		Statement::Goto(ref label) => {
+			todo!("Goto({:?})", label);
+			},
+		Statement::Label(ref label) => {
+			todo!("Label({:?})", label);
+			},
 		}
 	}
 
@@ -785,7 +853,24 @@ impl Builder<'_>
 			}
 			},
 
-		_ => panic!("TODO: handle_node - {:?}", node),
+		NodeKind::SizeofType(..) => panic!("TODO: handle_node - {:?}", node),
+		NodeKind::SizeofExpr(..) => panic!("TODO: handle_node - {:?}", node),
+		NodeKind::Intrinsic(ref name, ref types, ref values) => match &name[..]
+			{
+			"va_arg" => {
+				let list = self.handle_node(&values[0]);
+				let ty = cvt_ty(&types[0]);
+				//todo!("handle_node - va_arg ty={:?} list={:?}", ty, list); 
+				// TODO: This heavily depends on the specific ABI.
+				match ty
+				{
+				cr_tys::I32 => ValueRef::Temporary(self.builder.ins().iconst(ty, 0 as i64)),
+				cr_tys::I64 => ValueRef::Temporary(self.builder.ins().iconst(ty, 0 as i64)),
+				_ => todo!("handle_node - va_arg ty={:?} list={:?}", ty, list),
+				}
+				},
+			_ => panic!("TODO: handle_node - {:?}", node),
+			},
 		}
 	}
 	fn handle_expr_def(&mut self, node: &crate::ast::ExprOrDef) -> ValueRef
@@ -947,6 +1032,9 @@ impl Builder<'_>
 				BinOp::ShiftLeft => self.builder.ins().ishl(val_l, val_r),
 				BinOp::ShiftRight => self.builder.ins().sshr(val_l, val_r),
 
+				BinOp::BitAnd => self.builder.ins().band(val_l, val_r),
+				BinOp::BitOr => self.builder.ins().bor(val_l, val_r),
+
 				_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
 				},
 			TyC::Unsigned => match op
@@ -1052,12 +1140,21 @@ impl Scope
 		Scope {
 			blk_break: None,
 			blk_continue: None,
+			switch: None,
+			}
+	}
+	fn new_switch(blk_break: cr_e::Block) -> Self {
+		Scope {
+			blk_break: Some(blk_break),
+			blk_continue: None,
+			switch: Some(Default::default()),
 			}
 	}
 	fn new_loop(blk_break: cr_e::Block, blk_continue: cr_e::Block) -> Self {
 		Scope {
 			blk_break: Some(blk_break),
 			blk_continue: Some(blk_continue),
+			switch: None,
 			}
 	}
 }
