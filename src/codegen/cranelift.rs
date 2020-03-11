@@ -1,4 +1,4 @@
-
+//!
 use std::collections::HashMap;
 use cranelift_codegen::ir::entities as cr_e;
 use cranelift_codegen::ir::condcodes as cr_cc;
@@ -203,6 +203,9 @@ impl Context
 			vars: vars,
 			fcn_imports: Default::default(),
 			global_imports: Default::default(),
+
+			labels: Default::default(),
+			missed_labels: Default::default(),
 			};
 
 		// Define variables
@@ -283,6 +286,9 @@ struct Builder<'a>
 
 	fcn_imports: HashMap<Ident, cr_e::FuncRef>,
 	global_imports: HashMap<Ident, cr_e::GlobalValue>,
+
+	labels: HashMap<Ident, cr_e::Block>,
+	missed_labels: HashMap<Ident, cr_e::Block>,
 }
 struct Scope
 {
@@ -559,8 +565,11 @@ impl Builder<'_>
 			self.builder.seal_block(blk_end);
 			},
 		Statement::CaseDefault => {
+			trace!("{}default:", self.indent());
+			todo!("CaseDefault");
 			},
 		Statement::CaseSingle(v) => {
+			trace!("{}case {}:", self.indent(), v);
 			let blk = {	// TODO: if there's chanined cases, be more efficient
 				let blk = self.builder.create_block();
 				self.builder.ins().jump(blk, &[]);
@@ -581,10 +590,34 @@ impl Builder<'_>
 			},
 
 		Statement::Goto(ref label) => {
-			todo!("Goto({:?})", label);
+			trace!("{}goto {:?}", self.indent(), label);
+			// If the label is already defined, then insert a jump to that block.
+			if let Some(b) = self.labels.get(label) {
+				self.builder.ins().jump(b.clone(), &[]);
+			}
+			// Otherwise, create a block and store it for when the label is created
+			else {
+				let blk = self.builder.create_block();
+				self.missed_labels.insert(label.clone(), blk);
+				self.builder.ins().jump(blk, &[]);
+			}
+			// Start a new block (orphaned)
+			let blk = self.builder.create_block();
+			self.builder.switch_to_block(blk);
 			},
 		Statement::Label(ref label) => {
-			todo!("Label({:?})", label);
+			trace!("{}{:?}:", self.indent(), label);
+			// Make a new block
+			let blk = if let Some(blk) = self.missed_labels.remove(label) {
+					blk
+				}
+				else {
+					self.builder.create_block()
+				};
+			self.builder.ins().jump(blk, &[]);
+			self.builder.switch_to_block(blk);
+			// Add the label to a list of labels
+			self.labels.insert(label.clone(), blk);
 			},
 		}
 	}
