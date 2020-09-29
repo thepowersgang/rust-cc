@@ -39,8 +39,7 @@ impl Context
 		Context {
 			module: ::cranelift_module::Module::new(::cranelift_object::ObjectBuilder::new(
 				isa,
-				"unknown_object.o".into(),
-				::cranelift_object::ObjectTrapCollection::Disabled,
+				b"unknown_object.o"[..].to_owned(),
 				::cranelift_module::default_libcall_names(),
 				).expect("Can't create object builder")),
 			functions: Default::default(),
@@ -68,7 +67,7 @@ impl Context
 		let string_name = format!("str#{}", self.string_count);
 		self.string_count += 1;
 		// Declare
-		let did = self.module.declare_data(&string_name, Linkage::Local, /*writeable*/false, /*align*/None)
+		let did = self.module.declare_data(&string_name, Linkage::Local, /*writeable*/false, /*tls*/false, /*align*/None)
 			.expect("Failed to declare");
 		// Define
 		let mut data_ctx = ::cranelift_module::DataContext::new();
@@ -81,7 +80,7 @@ impl Context
 	{
 		debug!("lower_value({}: {:?} = {:?})", name, ty, val);
 
-		let did = match self.module.declare_data(name.as_str(), Linkage::Export, /*writable*/!ty.qualifiers.is_const(), /*align*/None)
+		let did = match self.module.declare_data(name.as_str(), Linkage::Export, /*writable*/!ty.qualifiers.is_const(), /*tls*/false, /*align*/None)
 			{
 			Ok(did) => did,
 			Err(e) => panic!("lower_value: {:?} - Error {:?}", name, e),
@@ -244,6 +243,13 @@ impl Context
 			b.builder.ins().return_(&[]);
 		}
 
+		for (_lbl, blk) in b.labels {
+			b.builder.seal_block(blk);
+		}
+		for (lbl, _blk) in b.missed_labels {
+			panic!("TODO: Error for missing label {:?}", lbl);
+		}
+
 		debug!("{}", b.builder.display(None));
 		b.builder.finalize();
 	}
@@ -351,9 +357,9 @@ impl Builder<'_>
 			trace!("{}if {:?}", self.indent(), cond);
 			let cond_v = self.handle_expr_def(cond);
 			let cond_v = self.get_value(cond_v);
-			let true_blk = self.builder.create_block();
-			let else_blk = self.builder.create_block();
-			let done_blk = self.builder.create_block();
+			let true_blk = self.builder.create_block(); trace!("++{:?}", true_blk);
+			let else_blk = self.builder.create_block(); trace!("++{:?}", else_blk);
+			let done_blk = self.builder.create_block(); trace!("++{:?}", done_blk);
 			self.builder.ins().brz(cond_v, else_blk, &[]);
 			self.builder.ins().jump(true_blk, &[]);
 
@@ -380,9 +386,9 @@ impl Builder<'_>
 
 		Statement::WhileLoop { ref cond, ref body } => {
 			trace!("{}while {:?}", self.indent(), cond);
-			let blk_top = self.builder.create_block();
-			let blk_body = self.builder.create_block();
-			let blk_exit = self.builder.create_block();
+			let blk_top = self.builder.create_block(); trace!("++{:?}", blk_top);
+			let blk_body = self.builder.create_block(); trace!("++{:?}", blk_body);
+			let blk_exit = self.builder.create_block(); trace!("++{:?}", blk_exit);
 			self.builder.ins().jump(blk_top, &[]);
 
 			self.builder.switch_to_block(blk_top);
@@ -409,9 +415,9 @@ impl Builder<'_>
 			},
 
 		Statement::DoWhileLoop { ref body, ref cond } => {
-			let blk_body = self.builder.create_block();
-			let blk_foot = self.builder.create_block();	// target of continue
-			let blk_exit = self.builder.create_block();	// target of break
+			let blk_body = self.builder.create_block(); trace!("++{:?}", blk_body);
+			let blk_foot = self.builder.create_block(); trace!("++{:?}", blk_foot);	// target of continue
+			let blk_exit = self.builder.create_block(); trace!("++{:?}", blk_exit);	// target of break
 			self.builder.ins().jump(blk_body, &[]);
 
 			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
@@ -443,10 +449,10 @@ impl Builder<'_>
 				self.handle_expr_def(init);
 			}
 
-			let blk_top = self.builder.create_block();	// loop back
-			let blk_body = self.builder.create_block();
-			let blk_foot = self.builder.create_block();	// target of continue
-			let blk_exit = self.builder.create_block();	// target of break
+			let blk_top = self.builder.create_block(); trace!("++{:?}", blk_top);	// loop back
+			let blk_body = self.builder.create_block(); trace!("++{:?}", blk_body);
+			let blk_foot = self.builder.create_block(); trace!("++{:?}", blk_foot);	// target of continue
+			let blk_exit = self.builder.create_block(); trace!("++{:?}", blk_exit);	// target of break
 			self.builder.ins().jump(blk_top, &[]);
 
 			self.builder.switch_to_block(blk_top);
@@ -489,7 +495,7 @@ impl Builder<'_>
 				if let Some(blk) = e.blk_continue {
 					self.builder.ins().jump(blk, &[]);
 
-					let blk_orphan = self.builder.create_block();
+					let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
 					self.builder.switch_to_block(blk_orphan);
 					self.builder.seal_block(blk_orphan);
 					return ;
@@ -504,7 +510,7 @@ impl Builder<'_>
 				if let Some(blk) = e.blk_break {
 					self.builder.ins().jump(blk, &[]);
 
-					let blk_orphan = self.builder.create_block();
+					let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
 					self.builder.switch_to_block(blk_orphan);
 					self.builder.seal_block(blk_orphan);
 					return ;
@@ -525,7 +531,7 @@ impl Builder<'_>
 				// Void return - easy
 				self.builder.ins().return_(&[]);
 			}
-			let blk_orphan = self.builder.create_block();
+			let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
 			self.builder.switch_to_block(blk_orphan);
 			self.builder.seal_block(blk_orphan);
 			},
@@ -537,7 +543,6 @@ impl Builder<'_>
 			// - Make a block to contain the condition table (don't start it yet), and for the break target
 			let blk_cond = self.builder.create_block();
 			self.builder.ins().jump(blk_cond, &[]);
-			self.builder.seal_block(blk_cond);
 			let blk_end = self.builder.create_block();
 			let blk_body = self.builder.create_block();
 			self.builder.switch_to_block(blk_body);
@@ -549,16 +554,20 @@ impl Builder<'_>
 			self.builder.ins().jump(blk_end, &[]);
 			// - Generate table (using ::cranelift_frontend::Switch)
 			self.builder.switch_to_block(blk_cond);
+			self.builder.seal_block(blk_cond);
+			// TODO: cranelift_frontend::Switch doesn't seal its blocks
 			let mut switch = ::cranelift_frontend::Switch::new();
 			for (v,b) in &labels.case_labels
 			{
-				switch.set_entry(*v, *b);
+				switch.set_entry(*v as u128, *b);
 			}
 			switch.emit(&mut self.builder, val, labels.case_default.unwrap_or(blk_end));
-			for (_v,b) in &labels.case_labels
-			{
-				// TODO: What if the same block is reused?
+			// Seal target blocks
+			for (_v,b) in &labels.case_labels {
 				self.builder.seal_block(*b);
+			}
+			if let Some(b) = labels.case_default {
+				self.builder.seal_block(b);
 			}
 			// - Finalise
 			self.builder.switch_to_block(blk_end);
@@ -566,14 +575,30 @@ impl Builder<'_>
 			},
 		Statement::CaseDefault => {
 			trace!("{}default:", self.indent());
-			todo!("CaseDefault");
+			let blk = {	// TODO: if there's chanined cases, be more efficient
+				let blk = self.builder.create_block(); trace!("++{:?}", blk);
+				self.builder.ins().jump(blk, &[]);
+				self.builder.switch_to_block(blk);
+				// - No seal, it's a target
+				blk
+				};
+			for e in self.stack.iter_mut().rev()
+			{
+				if let Some(ref mut sw) = e.switch {
+					assert!(sw.case_default.is_none());
+					sw.case_default = Some(blk);
+					return;
+				}
+			}
+			panic!("TODO: Error for case outside a switch");
 			},
 		Statement::CaseSingle(v) => {
 			trace!("{}case {}:", self.indent(), v);
 			let blk = {	// TODO: if there's chanined cases, be more efficient
-				let blk = self.builder.create_block();
+				let blk = self.builder.create_block(); trace!("++{:?}", blk);
 				self.builder.ins().jump(blk, &[]);
 				self.builder.switch_to_block(blk);
+				// - No seal, it's a target
 				blk
 				};
 			for e in self.stack.iter_mut().rev()
@@ -597,13 +622,14 @@ impl Builder<'_>
 			}
 			// Otherwise, create a block and store it for when the label is created
 			else {
-				let blk = self.builder.create_block();
+				let blk = self.builder.create_block(); trace!("++{:?}", blk);
 				self.missed_labels.insert(label.clone(), blk);
 				self.builder.ins().jump(blk, &[]);
 			}
 			// Start a new block (orphaned)
-			let blk = self.builder.create_block();
-			self.builder.switch_to_block(blk);
+			let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
+			self.builder.switch_to_block(blk_orphan);
+			self.builder.seal_block(blk_orphan);
 			},
 		Statement::Label(ref label) => {
 			trace!("{}{:?}:", self.indent(), label);
@@ -612,10 +638,13 @@ impl Builder<'_>
 					blk
 				}
 				else {
-					self.builder.create_block()
+					let blk = self.builder.create_block(); trace!("++{:?}", blk);
+					blk
 				};
+			debug!("{}{:?} = {:?}", self.indent(), label, blk);
 			self.builder.ins().jump(blk, &[]);
 			self.builder.switch_to_block(blk);
+			// - No seal, it's a bi-directional target
 			// Add the label to a list of labels
 			self.labels.insert(label.clone(), blk);
 			},
@@ -741,9 +770,9 @@ impl Builder<'_>
 
 			let cond_v = self.handle_node(cond);
 			let cond_v = self.get_value(cond_v);
-			let true_blk = self.builder.create_block();
-			let else_blk = self.builder.create_block();
-			let done_blk = self.builder.create_block();
+			let true_blk = self.builder.create_block();	trace!("++{:?}", true_blk);
+			let else_blk = self.builder.create_block();	trace!("++{:?}", else_blk);
+			let done_blk = self.builder.create_block();	trace!("++{:?}", done_blk);
 			self.builder.ins().brz(cond_v, else_blk, &[]);
 			self.builder.ins().jump(true_blk, &[]);
 
@@ -886,7 +915,9 @@ impl Builder<'_>
 			}
 			},
 
-		NodeKind::SizeofType(..) => panic!("TODO: handle_node - {:?}", node),
+		NodeKind::SizeofType(ref ty) => {
+			ValueRef::Temporary(self.builder.ins().iconst(cr_tys::I32, ty.get_size().expect("sizeof on opaque") as i64))
+			},
 		NodeKind::SizeofExpr(..) => panic!("TODO: handle_node - {:?}", node),
 		NodeKind::Intrinsic(ref name, ref types, ref values) => match &name[..]
 			{
@@ -912,7 +943,13 @@ impl Builder<'_>
 		match node
 		{
 		ExprOrDef::Expr(ref e) => self.handle_node(e),
-		_ => panic!("TODO: handle_expr_def - {:?}", node),
+		ExprOrDef::Definition(ref list) => {
+			for var_def in list
+			{
+				self.define_var(var_def);
+			}
+			self.vars[list.last().unwrap().index.unwrap()].clone()
+			},
 		}
 	}
 

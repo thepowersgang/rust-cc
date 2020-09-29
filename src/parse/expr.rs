@@ -13,7 +13,8 @@ macro_rules! node {
 // Parse, left associative
 macro_rules! parse_left_assoc
 {
-	($_self:ident, $name:ident, $next:ident, $rv:ident, { $($patterns:pat => $vals:expr),*, }) => {
+	( $(#[$a:meta])* $_self:ident, $name:ident, $next:ident, $rv:ident, { $($patterns:pat => $vals:expr),*, }) => {
+		$(#[$a])*
 		fn $name(&mut $_self) -> ParseResult<::ast::Node> {
 			let mut $rv = $_self.$next()?;
 			loop
@@ -105,21 +106,24 @@ impl<'ast> super::ParseState<'ast>
 		})
 	}
 	
-	/// Expression #2 - Boolean AND/OR
-	parse_left_assoc!{self, parse_expr_2, parse_expr_3, rv, {
+	parse_left_assoc!{
+		/// Expression #2 - Boolean AND/OR
+		self, parse_expr_2, parse_expr_3, rv, {
 		Token::DoublePipe      => node!( BinOp(::ast::BinOp::LogicOr,  box rv, box self.parse_expr_3()?) ),
 		Token::DoubleAmpersand => node!( BinOp(::ast::BinOp::LogicAnd, box rv, box self.parse_expr_3()?) ),
 	}}
 	
-	/// Expresission #3 - Bitwise
-	parse_left_assoc!{self, parse_expr_3, parse_expr_4, rv, {
+	parse_left_assoc!{
+		/// Expresission #3 - Bitwise
+		self, parse_expr_3, parse_expr_4, rv, {
 		Token::Pipe      => node!( BinOp(::ast::BinOp::BitOr , box rv, box self.parse_expr_4()?) ),
 		Token::Ampersand => node!( BinOp(::ast::BinOp::BitAnd, box rv, box self.parse_expr_4()?) ),
 		Token::Caret     => node!( BinOp(::ast::BinOp::BitXor, box rv, box self.parse_expr_4()?) ),
 	}}
 	
-	/// Expression #4 - Comparison Operators
-	parse_left_assoc!{self, parse_expr_4, parse_expr_5, rv, {
+	parse_left_assoc!{
+		/// Expression #4 - Comparison Operators
+		self, parse_expr_4, parse_expr_5, rv, {
 		Token::Equality  => node!( BinOp(::ast::BinOp::CmpEqu , box rv, box self.parse_expr_5()?) ),
 		Token::NotEquals => node!( BinOp(::ast::BinOp::CmpNEqu, box rv, box self.parse_expr_5()?) ),
 		Token::Lt  => node!( BinOp(::ast::BinOp::CmpLt,  box rv, box self.parse_expr_5()?) ),
@@ -128,27 +132,31 @@ impl<'ast> super::ParseState<'ast>
 		Token::GtE => node!( BinOp(::ast::BinOp::CmpGtE, box rv, box self.parse_expr_5()?) ),
 	}}
 	
-	/// Expression #5 - Bit Shifts
-	parse_left_assoc!{self, parse_expr_5, parse_expr_6, rv, {
+	parse_left_assoc!{
+		/// Expression #5 - Bit Shifts
+		self, parse_expr_5, parse_expr_6, rv, {
 		Token::ShiftLeft  => node!( BinOp(::ast::BinOp::ShiftLeft,  box rv, box self.parse_expr_6()?) ),
 		Token::ShiftRight => node!( BinOp(::ast::BinOp::ShiftRight, box rv, box self.parse_expr_6()?) ),
 	}}
 	
-	/// Expresion #6 - Arithmatic
-	parse_left_assoc!{self, parse_expr_6, parse_expr_7, rv, {
+	parse_left_assoc!{
+		/// Expresion #6 - Arithmatic
+		self, parse_expr_6, parse_expr_7, rv, {
 		Token::Plus  => node!( BinOp(::ast::BinOp::Add, box rv, box self.parse_expr_7()?) ),
 		Token::Minus => node!( BinOp(::ast::BinOp::Sub, box rv, box self.parse_expr_7()?) ),
 	}}
 	
-	/// Expression #7 - Multiply/Divide
-	parse_left_assoc!{self, parse_expr_7, parse_expr_8, rv, {
+	parse_left_assoc!{
+		/// Expression #7 - Multiply/Divide
+		self, parse_expr_7, parse_expr_8, rv, {
 		Token::Star    => node!( BinOp(::ast::BinOp::Mul, box rv, box self.parse_expr_8()?) ),
 		Token::Slash   => node!( BinOp(::ast::BinOp::Div, box rv, box self.parse_expr_8()?) ),
 		Token::Percent => node!( BinOp(::ast::BinOp::Mod, box rv, box self.parse_expr_8()?) ),
 	}}
 	
-	/// Expression #8 - Unary Righthand
-	parse_left_assoc!{self, parse_expr_8, parse_expr_9, rv, {
+	parse_left_assoc!{
+		/// Expression #8 - Unary Righthand
+		self, parse_expr_8, parse_expr_9, rv, {
 		Token::DoublePlus  => node!( UniOp(::ast::UniOp::PostInc, box rv) ),
 		Token::DoubleMinus => node!( UniOp(::ast::UniOp::PostDec, box rv) ),
 	}}
@@ -173,8 +181,9 @@ impl<'ast> super::ParseState<'ast>
 	}
 	
 	
-	/// Expression - Member access
-	parse_left_assoc!{self, parse_expr_member, parse_expr_p, rv, {
+	parse_left_assoc!{
+		/// Expression - Member access
+		self, parse_expr_member, parse_expr_p, rv, {
 		Token::DerefMember => node!( DerefMember(box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)) ),
 		Token::Period      => node!( Member(     box rv, syntax_assert!(self.lex => Token::Ident(i) @ i)) ),
 		Token::SquareOpen => {
