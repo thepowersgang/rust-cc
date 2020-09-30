@@ -113,6 +113,12 @@ fn main()
 				},
 			}
 		}
+		let ofp = match std::fs::File::create("a.out")
+			{
+			Ok(v) => v,
+			Err(e) => panic!("Unable to open `a.out` for writing"),
+			};
+		c.finish(ofp).unwrap();
 	}
 
 	if true

@@ -14,6 +14,10 @@ impl Context
 			inner: self::cranelift::Context::new(),
 			}
 	}
+	pub fn finish(self, sink: impl ::std::io::Write) -> Result<(), Box<dyn std::error::Error>>
+	{
+		self.inner.finish(sink)
+	}
 
 	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
 	{

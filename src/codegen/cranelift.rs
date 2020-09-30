@@ -22,7 +22,7 @@ pub struct Context
 struct FunctionRecord
 {
 	name: ::cranelift_codegen::ir::ExternalName,
-	_id: ::cranelift_module::FuncId,
+	id: ::cranelift_module::FuncId,
 	sig: ::cranelift_codegen::ir::Signature,
 }
 impl Context
@@ -48,6 +48,13 @@ impl Context
 			}
 	}
 
+	pub fn finish(self, mut sink: impl std::io::Write) -> Result<(), Box<dyn std::error::Error>>
+	{
+		let bytes = self.module.finish().emit()?;
+		sink.write_all(&bytes)?;
+		Ok( () )
+	}
+
 	fn get_function(&mut self, name: &Ident, ty: &crate::types::FunctionType) -> &FunctionRecord
 	{
 		let idx = self.functions.len();
@@ -57,7 +64,7 @@ impl Context
 				let sig = make_sig(ty);
 				FunctionRecord {
 					name: ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, },
-					_id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
+					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
 					sig: sig,
 					}
 				})
@@ -239,9 +246,9 @@ impl Context
 		}
 		
 		b.handle_block(&body.code);
-		if !b.builder.is_filled() {
-			b.builder.ins().return_(&[]);
-		}
+		//if !b.builder.is_filled() {
+		//	b.builder.ins().return_(&[]);
+		//}
 
 		for (_lbl, blk) in b.labels {
 			b.builder.seal_block(blk);
@@ -251,7 +258,25 @@ impl Context
 		}
 
 		debug!("{}", b.builder.display(None));
+
 		b.builder.finalize();
+
+		let mut c = ::cranelift_codegen::Context::new();
+		c.func = func;
+		//c.compile().expect("Unable to compile?");
+		let func_id = self.get_function(name, ty).id;
+		match self.module.define_function(func_id, &mut c, &mut ::cranelift_codegen::binemit::NullTrapSink{})
+		{
+		Ok(_) => {},
+		Err(::cranelift_module::ModuleError::Compilation(e)) => match e
+			{
+			::cranelift_codegen::CodegenError::Verifier(errors) => {
+				panic!("Failed to define function (verifier errors):\n{}", errors);
+				},
+			e => panic!("Failed to define function code: {:?}", e),
+			},
+		Err(e) => panic!("Failed to define function code: {:?}", e),
+		}
 	}
 }
 
@@ -709,7 +734,7 @@ impl Builder<'_>
 			let did = self.context.create_string(val.clone().into_bytes());
 			// Get value
 			let gv = self.context.module.declare_data_in_func(did, self.builder.func);
-			ValueRef::Temporary(self.builder.ins().symbol_value( cr_tys::I8, gv ))
+			ValueRef::Temporary(self.builder.ins().symbol_value( CRTY_PTR, gv ))
 			},
 
 		NodeKind::FcnCall(ref fcn, ref args) => {
@@ -1237,7 +1262,7 @@ fn cvt_ty(ty: &TypeRef) -> cr_tys::Type
 	None => panic!("{:?} isn't valid as a cranelift type", ty),
 	}
 }
-const CRTY_PTR: cr_tys::Type = cr_tys::I32;	//	cr_tys::R32,
+const CRTY_PTR: cr_tys::Type = cr_tys::I64;	//	cr_tys::R32,
 fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 {
 	Some(match ty.basetype
@@ -1257,6 +1282,7 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 	BaseType::Enum(_) => cr_tys::I32,
 	BaseType::MagicType(crate::types::MagicType::VaList) => CRTY_PTR,
 	BaseType::MagicType(crate::types::MagicType::Named(_,ref t)) if t == "*void" => CRTY_PTR,
+	BaseType::Array(ref _ty, crate::types::ArraySize::None) => CRTY_PTR,
 	_ => todo!("Convert {:?} to cranelift", ty),
 	})
 }
@@ -1286,7 +1312,7 @@ fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signatu
 			}) );
 	}
 	if ty.is_variadic {
-		// TODO: Encode variadic types (cranelif can't do that yet)
+		// TODO: Encode variadic types (cranelift can't do that yet)
 	}
 	sig
 }
