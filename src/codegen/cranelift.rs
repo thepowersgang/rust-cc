@@ -246,9 +246,9 @@ impl Context
 		}
 		
 		b.handle_block(&body.code);
-		//if !b.builder.is_filled() {
-		//	b.builder.ins().return_(&[]);
-		//}
+		if !b.builder.is_filled() && *ty.ret == (crate::types::Type { qualifiers: crate::types::Qualifiers::new(), basetype: BaseType::Void}) {
+			b.builder.ins().return_(&[]);
+		}
 
 		for (_lbl, blk) in b.labels {
 			b.builder.seal_block(blk);
@@ -474,10 +474,10 @@ impl Builder<'_>
 				self.handle_expr_def(init);
 			}
 
-			let blk_top = self.builder.create_block(); trace!("++{:?}", blk_top);	// loop back
-			let blk_body = self.builder.create_block(); trace!("++{:?}", blk_body);
-			let blk_foot = self.builder.create_block(); trace!("++{:?}", blk_foot);	// target of continue
-			let blk_exit = self.builder.create_block(); trace!("++{:?}", blk_exit);	// target of break
+			let blk_top = self.builder.create_block(); trace!("++{:?} (for top)", blk_top);	// loop back
+			let blk_body = self.builder.create_block(); trace!("++{:?} (for body)", blk_body);
+			let blk_foot = self.builder.create_block(); trace!("++{:?} (for foot)", blk_foot);	// target of continue
+			let blk_exit = self.builder.create_block(); trace!("++{:?} (for exit)", blk_exit);	// target of break
 			self.builder.ins().jump(blk_top, &[]);
 
 			self.builder.switch_to_block(blk_top);
@@ -520,7 +520,7 @@ impl Builder<'_>
 				if let Some(blk) = e.blk_continue {
 					self.builder.ins().jump(blk, &[]);
 
-					let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
+					let blk_orphan = self.builder.create_block(); trace!("++{:?} (continue orphan)", blk_orphan);
 					self.builder.switch_to_block(blk_orphan);
 					self.builder.seal_block(blk_orphan);
 					return ;
@@ -535,7 +535,7 @@ impl Builder<'_>
 				if let Some(blk) = e.blk_break {
 					self.builder.ins().jump(blk, &[]);
 
-					let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
+					let blk_orphan = self.builder.create_block(); trace!("++{:?} (break orphan)", blk_orphan);
 					self.builder.switch_to_block(blk_orphan);
 					self.builder.seal_block(blk_orphan);
 					return ;
@@ -556,7 +556,7 @@ impl Builder<'_>
 				// Void return - easy
 				self.builder.ins().return_(&[]);
 			}
-			let blk_orphan = self.builder.create_block(); trace!("++{:?}", blk_orphan);
+			let blk_orphan = self.builder.create_block(); trace!("++{:?} (return orphan)", blk_orphan);
 			self.builder.switch_to_block(blk_orphan);
 			self.builder.seal_block(blk_orphan);
 			},
@@ -1313,6 +1313,8 @@ fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signatu
 	}
 	if ty.is_variadic {
 		// TODO: Encode variadic types (cranelift can't do that yet)
+		// Workaround suggested in https://github.com/bytecodealliance/wasmtime/issues/1030#issuecomment-549111736
+		// - Create a new function entry/signature for each time a variadic is called
 	}
 	sig
 }
