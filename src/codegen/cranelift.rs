@@ -5,6 +5,7 @@ use cranelift_codegen::ir::condcodes as cr_cc;
 use cranelift_codegen::ir::types as cr_tys;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_module::Linkage;
+use cranelift_module::Module;
 
 use crate::types::{TypeRef,BaseType};
 use crate::ast::Ident;
@@ -14,14 +15,14 @@ extern crate target_lexicon;
 
 pub struct Context
 {
-	module: ::cranelift_module::Module<::cranelift_object::ObjectBackend>,
+	module: ::cranelift_object::ObjectModule,
 	functions: HashMap<Ident, FunctionRecord>,
 	globals: HashMap<Ident, ::cranelift_module::DataId>,
 	string_count: usize,
 }
 struct FunctionRecord
 {
-	name: ::cranelift_codegen::ir::ExternalName,
+	name: ::cranelift_codegen::ir::UserExternalNameRef,
 	id: ::cranelift_module::FuncId,
 	sig: ::cranelift_codegen::ir::Signature,
 }
@@ -30,14 +31,13 @@ impl Context
 	pub fn new() -> Self
 	{
 		let isa = {
-			use std::str::FromStr;
 			let shared_builder = ::cranelift_codegen::settings::builder();
 			let shared_flags = ::cranelift_codegen::settings::Flags::new(shared_builder);
-			let b = ::cranelift_codegen::isa::lookup( target_lexicon::triple!("x86_64-elf") ).unwrap();
-			b.finish(shared_flags)
+			let b = ::cranelift_codegen::isa::lookup_by_name("x86_64-elf").unwrap();
+			b.finish(shared_flags).expect("Failed to create TargetIsa")
 			};
 		Context {
-			module: ::cranelift_module::Module::new(::cranelift_object::ObjectBuilder::new(
+			module: ::cranelift_object::ObjectModule::new(::cranelift_object::ObjectBuilder::new(
 				isa,
 				b"unknown_object.o"[..].to_owned(),
 				::cranelift_module::default_libcall_names(),
@@ -63,7 +63,7 @@ impl Context
 			.or_insert_with(|| {
 				let sig = make_sig(ty);
 				FunctionRecord {
-					name: ::cranelift_codegen::ir::ExternalName::User { namespace: 0, index: idx as u32, },
+					name: ::cranelift_codegen::ir::entities::UserExternalNameRef::from_u32(idx as u32),
 					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
 					sig: sig,
 					}
@@ -74,10 +74,10 @@ impl Context
 		let string_name = format!("str#{}", self.string_count);
 		self.string_count += 1;
 		// Declare
-		let did = self.module.declare_data(&string_name, Linkage::Local, /*writeable*/false, /*tls*/false, /*align*/None)
+		let did = self.module.declare_data(&string_name, Linkage::Local, /*writeable*/false, /*tls*/false)
 			.expect("Failed to declare");
 		// Define
-		let mut data_ctx = ::cranelift_module::DataContext::new();
+		let mut data_ctx = ::cranelift_module::DataDescription::new();
 		data_ctx.define({ let mut val = val; val.push(0); val.into_boxed_slice() });
 		self.module.define_data(did, &data_ctx).expect("create_string - define_data");
 		did
@@ -90,7 +90,7 @@ impl Context
 	{
 		debug!("lower_value({}: {:?} = {:?})", name, ty, val);
 
-		let did = match self.module.declare_data(name.as_str(), Linkage::Export, /*writable*/!ty.qualifiers.is_const(), /*tls*/false, /*align*/None)
+		let did = match self.module.declare_data(name.as_str(), Linkage::Export, /*writable*/!ty.qualifiers.is_const(), /*tls*/false)
 			{
 			Ok(did) => did,
 			Err(e) => panic!("lower_value: {:?} - Error {:?}", name, e),
@@ -98,7 +98,7 @@ impl Context
 		self.globals.insert(name.clone(), did);
 
 		let size = ty.get_size().expect("Global with unknown size") as usize;
-		let mut data_ctx = ::cranelift_module::DataContext::new();
+		let mut data_ctx = ::cranelift_module::DataDescription::new();
 		if let Initialiser::None = val {
 			data_ctx.define_zeroinit( size );
 		}
@@ -110,7 +110,7 @@ impl Context
 		self.module.define_data(did, &data_ctx).expect("lower_value - define_data");
 	}
 
-	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, init: &Initialiser)
+	fn init_data_ctx(&mut self, data_ctx: &mut ::cranelift_module::DataDescription, data: &mut [u8], offset: usize, ty: &TypeRef, init: &Initialiser)
 	{
 		match init
 		{
@@ -138,7 +138,7 @@ impl Context
 		_ => todo!("init_data_ctx: init={:?}", init),
 		}
 	}
-	fn init_data_ctx_node(&mut self, data_ctx: &mut ::cranelift_module::DataContext, data: &mut [u8], offset: usize, ty: &TypeRef, val: &crate::ast::Node)
+	fn init_data_ctx_node(&mut self, data_ctx: &mut ::cranelift_module::DataDescription, data: &mut [u8], offset: usize, ty: &TypeRef, val: &crate::ast::Node)
 	{
 		use crate::ast::NodeKind;
 		match val.kind
@@ -168,7 +168,8 @@ impl Context
 				{
 				CRTY_PTR => {
 					if let Some(fr) = self.functions.get(name) {
-						let fcn = data_ctx.import_function(fr.name.clone());
+						let name = cranelift_module::ModuleExtName::User { namespace: 0, index: fr.name.as_u32() };
+						let fcn = data_ctx.import_function(name);
 						data_ctx.write_function_addr(offset as u32, fcn);
 					}
 					else {
@@ -197,7 +198,8 @@ impl Context
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
 		let mut func = {
 			let fr = self.get_function(name, ty);
-			Function::with_name_signature(fr.name.clone(), fr.sig.clone())
+			let name = cranelift_codegen::ir::UserExternalName { namespace: 0, index: fr.name.as_u32() };
+			Function::with_name_signature(cranelift_codegen::ir::UserFuncName::User(name), fr.sig.clone())
 			};
 		let mut b = Builder {
 			context: self,
@@ -224,7 +226,7 @@ impl Context
 				Some(s) => s,
 				None => panic!("Type {:?} has no size", var.ty),
 				};
-			let slot = b.builder.create_stack_slot(ss::StackSlotData::new(ss::StackSlotKind::ExplicitSlot, size));
+			let slot = b.builder.create_sized_stack_slot(ss::StackSlotData::new(ss::StackSlotKind::ExplicitSlot, size));
 			b.vars.push( ValueRef::StackSlot(slot, 0, var.ty.clone()) );
 		}
 
@@ -247,7 +249,7 @@ impl Context
 		}
 		
 		b.handle_block(&body.code);
-		if !b.builder.is_filled() && *ty.ret == (crate::types::Type { qualifiers: crate::types::Qualifiers::new(), basetype: BaseType::Void}) {
+		if /* !b.builder.is_filled() && */*ty.ret == (crate::types::Type { qualifiers: crate::types::Qualifiers::new(), basetype: BaseType::Void}) {
 			b.builder.ins().return_(&[]);
 		}
 
@@ -258,7 +260,7 @@ impl Context
 			panic!("TODO: Error for missing label {:?}", lbl);
 		}
 
-		debug!("{}", b.builder.display(None));
+		//debug!("{}", b.builder.display(None));
 
 		b.builder.finalize();
 
@@ -266,7 +268,7 @@ impl Context
 		c.func = func;
 		//c.compile().expect("Unable to compile?");
 		let func_id = self.get_function(name, ty).id;
-		match self.module.define_function(func_id, &mut c, &mut ::cranelift_codegen::binemit::NullTrapSink{})
+		match self.module.define_function(func_id, &mut c)
 		{
 		Ok(_) => {},
 		Err(::cranelift_module::ModuleError::Compilation(e)) => match e
@@ -386,8 +388,7 @@ impl Builder<'_>
 			let true_blk = self.builder.create_block(); trace!("++{:?}", true_blk);
 			let else_blk = self.builder.create_block(); trace!("++{:?}", else_blk);
 			let done_blk = self.builder.create_block(); trace!("++{:?}", done_blk);
-			self.builder.ins().brz(cond_v, else_blk, &[]);
-			self.builder.ins().jump(true_blk, &[]);
+			self.builder.ins().brif(cond_v, true_blk, &[], else_blk, &[]);
 
 			self.builder.switch_to_block(true_blk);
 			self.builder.seal_block(true_blk);
@@ -423,8 +424,7 @@ impl Builder<'_>
 			self.stack.push(Scope::new_loop(blk_top, blk_exit));
 			let cond_v = self.handle_expr_def(cond);
 			let cond_v = self.get_value(cond_v);
-			self.builder.ins().brz(cond_v, blk_exit, &[]);
-			self.builder.ins().jump(blk_body, &[]);
+			self.builder.ins().brif(cond_v, blk_body, &[], blk_exit, &[]);
 
 			self.builder.switch_to_block(blk_body);
 			self.builder.seal_block(blk_body);
@@ -461,10 +461,9 @@ impl Builder<'_>
 			{
 				let cond_v = self.handle_node(cond);
 				let cond_v = self.get_value(cond_v);
-				self.builder.ins().brz(cond_v, blk_exit, &[]);
+				self.builder.ins().brif(cond_v, blk_body, &[], blk_exit, &[]);
 			}
 
-			self.builder.ins().jump(blk_body, &[]);
 			self.builder.seal_block(blk_body);	// Seal the loop body, jumps now known.
 
 			self.builder.switch_to_block(blk_exit);
@@ -487,9 +486,11 @@ impl Builder<'_>
 			if let Some(cond) = cond {
 				let cond_v = self.handle_node(cond);
 				let cond_v = self.get_value(cond_v);
-				self.builder.ins().brz(cond_v, blk_exit, &[]);
+				self.builder.ins().brif(cond_v, blk_body, &[], blk_exit, &[]);
 			}
-			self.builder.ins().jump(blk_body, &[]);
+			else {
+				self.builder.ins().jump(blk_body, &[]);
+			}
 
 			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
 			self.builder.switch_to_block(blk_body);
@@ -707,7 +708,7 @@ impl Builder<'_>
 					.or_insert_with(|| {
 						let fr = context.get_function(&name, match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), });
 						let func_data = ::cranelift_codegen::ir::ExtFuncData {
-							name: fr.name.clone(),
+							name: cranelift_codegen::ir::ExternalName::User(fr.name.clone()),
 							signature: builder.import_signature(fr.sig.clone()),
 							colocated: false,
 							};
@@ -799,8 +800,7 @@ impl Builder<'_>
 			let true_blk = self.builder.create_block();	trace!("++{:?}", true_blk);
 			let else_blk = self.builder.create_block();	trace!("++{:?}", else_blk);
 			let done_blk = self.builder.create_block();	trace!("++{:?}", done_blk);
-			self.builder.ins().brz(cond_v, else_blk, &[]);
-			self.builder.ins().jump(true_blk, &[]);
+			self.builder.ins().brif(cond_v, true_blk, &[], else_blk, &[]);
 
 			self.builder.switch_to_block(true_blk);
 			self.builder.seal_block(true_blk);
@@ -878,6 +878,7 @@ impl Builder<'_>
 				{
 				ValueRef::Temporary(_) => panic!("Taking address of temporary"),
 				ValueRef::StackSlot(ref ss, ofs, _) => ValueRef::Temporary(self.builder.ins().stack_addr(CRTY_PTR, *ss, ofs as i32)),
+				ValueRef::Pointer(ref base, ofs, _) => ValueRef::Temporary(self.builder.ins().iadd_imm(*base, ofs as i64)),
 				_ => todo!("handle_node - UniOp Address {:?}", val_in),
 				},
 			UniOp::Neg => {
@@ -1034,23 +1035,23 @@ impl Builder<'_>
 			ValueRef::Temporary(match (src_cty, dst_cty)
 				{
 				// equal - No-op
-				(cr_tys::B8 , cr_tys::B8 ) => val,
+				//(cr_tys::B , cr_tys::B8 ) => val,
 				(cr_tys::I8 , cr_tys::I8 ) => val,
 				(cr_tys::I16, cr_tys::I16) => val,
 				(cr_tys::I32, cr_tys::I32) => val,
 				(cr_tys::I64, cr_tys::I64) => val,
 				// bool -> * : uextend
-				(cr_tys::B8, cr_tys::I8) => val,
-				(cr_tys::B8, cr_tys::I16)
-				| (cr_tys::B8, cr_tys::I32)
-				| (cr_tys::B8, cr_tys::I64)
-					=> self.builder.ins().uextend(dst_cty, val),
+				//(cr_tys::B8, cr_tys::I8) => val,
+				//(cr_tys::B8, cr_tys::I16)
+				//| (cr_tys::B8, cr_tys::I32)
+				//| (cr_tys::B8, cr_tys::I64)
+				//	=> self.builder.ins().uextend(dst_cty, val),
 				// * -> bool : non-zero
-				(cr_tys::I8, cr_tys::B8)
-				| (cr_tys::I16, cr_tys::B8)
-				| (cr_tys::I32, cr_tys::B8)
-				| (cr_tys::I64, cr_tys::B8)
-					=> self.builder.ins().icmp_imm(cr_cc::IntCC::NotEqual, val, 0),
+				//(cr_tys::I8, cr_tys::B8)
+				//| (cr_tys::I16, cr_tys::B8)
+				//| (cr_tys::I32, cr_tys::B8)
+				//| (cr_tys::I64, cr_tys::B8)
+				//	=> self.builder.ins().icmp_imm(cr_cc::IntCC::NotEqual, val, 0),
 				// (u)int -> (u)int : ireduce/uextend/sextend
 				// - Reduction
 				(cr_tys::I16, cr_tys::I8)
@@ -1269,7 +1270,7 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 	Some(match ty.basetype
 	{
 	BaseType::Void => panic!("Attempting to convert `void` to a cranelift type"),
-	BaseType::Bool => cr_tys::B8,
+	BaseType::Bool => cr_tys::I8,
 	BaseType::Pointer(..) => CRTY_PTR,
 	BaseType::Integer(ic) => match ty.get_size().unwrap()
 		{
