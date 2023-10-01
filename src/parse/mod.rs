@@ -85,7 +85,6 @@ impl From<::preproc::Error> for Error
 	}
 }
 
-#[must_use]
 pub type ParseResult<T> = Result<T,Error>;
 
 struct ParseState<'ast>

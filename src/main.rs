@@ -35,7 +35,14 @@ struct Options
 	#[structopt(short="D")]
 	defines: Vec<String>,
 
-	//dump_ast: Option<::std::path::PathBuf>,
+	#[structopt(short,long)]
+	output: Option<::std::path::PathBuf>,
+
+	#[structopt(long)]
+	dump_ast: Option<::std::path::PathBuf>,
+
+	#[structopt(long="emit-mmir")]
+	emit_mmir: bool,
 }
 
 fn main()
@@ -87,9 +94,9 @@ fn main()
 	}
 
 	// Convert to cranelift?
-	if true
+	if let Some(output_path) = args.output
 	{
-		let mut c = codegen::Context::new();
+		let mut c = codegen::Context::new(if args.emit_mmir { codegen::BackendName::MrustcMmir } else { codegen::BackendName::Cranelift });
 		for (name,ty,sym) in program.iter_symbols_with_prototypes()
 		{
 			match sym
@@ -112,19 +119,26 @@ fn main()
 				},
 			}
 		}
-		let ofp = match std::fs::File::create("a.out")
-			{
-			Ok(v) => v,
-			Err(e) => panic!("Unable to open `a.out` for writing: {}", e),
-			};
-		c.finish(ofp).unwrap();
+		c.finish(get_output(&output_path)).unwrap();
 	}
 
 	// Dump AST
-	if true
+	if let Some(output_path) = args.dump_ast
 	{
-		let stdout = ::std::io::stdout();
-		::ast::pretty_print::write(stdout.lock(), &program);
+		::ast::pretty_print::write(get_output(&output_path), &program);
+	}
+}
+
+fn get_output(output_path: &::std::path::Path) -> Box<dyn std::io::Write> {
+	if output_path == ::std::path::Path::new("-") {
+		Box::new(::std::io::stdout().lock())
+	}
+	else {
+		match std::fs::File::create(output_path)
+		{
+		Ok(v) => Box::new(v),
+		Err(e) => panic!("Unable to open `{}` for writing: {}", output_path.display(),e),
+		}
 	}
 }
 

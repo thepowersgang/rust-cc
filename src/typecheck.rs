@@ -663,7 +663,7 @@ impl<'a> Context<'a>
 			match node_ty(&val).get_field(name)
 			{
 			None => panic!("Unable to find field"),
-			Some( (_ofs, ty) ) => ty,
+			Some( (_idx, _ofs, ty) ) => ty,
 			}
 			},
 		}

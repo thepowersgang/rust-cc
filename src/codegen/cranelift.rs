@@ -83,6 +83,9 @@ impl Context
 		did
 	}
 
+	pub fn declare_value(&mut self, _name: &crate::ast::Ident, _ty: &crate::types::TypeRef)
+	{
+	}
 	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
 	{
 		debug!("lower_value({}: {:?} = {:?})", name, ty, val);
@@ -191,12 +194,6 @@ impl Context
 		use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 		// - Arguments
-		let mut vars = Vec::<ValueRef>::new();
-		for (idx,(_arg_ty, _arg_name)) in Iterator::enumerate(ty.args.iter()) {
-			let var = ::cranelift_frontend::Variable::new(idx);
-			vars.push( ValueRef::Variable(var) );
-		}
-
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
 		let mut func = {
 			let fr = self.get_function(name, ty);
@@ -206,7 +203,7 @@ impl Context
 			context: self,
 			builder: FunctionBuilder::new(&mut func, &mut fn_builder_ctx),
 			stack: vec![ Scope::new() ],
-			vars: vars,
+			vars: vec![],
 			fcn_imports: Default::default(),
 			global_imports: Default::default(),
 
@@ -215,6 +212,10 @@ impl Context
 			};
 
 		// Define variables
+		for (idx,(_arg_ty, _arg_name)) in Iterator::enumerate(ty.args.iter()) {
+			let var = ::cranelift_frontend::Variable::new(idx);
+			b.vars.push( ValueRef::Variable(var) );
+		}
 		for var in body.var_table.iter().skip( ty.args.len() )
 		{
 			use ::cranelift_codegen::ir::stackslot as ss;
@@ -787,7 +788,7 @@ impl Builder<'_>
 		NodeKind::ImplicitCast(ref ty, ref val) => {
 			let src_ty = &val.meta.as_ref().unwrap().ty;
 			let val = self.handle_node(val);
-			self.handle_cast(ty, val, src_ty, /*is_implicit=*/false)
+			self.handle_cast(ty, val, src_ty, /*is_implicit=*/true)
 			},
 		
 		NodeKind::Ternary(ref cond, ref val_true, ref val_false) => {
@@ -925,7 +926,7 @@ impl Builder<'_>
 			let val = self.handle_node(val);
 			match ty.get_field(name)
 			{
-			Some((ofs, ity)) =>
+			Some((_idx, ofs, ity)) =>
 				match val
 				{
 				ValueRef::StackSlot(ss, bofs, _) => {

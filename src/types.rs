@@ -412,20 +412,20 @@ impl Type
 		_ => None,
 		}
 	}
-	pub fn get_field(&self, name: &str) -> Option<(u32, TypeRef)> {
+	pub fn get_field(&self, name: &str) -> Option<(usize, u32, TypeRef)> {
 		match self.basetype
 		{
 		BaseType::Struct(ref r) => {
 			let b = r.borrow();
-			for (ofs, fld_name, fld_ty) in b.iter_fields()
+			for (i,(ofs, fld_name, fld_ty)) in b.iter_fields().enumerate()
 			{
 				if fld_name == name {
-					return Some( (ofs, fld_ty.clone()) );
+					return Some( (i, ofs, fld_ty.clone()) );
 				}
 			}
 			None
 			},
-		BaseType::Union(ref r) => todo!("Type::get_field({:?}, {})", self, name),
+		BaseType::Union(ref _r) => todo!("Type::get_field({:?}, {})", self, name),
 		BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
 		_ => None,
 		}
