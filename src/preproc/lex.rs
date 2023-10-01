@@ -168,6 +168,11 @@ impl<'a> Lexer<'a>
 		't' => Some(8u8 as char),
 		'v' => Some(11u8 as char),
 		'0' => Some('\0'),
+		'x' => {
+			let c1 = char::to_digit(self.getc()?, 16).expect("Unexpected character in escape code");
+			let c2 = char::to_digit(self.getc()?, 16).expect("Unexpected character in escape code");
+			Some( (c1 *16 + c2) as u8 as char )
+			},
 		'\n' => None,
 		c @ _ => panic!("Unexpected escape code in string '\\{}'", c)
 		})

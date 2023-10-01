@@ -704,6 +704,7 @@ impl Builder<'_>
 			Some(crate::ast::IdentRef::Function) => {
 				let context = &mut self.context;
 				let builder = &mut self.builder;
+				// TODO: For variadic functions, we need to make a new entry/signature every time they're called
 				let v = self.fcn_imports.entry(name.clone())
 					.or_insert_with(|| {
 						let fr = context.get_function(&name, match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), });

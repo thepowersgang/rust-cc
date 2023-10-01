@@ -770,10 +770,18 @@ impl<'a> Context<'a>
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
-			BaseType::Pointer(ref _i1) => match inner_ty.basetype
+			BaseType::Pointer(ref i1) => match inner_ty.basetype
 				{
 				BaseType::Pointer(ref _i2) => {},	// TODO: Const/restrict/etc warnings
 				BaseType::Array(_, _) => {},	// TODO: Const/restrict/etc warnings
+				BaseType::Function(ref ft_s) => {
+					let BaseType::Function(ref ft_d) = i1.basetype else {
+						todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)
+						};
+					if ft_s.ret != ft_d.ret {
+					}
+					// TODO: Check signature
+					}
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
 			_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),

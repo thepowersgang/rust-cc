@@ -53,7 +53,7 @@ impl<'ast> super::ParseState<'ast>
 			Token::Rword_auto =>     { storageclass = Some(::types::StorageClass::Auto); },
 			Token::Rword_static =>   { storageclass = Some(::types::StorageClass::Static); },
 			Token::Rword_register => { storageclass = Some(::types::StorageClass::Register); },
-			Token::Rword_inline =>   { error!("TODO: Handle 'inline'"); },
+			Token::Rword_inline =>   { storageclass = Some(::types::StorageClass::Inline); },
 			tok @ _ => {
 				self.lex.put_back(tok);
 				break;
@@ -576,7 +576,7 @@ impl<'ast> super::ParseState<'ast>
 			}
 		}
 	}
-	fn populate_enum(&mut self) -> ParseResult<Vec<(u64,String)>>
+	fn populate_enum(&mut self) -> ParseResult<Vec<(i64,String)>>
 	{
 		let mut curval = 0;
 		let mut items = Vec::new();
@@ -592,7 +592,7 @@ impl<'ast> super::ParseState<'ast>
 				let node = self.parse_expr()?;
 				let val = match node.literal_integer()
 					{
-					Some(v) => v as u64,
+					Some(v) => v as i64,
 					None => syntax_error!("Non-literal used to set enum value"),
 					};
 				curval = val;

@@ -254,6 +254,8 @@ pub enum StorageClass
 	Extern,
 	Static,
 	Register,
+	Inline,
+	//StaticInline,
 }
 
 pub type TypeRef = Rc<Type>;
@@ -332,7 +334,7 @@ pub type UnionBody = Vec<(TypeRef,String)>;
 pub struct Enum
 {
 	pub name: String,
-	items: Option<Vec<(u64,String)>>,
+	items: Option<Vec<(i64,String)>>,
 }
 impl Enum
 {
@@ -646,17 +648,17 @@ impl Enum
 	{
 		self.items.is_some()
 	}
-	pub fn set_items(&mut self, items: Vec<(u64,String)>)
+	pub fn set_items(&mut self, items: Vec<(i64,String)>)
 	{
 		assert!( self.items.is_none() );
 		self.items = Some(items);
 	}
-	pub fn get_items(&self) -> Option<&[(u64,String)]>
+	pub fn get_items(&self) -> Option<&[(i64,String)]>
 	{
 		self.items.as_ref().map(|v| &v[..])
 	}
 
-	pub fn get_item_val(&self, idx: usize) -> Option<u64> {
+	pub fn get_item_val(&self, idx: usize) -> Option<i64> {
 		self.items.as_ref()
 			.expect("Enum::get_item_val on opaque enum")
 			.get(idx)

@@ -227,7 +227,7 @@ impl Program
 			Ok( ur )
 		}
 	}
-	pub fn make_enum(&mut self, name: &str, items: Vec<(u64,Ident)>) -> Result<::types::EnumRef,Option<Ident>> {
+	pub fn make_enum(&mut self, name: &str, items: Vec<(i64,Ident)>) -> Result<::types::EnumRef,Option<Ident>> {
 		let er = self.get_enum(name);
 		if er.borrow().name != "" {
 			self.item_order.push(ItemRef::Enum(er.borrow().name.clone()));
@@ -580,7 +580,7 @@ impl Node
 			NodeKind::Identifier(ref name, ref binding) =>
 				match binding
 				{
-				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() ),
+				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() as u64 ),
 				&Some(IdentRef::Function) => ConstVal::Address(name.clone()),
 				_ => ConstVal::None,
 				},
