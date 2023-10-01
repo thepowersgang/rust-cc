@@ -1,9 +1,6 @@
 /*!
  * C parser (and eventual) compiler
  */
-#![feature(box_syntax)]
-#![feature(nll)]
-
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -37,6 +34,8 @@ struct Options
 	/// `-D FOO=bar`
 	#[structopt(short="D")]
 	defines: Vec<String>,
+
+	//dump_ast: Option<::std::path::PathBuf>,
 }
 
 fn main()
@@ -121,6 +120,7 @@ fn main()
 		c.finish(ofp).unwrap();
 	}
 
+	// Dump AST
 	if true
 	{
 		let stdout = ::std::io::stdout();

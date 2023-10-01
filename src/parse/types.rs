@@ -276,7 +276,7 @@ impl<'ast> super::ParseState<'ast>
 					}
 				}
 			}
-			Ok( TypeNode::Ptr( box self.get_fulltype_ptr()?, qualifiers ) )
+			Ok( TypeNode::Ptr( Box::new(self.get_fulltype_ptr()?), qualifiers ) )
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
@@ -364,7 +364,7 @@ impl<'ast> super::ParseState<'ast>
 					)?;
 			}
 
-			Ok( TypeNode::Fcn(box inner, args, is_variadic, attributes) )
+			Ok( TypeNode::Fcn(Box::new(inner), args, is_variadic, attributes) )
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);
@@ -389,7 +389,7 @@ impl<'ast> super::ParseState<'ast>
 					Some( size )
 					},
 				};
-			Ok( TypeNode::Array(box inner, sizenode) )
+			Ok( TypeNode::Array(Box::new(inner), sizenode) )
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);

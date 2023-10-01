@@ -147,15 +147,15 @@ impl Preproc
 	{
 		let lexer = if let Some(filename) = filename
 			{
-				lex::Lexer::new(box match ::std::fs::File::open(filename)
+				lex::Lexer::new(Box::new(match ::std::fs::File::open(filename)
 					{
 					Ok(f) => ::std::io::BufReader::new(f).chars(),
 					Err(e) => return Err(Error::IoError(e)),
-					})
+					}))
 			}
 			else
 			{
-				lex::Lexer::new(box ::std::io::stdin().chars())
+				lex::Lexer::new(Box::new( ::std::io::stdin().chars() ))
 			};
 		Ok(Preproc {
 			lexers: TokenSourceStack::new( lexer, filename.map(|x| x.to_owned()), options.include_handling != Handling::InternalOnly ),
@@ -169,7 +169,7 @@ impl Preproc
 
 	pub fn parse_define_str(&mut self, s: &str) -> Result<()>
 	{
-		let mut lex = lex::Lexer::new(box s.chars().map(Ok));
+		let mut lex = lex::Lexer::new(Box::new(s.chars().map(Ok)));
 
 		let ident = syntax_assert!(lex.get_token(), Token::Ident(n) => n);
 		match lex.get_token()?
@@ -1293,11 +1293,11 @@ impl TokenSourceStack
 	fn push_file(&mut self, path: ::std::path::PathBuf) -> Result<()>
 	{
 		self.lexers.push(InnerLexer::File(LexHandle {
-			lexer: lex::Lexer::new(box match ::std::fs::File::open(&path)
+			lexer: lex::Lexer::new(Box::new(match ::std::fs::File::open(&path)
 				{
 				Ok(f) => ::std::io::BufReader::new(f).chars(),
 				Err(e) => return Err(Error::IoError(e)),
-				}),
+				})),
 			filename: Some(path),
 			line: 1,
 			}));
