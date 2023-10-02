@@ -41,7 +41,8 @@ impl Context
 	pub fn declare_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef)
 	{
 		self.register_type(ty);
-		write!(self.output_buffer, "static {}: {};\n", name, self.fmt_type(ty)).unwrap();
+		//write!(self.output_buffer, "static {}: {};\n", name, self.fmt_type(ty)).unwrap();
+		let _ = name;
 	}
 	pub fn lower_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
@@ -121,7 +122,7 @@ impl Context
 			}
 		}
 		write!(self.output_buffer, "\"").unwrap();
-		write!(self.output_buffer, ";").unwrap();
+		write!(self.output_buffer, ";\n").unwrap();
 /*
 		Initialiser::ListLiteral(ref vals) =>
 			match ty.basetype
@@ -249,19 +250,22 @@ impl Context
 		BaseType::Void => {},
 		BaseType::Bool => {},
 		BaseType::Struct(structref) => {
-			for (_ofs,_name,ty) in structref.borrow().iter_fields()
+			if structref.borrow().is_populated()
 			{
-				self.register_type(ty)
+				for (_ofs,_name,ty) in structref.borrow().iter_fields()
+				{
+					self.register_type(ty)
+				}
+				write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
+				let (size,align) = ty.get_size_align().unwrap_or((0,0) );
+				write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", size,align).unwrap();
+				for (ofs,name,ty) in structref.borrow().iter_fields()
+				{
+					write!(self.output_buffer, "\t{} = {}; // {}\n", ofs, self.fmt_type(ty), name).unwrap();
+					//write!(self.output_buffer, "\t{} = {};\n", ofs, self.fmt_type(ty)).unwrap();
+				}
+				write!(self.output_buffer, "}}\n").unwrap();
 			}
-			write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
-			let (size,align) = ty.get_size_align().unwrap_or((0,0) );
-			write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", size,align).unwrap();
-			for (ofs,name,ty) in structref.borrow().iter_fields()
-			{
-				write!(self.output_buffer, "\t{} = {}; // {}\n", ofs, self.fmt_type(ty), name).unwrap();
-				//write!(self.output_buffer, "\t{} = {};\n", ofs, self.fmt_type(ty)).unwrap();
-			}
-			write!(self.output_buffer, "}}\n").unwrap();
 			},
 		BaseType::Enum(_) => {},	// Nothing needed for enums, they're not rust enums
 		BaseType::Union(_) => todo!("union"),
@@ -339,7 +343,7 @@ enum ValueRef {
 	// RValue (with type)
 	Value(String, String),
 	// A function name (makes calls nicer)
-	Function(crate::ast::Ident),
+	Function(crate::ast::Ident, String),
 }
 impl ValueRef {
 	fn unwrap_slot(self) -> String {
@@ -408,7 +412,7 @@ impl Builder<'_>
 		{
 		ValueRef::Slot(src) => self.push_stmt(format!("ASSIGN {} = ={}", dst, src)),
 		ValueRef::Value(src, _) => self.push_stmt(format!("ASSIGN {} = {}", dst, src)),
-		ValueRef::Function(name) => self.push_stmt(format!("ASSIGN {} = ADDR {}", dst, name)),
+		ValueRef::Function(name, _) => self.push_stmt(format!("ASSIGN {} = ADDR {}", dst, name)),
 		}
 	}
 
@@ -432,7 +436,11 @@ impl Builder<'_>
 			self.push_stmt_assign(local.clone(), ValueRef::Value(val, Default::default()));
 			local
 			},
-		ValueRef::Function(_) => todo!(),
+		ValueRef::Function(name, ty) => {
+			let local = self.alloc_local_raw(ty);
+			self.push_stmt_assign(local.clone(), ValueRef::Value(format!("ADDROF {}", name), Default::default()));
+			local
+			}
 		}
 	}
 	fn orphaned_block(&mut self, debug_label: &str) {
@@ -781,13 +789,13 @@ impl Builder<'_>
 			self.handle_node(last)
 			},
 		NodeKind::Identifier(ref name, ref binding) => {
-			//let ty = &node.meta.as_ref().unwrap().ty;
+			let ty = &node.meta.as_ref().unwrap().ty;
 			match binding
 			{
 			None => panic!("No binding on `NodeKind::Identifier`"),
 			Some(crate::ast::IdentRef::Local(idx)) => ValueRef::Slot(self.vars[*idx].0.clone()),
-			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Slot(format!("::{}", name)),
-			Some(crate::ast::IdentRef::Function) => ValueRef::Function(name.clone()/*, self.parent.fmt_type(ty).to_string()*/),
+			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Slot(format!("{}", name)),
+			Some(crate::ast::IdentRef::Function) => ValueRef::Function(name.clone(), self.parent.fmt_type(ty).to_string()),
 			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
 				let val = enm.borrow().get_item_val(*idx).expect("Enum index out of range?");
 				let ty = crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::Int( crate::types::Signedness::Signed )));
@@ -818,7 +826,7 @@ impl Builder<'_>
 			let (term,ret_block) = {
 				use ::std::fmt::Write;
 				let mut term = format!("CALL {} = ", rv);
-				if let ValueRef::Function(ref name) = fcn {
+				if let ValueRef::Function(ref name, _) = fcn {
 					write!(term, "{}", name).unwrap();
 				}
 				else {
@@ -835,7 +843,7 @@ impl Builder<'_>
 				};
 			self.push_term(term);
 			self.set_block(ret_block);
-			ValueRef::Value(self.get_value(ValueRef::Slot(rv)), self.parent.fmt_type(ty).to_string())
+			ValueRef::Value(format!("={}", rv), self.parent.fmt_type(ty).to_string())
 			},
 
 		NodeKind::Assign(ref slot, ref val) => {
@@ -933,7 +941,7 @@ impl Builder<'_>
 				let ty = if let BaseType::Pointer(_) = ty.basetype { "usize".to_owned() } else { self.parent.fmt_type(ty).to_string() };
 				let rvalue = format!("BINOP {} {} 1 {}", self.get_value(val_in.clone()), if let UniOp::PostDec = op { "-" } else { "+" }, ty);
 				self.push_stmt_assign(val_in.clone().unwrap_slot(), ValueRef::Value(rvalue, ty.clone()));
-				ValueRef::Value(rv, ty)
+				ValueRef::Value(format!("={}", rv), ty)
 				},
 			UniOp::PreDec|UniOp::PreInc => {
 				// TODO: Pointers need different handling?
@@ -959,13 +967,13 @@ impl Builder<'_>
 				},
 			UniOp::Neg => {
 				let ty = self.parent.fmt_type(ty).to_string();
-				ValueRef::Value(format!("NEG {}", self.get_value(val_in)), ty)
+				ValueRef::Value(format!("UNIOP - {}", self.get_value(val_in)), ty)
 				},
 			UniOp::BitNot => {
 				match ty.basetype
 				{
 				//BaseType::Bool => ValueRef::Temporary(self.builder.ins().bnot(val)),
-				BaseType::Integer(_) => ValueRef::Value(format!("NOT {}", self.get_value(val_in)), self.parent.fmt_type(ty).to_string()),
+				BaseType::Integer(_) => ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), self.parent.fmt_type(ty).to_string()),
 				_ => todo!("BitNot on {:?}", ty),
 				}
 				},
@@ -973,9 +981,9 @@ impl Builder<'_>
 				//let val = self.get_value(val_in.clone());
 				match ty.basetype
 				{
-				BaseType::Bool => ValueRef::Value(format!("NOT {}", self.get_value(val_in)), "bool".to_owned()),
-				BaseType::Integer(_)
-				| BaseType::Pointer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
+				BaseType::Bool => ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), "bool".to_owned()),
+				BaseType::Integer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
+				BaseType::Pointer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), "usize"), "bool".to_owned()),
 				_ => todo!("LogicNot on {:?}", ty),
 				}
 				},
@@ -1007,7 +1015,10 @@ impl Builder<'_>
 			let size = ty.get_size().expect("sizeof on opaque");
 			ValueRef::Value(format!("{} i32", size), "i32".to_owned())
 			},
-		NodeKind::SizeofExpr(..) => panic!("TODO: handle_node - {:?}", node),
+		NodeKind::SizeofExpr(ref node) => {
+			let size = node.meta.as_ref().expect("No meta?").ty.get_size().expect("sizeof on opaque");
+			ValueRef::Value(format!("{} i32", size), "i32".to_owned())
+			},
 		NodeKind::Intrinsic(ref name, ref _types, ref _values) => match &name[..]
 			{
 			//"va_arg" => {
@@ -1100,7 +1111,9 @@ impl Builder<'_>
 			_ => panic!("Invalid {} from {:?} to {:?}", cast_name, src_ty, dst_ty),
 			}
 			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
-			ValueRef::Value(format!("CAST &{} as {}", self.get_value(src_val), dst_ty_s), dst_ty_s)
+			let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
+			let v = ValueRef::Value(format!("&{}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
+			ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
 		}
 		else {
 			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
