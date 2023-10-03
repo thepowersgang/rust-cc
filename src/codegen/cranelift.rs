@@ -163,7 +163,7 @@ impl Context
 					},
 				cty => todo!("init_data_ctx_node: v={:?} cty={:?}", v, cty),
 				},
-			crate::ast::ConstVal::Address(ref name) =>
+			crate::ast::ConstVal::Address(ref name, _ofs) =>
 				match cvt_ty(ty)
 				{
 				CRTY_PTR => {

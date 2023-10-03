@@ -68,8 +68,25 @@ pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::Type
 			ctx.visit_node(e, /*req_lvalue=*/false);
 		}
 		},
-	ast::Initialiser::ArrayLiteral(_) => todo!("handle_global({}: {:?}): val={:?}", name, ty, val),
-	ast::Initialiser::StructLiteral(_) => todo!("handle_global({}: {:?}): val={:?}", name, ty, val),
+	ast::Initialiser::ArrayLiteral(_) => {
+		todo!("handle_global({}: {:?}): val={:?}", name, ty, val)
+		},
+	ast::Initialiser::StructLiteral(ref mut ents) => {
+		for (name, e) in ents.iter_mut()
+		{
+			let ty = match ty.basetype
+				{
+				BaseType::Struct(ref s) =>
+					match s.borrow().iter_fields().find(|v| v.1 == name)
+					{
+					Some( (_, _, ty) ) => ty.clone(),
+					None => panic!("Unknown struct entry: {} in {:?}", name, ty),
+					},
+				_ => todo!("Struct literal {:?}", ty),
+				};
+			handle_global(program, name, &ty, e);
+		}
+		},
 	}
 }
 
@@ -325,6 +342,11 @@ impl<'a> Context<'a>
 			let fcn_ty = node_ty(&fcn);
 			let fcn_ty = match fcn_ty.basetype
 				{
+				BaseType::Pointer(ref inner) => inner,
+				_ => fcn_ty,
+				};
+			let fcn_ty = match fcn_ty.basetype
+				{
 				BaseType::Function(ref f) => f,
 				_ => panic!("TODO: Error when calling a non-function. {:?}", fcn_ty),
 				};
@@ -431,7 +453,14 @@ impl<'a> Context<'a>
 			self.visit_node(val_true, req_lvalue);
 			self.visit_node(val_false, req_lvalue);
 			if node_ty(&val_true) != node_ty(&val_false) {
-				todo!("Handle ternary type mismatch using promotion");
+				let max = match self.max_ty( node_ty(&val_true), node_ty(&val_false))
+					{
+					Some(v) => v.clone(),
+					None => todo!("Error with mismatched ternary types: {:?} and {:?}", val_true, val_false),
+					};
+				self.coerce_ty(&max, val_true);
+				self.coerce_ty(&max, val_false);
+				max.clone()
 			}
 			else {
 				node_ty(&val_true).clone()
@@ -730,12 +759,23 @@ impl<'a> Context<'a>
 				},
 			}),
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
-			if i1.basetype != i2.basetype {
-				todo!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2);
-			}
+			let bt = if i1.basetype != i2.basetype {
+					if let BaseType::Void = i2.basetype {
+						i1.basetype.clone()
+					}
+					else if let BaseType::Void = i1.basetype {
+						i2.basetype.clone()
+					}
+					else {
+						todo!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2);
+					}
+				}
+				else {
+					i1.basetype.clone()
+				};
 			let mut q = i1.qualifiers.clone();
 			q.merge_from(&i2.qualifiers);
-			crate::types::Type::new_ref(i1.basetype.clone(), q)
+			crate::types::Type::new_ref(bt, q)
 			}),
 		_ => todo!("Pick 'max' of {:?} and {:?}", ty1, ty2),
 		}))
@@ -768,6 +808,7 @@ impl<'a> Context<'a>
 				{
 				BaseType::Bool => {},
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
+				//BaseType::MagicType(ref mt) => 
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
 			BaseType::Pointer(ref i1) => match inner_ty.basetype

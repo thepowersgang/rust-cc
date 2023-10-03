@@ -365,7 +365,7 @@ pub enum Initialiser
 	/// Array literal `{[0] = a, [1] = b, [2] = c}`
 	ArrayLiteral(Vec<(Node,Node)>),	// 
 	/// Struct literal `{.a = a, .b = b, .c = c}`
-	StructLiteral(Vec<(Ident,Node)>),
+	StructLiteral(Vec<(Ident,Initialiser)>),
 }
 /// Either a evaluatable expression, or a variable definition
 #[derive(Debug)]
@@ -537,7 +537,8 @@ pub enum ConstVal
 	None,
 	Integer(u64),
 	Float(f64),
-	Address(Ident),
+	Address(Ident, usize),
+	String(String),
 }
 
 impl Node
@@ -557,13 +558,42 @@ impl Node
 	{
 		self.const_eval(true)
 	}
+	fn const_eval_address(&self) -> Option<(String, usize)> {
+		match self.kind
+		{
+		NodeKind::Identifier(ref name, _) => Some( (name.clone(), 0) ),
+		NodeKind::Member(ref inner, ref name) => {
+			let (rv_name,rv_ofs) = inner.const_eval_address()?;
+			let ty = &inner.meta.as_ref().unwrap().ty;
+			match ty.basetype
+			{
+			crate::types::BaseType::Struct(ref s) =>
+				match s.borrow().iter_fields().find(|v| v.1 == name)
+				{
+				Some( (ofs, _, _) ) => Some( (rv_name, rv_ofs + ofs as usize) ),
+				None => panic!("Unknown struct entry: {} in {:?}", name, ty),
+				},
+			_ => todo!("Struct literal {:?}", ty),
+			}
+			},
+		_ => None,
+		}
+	}
 	fn const_eval(&self, required: bool) -> ConstVal
 	{
 		match match self.kind
 			{
+			NodeKind::String(ref s) => ConstVal::String(s.clone()),
 			NodeKind::Integer(v, _ty) => ConstVal::Integer(v),
 			NodeKind::Float(v, _ty) => ConstVal::Float(v),
-			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(required))
+			NodeKind::UniOp(UniOp::Address,ref a) => {
+				match a.const_eval_address()
+				{
+				Some( (name, ofs) ) => ConstVal::Address(name, ofs),
+				None => ConstVal::None,
+				}
+				},
+			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(false))
 				{
 				(&UniOp::Neg,ConstVal::Integer(a)) => ConstVal::Integer(!a + 1),
 				_ => ConstVal::None,
@@ -581,11 +611,11 @@ impl Node
 				match binding
 				{
 				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() as u64 ),
-				&Some(IdentRef::Function) => ConstVal::Address(name.clone()),
+				&Some(IdentRef::Function) => ConstVal::Address(name.clone(), 0),
 				_ => ConstVal::None,
 				},
 			NodeKind::Cast(ref ty, ref val) =>
-				match val.const_eval(required)
+				match val.const_eval(false)
 				{
 				v @ ConstVal::None => v,
 				v @ ConstVal::Address(..) => match ty.basetype {
@@ -600,7 +630,7 @@ impl Node
 			_ => ConstVal::None,
 			}
 		{
-		ConstVal::None if required => panic!("TODO: {:?}", self),
+		ConstVal::None if required => panic!("TODO: consteval {:?}", self),
 		rv => rv,
 		}
 	}

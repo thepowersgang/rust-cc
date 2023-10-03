@@ -96,32 +96,79 @@ impl Context
 		write!(self.output_buffer, "static {}: {} = ", name, self.fmt_type(ty)).unwrap();
 
 		let size = ty.get_size().expect("lower_value with unsized/undefined type") as usize;
-		let mut buf = vec![0u8; size];
-		match val
+		enum Reloc {
+			String(String),
+			Addr(String),
+		}
+		fn generate_init(base_ofs: usize, buf: &mut [u8], relocs: &mut Vec<(usize,Reloc)>, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
 		{
-		crate::ast::Initialiser::None => {},
-		crate::ast::Initialiser::Value(v) => {
-			let v = v.const_eval_req();
-			match v
+			match val
 			{
-			crate::ast::ConstVal::None => todo!("Is None possible here?"),
-			crate::ast::ConstVal::Integer(val) => buf[..size].copy_from_slice(&val.to_le_bytes()[..size]),
-			crate::ast::ConstVal::Float(_) => todo!("float"),
-			crate::ast::ConstVal::Address(_) => todo!("address"),
+			crate::ast::Initialiser::None => {},
+			crate::ast::Initialiser::Value(v) => {
+				let v = v.const_eval_req();
+				match v
+				{
+				crate::ast::ConstVal::None => todo!("Is None possible here?"),
+				crate::ast::ConstVal::Integer(val) => buf.copy_from_slice(&val.to_le_bytes()[..buf.len()]),
+				crate::ast::ConstVal::Float(_) => todo!("float"),
+				crate::ast::ConstVal::Address(s,ofs) => {
+					buf[..4].copy_from_slice( &(0x10 + ofs as u32).to_le_bytes() );
+					relocs.push( (base_ofs, Reloc::Addr(s)) );
+					},
+				crate::ast::ConstVal::String(s) => {
+					buf[1] = 0x10;
+					relocs.push( (base_ofs, Reloc::String(s)) );
+					},
+				}
+				},
+			crate::ast::Initialiser::StructLiteral(ref ents) => {
+				for (name, e) in ents.iter()
+				{
+					let (ofs,ty) = match ty.basetype
+						{
+						BaseType::Struct(ref s) =>
+							match s.borrow().iter_fields().find(|v| v.1 == name)
+							{
+							Some( (ofs, _, ty) ) => (ofs as usize, ty.clone()),
+							None => panic!("Unknown struct entry: {} in {:?}", name, ty),
+							},
+						_ => todo!("Struct literal {:?}", ty),
+						};
+					generate_init(base_ofs+ofs, &mut buf[ofs..], &mut *relocs, &ty, e);
+				}
+				},
+			_ => todo!("Initialise static: init={:?}", val),
 			}
-			},
-		_ => todo!("Initialise static: init={:?}", val),
 		}
-		write!(self.output_buffer, "\"").unwrap();
-		for b in buf {
-			match b {
-			0 => write!(self.output_buffer, "\\0").unwrap(),
-			b'\\'|b'"' => write!(self.output_buffer, "\\{}", b as char).unwrap(),
-			0x20 ..= 0x7E => write!(self.output_buffer, "{}", b as char).unwrap(),
-			_ => write!(self.output_buffer, "\\x{:02x}", b).unwrap(),
+		fn fmt_bytes(dst: &mut Vec<u8>, src: &[u8]) {
+			write!(dst, "\"").unwrap();
+			for &b in src {
+				match b {
+				0 => write!(dst, "\\0").unwrap(),
+				b'\\'|b'"' => write!(dst, "\\{}", b as char).unwrap(),
+				0x20 ..= 0x7E => write!(dst, "{}", b as char).unwrap(),
+				_ => write!(dst, "\\x{:02x}", b).unwrap(),
+				}
 			}
+			write!(dst, "\"").unwrap();
 		}
-		write!(self.output_buffer, "\"").unwrap();
+		let mut buf = vec![0u8; size];
+		let mut relocs = vec![];
+		generate_init(0, &mut buf, &mut relocs, ty, val);
+		fmt_bytes(&mut self.output_buffer, &buf);
+		if relocs.len() > 0
+		{
+			write!(self.output_buffer, "{{").unwrap();
+			for (ofs,r) in relocs {
+				write!(self.output_buffer, " @{}=", ofs).unwrap();
+				match r {
+				Reloc::String(s) => fmt_bytes(&mut self.output_buffer, &s.as_bytes()),
+				Reloc::Addr(a) => write!(self.output_buffer, "{}", a).unwrap(),
+				}
+			}
+			write!(self.output_buffer, " }}").unwrap();
+		}
 		write!(self.output_buffer, ";\n").unwrap();
 /*
 		Initialiser::ListLiteral(ref vals) =>

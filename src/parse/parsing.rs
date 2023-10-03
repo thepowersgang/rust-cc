@@ -158,7 +158,9 @@ impl<'ast> super::ParseState<'ast>
 					if peek_token!(self.lex, Token::BraceOpen)
 					{
 						// NOTE: The following would need changes for C++11 struct initialisation
-						parse_todo!("Nested functions");
+						self.parse_function(typeid, ident)?;
+						return Ok(Some(vec![]));
+						//parse_todo!("Nested functions");
 					}
 					else
 					{
@@ -206,7 +208,9 @@ impl<'ast> super::ParseState<'ast>
 		Ok(match self.try_parse_local_var()?
 		{
 		Some(n) => {
-			syntax_assert!(self.lex.get_token()?, Token::Semicolon);
+			if !n.is_empty() {
+				syntax_assert!(self.lex.get_token()?, Token::Semicolon);
+			}
 			::ast::Statement::VarDef(n)
 			},
 		None => match self.lex.get_token()?
@@ -534,7 +538,7 @@ impl<'ast> super::ParseState<'ast>
 		Ok(items)
 	}
 	
-	fn parse_struct_lit(&mut self) -> ParseResult<Vec<(String,::ast::Node)>>
+	fn parse_struct_lit(&mut self) -> ParseResult<Vec<(String,::ast::Initialiser)>>
 	{
 		let mut items = Vec::new();
 		loop
@@ -545,7 +549,14 @@ impl<'ast> super::ParseState<'ast>
 			syntax_assert!(self.lex => Token::Period);
 			let name = syntax_assert!(self.lex => Token::Ident(i) @ i);
 			syntax_assert!(self.lex => Token::Assign);
-			let val = self.parse_expr()?;
+			let val = if !peek_token!(self.lex, Token::BraceOpen) {
+					// `=` ...
+					::ast::Initialiser::Value( self.parse_expr()? )
+				}
+				else {
+					// `=` `{`
+					self.parse_composite_lit()?
+				};
 			
 			items.push( (name,val) );
 			
