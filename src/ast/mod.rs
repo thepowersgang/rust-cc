@@ -621,6 +621,11 @@ impl Node
 					crate::types::BaseType::Integer(ref ic) if ic.size_align().0 >= 4 => v,
 					_ => ConstVal::None,
 					},
+				ConstVal::Integer(i) => match ty.basetype {
+					crate::types::BaseType::Pointer(..) if i == 0 => ConstVal::Integer(i),
+					crate::types::BaseType::Integer(_) => ConstVal::Integer(i),
+					_ => ConstVal::None,
+					},
 				v @ _ => todo!("const_eval: {:?} - v={:?}", self, v),
 				},
 			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
