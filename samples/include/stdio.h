@@ -15,6 +15,10 @@ extern int dprintf(int fd, const char *format, ...);
 extern int sprintf(char *str, const char *format, ...);
 extern int snprintf(char *str, size_t size, const char *format, ...);
 
+extern int scanf(const char *format, ...);
+extern int fscanf(FILE *stream, const char *format, ...);
+extern int sscanf(const char *str, const char *format, ...);
+
 extern FILE *fopen(const char *pathname, const char *mode);
 //extern FILE *fdopen(int fd, const char *mode);
 extern FILE *freopen(const char *pathname, const char *mode, FILE *stream);

@@ -166,6 +166,8 @@ impl<'ast> super::ParseState<'ast>
 					"i16" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 16 },
 					"i32" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 32 },
 					"i64" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 64 },
+					//"iptr" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 64 },
+					//"uptr" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 64 },
 					_ => syntax_error!("Unknown magic type repr {:?}", repr),
 					};
 				typeid = Some(::types::BaseType::MagicType(::types::MagicType::Named(name, repr)));

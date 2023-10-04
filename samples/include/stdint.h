@@ -10,3 +10,6 @@ typedef __magictype__("uint16_t:u16")	uint16_t;
 typedef __magictype__("uint32_t:u32")	uint32_t;
 typedef __magictype__("uint64_t:u64")	uint64_t;
 
+//typedef __magictype__("intptr_t:uptr")	intptr_t;
+typedef __magictype__("intptr_t:u64")	intptr_t;
+
