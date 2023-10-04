@@ -16,6 +16,7 @@ impl<'ast> super::ParseState<'ast>
 			Token::EOF => {
 				break;
 				},
+			Token::Semicolon => {},
 			Token::Rword_typedef => {
 				let basetype = self.get_base_type()?;
 				debug!("do_typedef: basetype={:?}", basetype);

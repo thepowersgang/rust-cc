@@ -461,6 +461,7 @@ impl Type
 			Some(ref v) => Some( (v.size, v.align,) ),
 			None => None,
 			},
+		BaseType::Enum(_) => Some((4,4)),
 		_ => todo!("Type::get_size_align(): {:?}", self),
 		}
 	}

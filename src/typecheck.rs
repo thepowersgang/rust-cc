@@ -719,6 +719,9 @@ impl<'a> Context<'a>
 		}
 		Some(crate::types::Type::new_ref_bare(match (&ty1.basetype, &ty2.basetype)
 		{
+		(BaseType::Bool, BaseType::Integer(i), )
+		| (BaseType::Integer(i), BaseType::Bool, )
+			=> BaseType::Integer(i.clone()),
 		(BaseType::Integer(i1), BaseType::Integer(i2)) => BaseType::Integer(match i1
 			{
 			//IntClass::Bits(_s1, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
