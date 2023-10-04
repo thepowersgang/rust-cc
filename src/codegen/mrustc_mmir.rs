@@ -90,7 +90,7 @@ impl Context
 
 		write!(self.output_buffer, "}}\n").unwrap();
 	}
-	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: Option<&crate::ast::Initialiser>)
 	{
 		self.register_type(ty);
 		write!(self.output_buffer, "static {}: {} = ", name, self.fmt_type(ty)).unwrap();
@@ -104,7 +104,6 @@ impl Context
 		{
 			match val
 			{
-			crate::ast::Initialiser::None => {},
 			crate::ast::Initialiser::Value(v) => {
 				let v = v.const_eval_req();
 				match v
@@ -155,7 +154,9 @@ impl Context
 		}
 		let mut buf = vec![0u8; size];
 		let mut relocs = vec![];
-		generate_init(0, &mut buf, &mut relocs, ty, val);
+		if let Some(val) = val {
+			generate_init(0, &mut buf, &mut relocs, ty, val);
+		}
 		fmt_bytes(&mut self.output_buffer, &buf);
 		if relocs.len() > 0
 		{
@@ -528,8 +529,8 @@ impl Builder<'_>
 		let slot = self.vars[idx].clone().0;
 		match var_def.value
 		{
-		crate::ast::Initialiser::None => {},
-		crate::ast::Initialiser::Value(ref node) => {
+		None => {},
+		Some(crate::ast::Initialiser::Value(ref node)) => {
 			let v = self.handle_node(node);
 			self.push_stmt_assign(slot, v);
 			},

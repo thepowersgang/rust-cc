@@ -30,63 +30,19 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 			});
 	}
 }
-pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::TypeRef, val: &mut ast::Initialiser)
+pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::TypeRef, val: Option<&mut ast::Initialiser>)
 {
 	debug!("handle_global({}: {:?}): val={:?}", name, ty, val);
 
-	match val
-	{
-	ast::Initialiser::None => {},
-	ast::Initialiser::Value(ref mut node) => {
+	if let Some(init) = val {
 		let mut ctx = Context {
 			program: program,
 			scopes: Default::default(),
 			variables: Default::default(),
 			ret_ty: ty.clone(),
 			};
-		ctx.visit_node(node, /*req_lvalue=*/false);
-		},
-	ast::Initialiser::ListLiteral(ref mut ents) => {
-		for (i,e) in Iterator::enumerate(ents.iter_mut())
-		{
-			let mut ctx = Context {
-				program: program,
-				scopes: Default::default(),
-				variables: Default::default(),
-				ret_ty: match ty.basetype
-					{
-					BaseType::Array(ref inner, _) => inner.clone(),
-					BaseType::Struct(ref s) =>
-						match s.borrow().get_field_idx(i)
-						{
-						Some( (_, _, ty) ) => ty.clone(),
-						None => panic!("Too many initialisers for struct"),
-						},
-					_ => todo!("List literal {:?}", ty),
-					},
-				};
-			ctx.visit_node(e, /*req_lvalue=*/false);
-		}
-		},
-	ast::Initialiser::ArrayLiteral(_) => {
-		todo!("handle_global({}: {:?}): val={:?}", name, ty, val)
-		},
-	ast::Initialiser::StructLiteral(ref mut ents) => {
-		for (name, e) in ents.iter_mut()
-		{
-			let ty = match ty.basetype
-				{
-				BaseType::Struct(ref s) =>
-					match s.borrow().iter_fields().find(|v| v.1 == name)
-					{
-					Some( (_, _, ty) ) => ty.clone(),
-					None => panic!("Unknown struct entry: {} in {:?}", name, ty),
-					},
-				_ => todo!("Struct literal {:?}", ty),
-				};
-			handle_global(program, name, &ty, e);
-		}
-		},
+		ctx.visit_init(ty, init);
+		
 	}
 }
 
@@ -149,7 +105,9 @@ impl<'a> Context<'a>
 			for var_def in list
 			{
 				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
-				self.visit_init(&var_def.ty, &mut var_def.value);
+				if let Some(init) = &mut var_def.value {
+					self.visit_init(&var_def.ty, init);
+				}
 			}
 			},
 		Statement::Expr(ref mut e) => {
@@ -250,7 +208,9 @@ impl<'a> Context<'a>
 			for var_def in defs
 			{
 				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
-				self.visit_init(&var_def.ty, &mut var_def.value);
+				if let Some(init) = &mut var_def.value {
+					self.visit_init(&var_def.ty, init);
+				}
 			}
 			},
 		}
@@ -703,12 +663,48 @@ impl<'a> Context<'a>
 		use crate::ast::Initialiser;
 		match *init
 		{
-		Initialiser::None => {},
 		Initialiser::Value(ref mut node) => {
 			self.visit_node(node, false);
-			// TODO: Check expected type
+			if node_ty(node) != exp_ty {
+				// TODO: Check expected type
+			}
 			},
-		_ => todo!("visit_init({:?}):, {:?}", exp_ty, init),
+		ast::Initialiser::ListLiteral(ref mut ents) => {
+			for (i,e) in Iterator::enumerate(ents.iter_mut())
+			{
+				let exp_ty = match exp_ty.basetype
+					{
+					BaseType::Array(ref inner, _) => inner.clone(),
+					BaseType::Struct(ref s) =>
+						match s.borrow().get_field_idx(i)
+						{
+						Some( (_, _, ty) ) => ty.clone(),
+						None => panic!("Too many initialisers for struct"),
+						},
+					_ => todo!("List literal {:?}", exp_ty),
+					};
+				self.visit_init(&exp_ty, e);
+			}
+			},
+		ast::Initialiser::ArrayLiteral(_) => {
+			todo!("visit_init({:?}): val={:?}", exp_ty, init)
+			},
+		ast::Initialiser::StructLiteral(ref mut ents) => {
+			for (name, e) in ents.iter_mut()
+			{
+				let exp_ty = match exp_ty.basetype
+					{
+					BaseType::Struct(ref s) =>
+						match s.borrow().iter_fields().find(|v| v.1 == name)
+						{
+						Some( (_, _, ty) ) => ty.clone(),
+						None => panic!("Unknown struct entry: {} in {:?}", name, exp_ty),
+						},
+					_ => todo!("Struct literal {:?}", exp_ty),
+					};
+				self.visit_init(&exp_ty, e);
+			}
+			},
 		}
 	}
 

@@ -57,7 +57,7 @@ pub struct Symbol
 #[derive(Debug)]
 pub enum SymbolValue
 {
-	Value(::std::cell::RefCell<Initialiser>),
+	Value(::std::cell::RefCell<Option<Initialiser>>),
 	Code(::std::cell::RefCell<FunctionBody>),
 }
 #[derive(Debug)]
@@ -89,7 +89,7 @@ impl Program
 	}
 	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
 	{
-		self.define_symbol(typeid, name, value.map(std::cell::RefCell::new).map(SymbolValue::Value))
+		self.define_symbol(typeid, name, value.map(Some).map(std::cell::RefCell::new).map(SymbolValue::Value))
 	}
 	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<SymbolValue>)
 	{
@@ -351,19 +351,17 @@ pub struct VariableDefinition
 	pub ty: ::types::TypeRef,
 	pub name: Ident,
 	pub index: Option<usize>,
-	pub value: Initialiser,
+	pub value: Option<Initialiser>,
 }
 #[derive(Debug)]
 pub enum Initialiser
 {
-	/// No initialisation
-	None,
 	/// Single value
 	Value(Node),
 	/// List literal `{ a, b, c }`
-	ListLiteral(Vec<Node>),
+	ListLiteral(Vec<Initialiser>),
 	/// Array literal `{[0] = a, [1] = b, [2] = c}`
-	ArrayLiteral(Vec<(Node,Node)>),	// 
+	ArrayLiteral(Vec<(Node,Initialiser)>),	// 
 	/// Struct literal `{.a = a, .b = b, .c = c}`
 	StructLiteral(Vec<(Ident,Initialiser)>),
 }

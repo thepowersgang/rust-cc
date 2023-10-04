@@ -88,7 +88,7 @@ fn main()
 			typecheck::handle_function(&program, name, fcn_ty, &mut fcn.borrow_mut())
 			},
 		ast::SymbolValue::Value(ref init) => {
-			typecheck::handle_global(&program, name, ty, &mut init.borrow_mut());
+			typecheck::handle_global(&program, name, ty, init.borrow_mut().as_mut());
 			},
 		}
 	}
@@ -115,7 +115,7 @@ fn main()
 				c.lower_function(name, fcn_ty, &fcn.borrow());
 				},
 			Some(ast::SymbolValue::Value(ref init)) => {
-				c.lower_value(name, ty, &init.borrow());
+				c.lower_value(name, ty, init.borrow().as_ref());
 				},
 			}
 		}

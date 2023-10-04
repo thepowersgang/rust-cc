@@ -40,7 +40,7 @@ impl Context
 	{
 		self.inner.declare_value(name, ty)
 	}
-	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: Option<&crate::ast::Initialiser>)
 	{
 		self.inner.lower_value(name, ty, val)
 	}
@@ -73,7 +73,7 @@ impl Inner {
     	Inner::Mmir(i) => i.declare_value(name, ty),
 		}
 	}
-	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: Option<&crate::ast::Initialiser>)
 	{
 		match self {
 		Inner::Cranelift(i) => i.lower_value(name, ty, val),

@@ -69,7 +69,10 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str("\n");
 			},
 		Some(::ast::SymbolValue::Value(ref v)) => {
-			self.write_initialiser(&v.borrow());
+			if let Some(init) = v.borrow().as_ref() {
+				self.write_str(" = ");
+				self.write_initialiser(init);
+			}
 			self.write_str(";\n");
 			},
 		None => panic!("Value with no value - {:?}", sym.name),
@@ -140,9 +143,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 	{
 		match init
 		{
-		&::ast::Initialiser::None => {},
 		&::ast::Initialiser::Value(ref v) => {
-			self.write_str(" = ");
 			self.write_node(v, super::NodePrecedence::CommaOperator.up());
 			},
 		&::ast::Initialiser::ListLiteral(ref vs) => {
@@ -156,7 +157,7 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 					self.write_str(" ");
 				}
 				is_first = false;
-				self.write_node(v, super::NodePrecedence::CommaOperator.up());
+				self.write_initialiser(v);
 			}
 			self.write_str(" }");
 			},
@@ -456,7 +457,10 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				self.write_str("; ");
 			}
 			self.write_type(&def.ty, |self_| self_.write_str(&def.name));
-			self.write_initialiser(&def.value);	// TODO: Indent level?
+			if let Some(init) = &def.value {
+				self.write_str(" = ");
+				self.write_initialiser(init);	// TODO: Indent level?
+			}
 			first = false;
 		}
 	}

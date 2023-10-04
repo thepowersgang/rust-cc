@@ -86,7 +86,7 @@ impl Context
 	pub fn declare_value(&mut self, _name: &crate::ast::Ident, _ty: &crate::types::TypeRef)
 	{
 	}
-	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
+	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: Option<&crate::ast::Initialiser>)
 	{
 		debug!("lower_value({}: {:?} = {:?})", name, ty, val);
 
@@ -99,13 +99,13 @@ impl Context
 
 		let size = ty.get_size().expect("Global with unknown size") as usize;
 		let mut data_ctx = ::cranelift_module::DataDescription::new();
-		if let Initialiser::None = val {
-			data_ctx.define_zeroinit( size );
-		}
-		else {
+		match val {
+		None => data_ctx.define_zeroinit( size ),
+		Some(init) => {
 			let mut data = vec![0; size].into_boxed_slice();
-			self.init_data_ctx(&mut data_ctx, &mut data, 0, ty, val);
+			self.init_data_ctx(&mut data_ctx, &mut data, 0, ty, init);
 			data_ctx.define(data);
+			},
 		}
 		self.module.define_data(did, &data_ctx).expect("lower_value - define_data");
 	}
@@ -114,8 +114,7 @@ impl Context
 	{
 		match init
 		{
-		Initialiser::None => {
-			},
+		Initialiser::Value(ref val) => self.init_data_ctx_node(data_ctx, data, offset, ty, val),
 		Initialiser::ListLiteral(ref vals) =>
 			match ty.basetype
 			{
@@ -123,18 +122,17 @@ impl Context
 				let inner_size = inner_ty.get_size().unwrap() as usize;
 				for (ofs, val) in Iterator::zip( (0 .. ).map(|i| i * inner_size), vals.iter() )
 				{
-					self.init_data_ctx_node(data_ctx, data, offset + ofs, inner_ty, val);
+					self.init_data_ctx(data_ctx, data, offset + ofs, inner_ty, val);
 				}
 				},
 			BaseType::Struct(ref s) => {
 				for (val, (ofs, _name, inner_ty)) in Iterator::zip( vals.iter(), s.borrow().iter_fields() )
 				{
-					self.init_data_ctx_node(data_ctx, data, offset + ofs as usize, inner_ty, val);
+					self.init_data_ctx(data_ctx, data, offset + ofs as usize, inner_ty, val);
 				}
 				},
 			_ => todo!("init_data_ctx: ListLiteral with {:?}", ty),
 			},
-		Initialiser::Value(ref val) => self.init_data_ctx_node(data_ctx, data, offset, ty, val),
 		_ => todo!("init_data_ctx: init={:?}", init),
 		}
 	}
@@ -1170,14 +1168,17 @@ impl Builder<'_>
 	{
 		let idx = var_def.index.unwrap();
 		let slot = self.vars[idx].clone();
-		match var_def.value
+		match &var_def.value
 		{
-		Initialiser::None => {},
-		Initialiser::Value(ref node) => {
-			let v = self.handle_node(node);
-			self.assign_value(slot, v)
-			},
-		_ => todo!("${} = {:?}", idx, var_def.value),
+		None => {},
+		Some(init) =>
+			match init {
+			Initialiser::Value(ref node) => {
+				let v = self.handle_node(node);
+				self.assign_value(slot, v)
+				},
+			_ => todo!("${} = {:?}", idx, var_def.value),
+			}
 		}
 	}
 
