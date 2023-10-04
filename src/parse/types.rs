@@ -155,6 +155,19 @@ impl<'ast> super::ParseState<'ast>
 					let mut it = s.splitn(2, ':');
 					( it.next().unwrap().to_owned(), it.next().expect("No repr in magic type").to_owned() )
 					};
+				let repr = match &repr[..]
+					{
+					"void" => crate::types::MagicTypeRepr::VoidPointer,
+					"u8" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 8 },
+					"u16" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 16 },
+					"u32" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 32 },
+					"u64" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 64 },
+					"i8" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 8 },
+					"i16" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 16 },
+					"i32" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 32 },
+					"i64" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 64 },
+					_ => syntax_error!("Unknown magic type repr {:?}", repr),
+					};
 				typeid = Some(::types::BaseType::MagicType(::types::MagicType::Named(name, repr)));
 				},
 			Token::Ident(n) => {

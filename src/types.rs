@@ -31,7 +31,13 @@ pub enum BaseType
 pub enum MagicType
 {
 	VaList,
-	Named(String, String),
+	Named(String, MagicTypeRepr),
+}
+#[derive(Clone,PartialEq,Debug)]
+pub enum MagicTypeRepr
+{
+	VoidPointer,
+	Integer {signed: bool, bits: u8}
 }
 #[derive(Clone,PartialEq)]
 pub enum ArraySize

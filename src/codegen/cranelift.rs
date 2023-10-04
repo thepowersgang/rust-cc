@@ -1284,7 +1284,7 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 	BaseType::Struct(_) => return None,
 	BaseType::Enum(_) => cr_tys::I32,
 	BaseType::MagicType(crate::types::MagicType::VaList) => CRTY_PTR,
-	BaseType::MagicType(crate::types::MagicType::Named(_,ref t)) if t == "*void" => CRTY_PTR,
+	BaseType::MagicType(crate::types::MagicType::Named(_,crate::types::MagicTypeRepr::VoidPointer)) => CRTY_PTR,
 	BaseType::Array(ref _ty, crate::types::ArraySize::None) => CRTY_PTR,
 	_ => todo!("Convert {:?} to cranelift", ty),
 	})

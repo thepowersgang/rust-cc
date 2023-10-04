@@ -268,7 +268,13 @@ impl Context
 			| IntClass::Long(s)  => signed(*s, "i32", "u32"),
 			IntClass::LongLong(s)  => signed(*s, "i64", "u64"),
 			}.to_owned(),
-		BaseType::MagicType(_) => todo!(),
+		BaseType::MagicType(mt) => match mt
+			{
+			crate::types::MagicType::VaList => todo!("va_list"),
+			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::VoidPointer) => todo!("magic_type output - {:?}", ty),
+			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits }) =>
+				format!("{}{}", if *signed { "i" } else { "u" }, bits),
+			},
 		BaseType::Pointer(inner) => {
 			format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
 			},
@@ -318,7 +324,7 @@ impl Context
 		BaseType::Union(_) => todo!("union"),
 		BaseType::Float(_) => {},
 		BaseType::Integer(_) => {},
-		BaseType::MagicType(_) => todo!(),
+		BaseType::MagicType(_) => {},
 		BaseType::Pointer(inner) => self.register_type(inner),
 		BaseType::Array(inner, _size) => self.register_type(inner),
 		BaseType::Function(ft) => self.register_functiontype(ft),
@@ -1088,31 +1094,6 @@ impl Builder<'_>
 	fn handle_binop(&mut self, op: &crate::ast::BinOp, ty_l: &crate::types::TypeRef, val_l: String, val_r: String) -> ValueRef
 	{
 		use crate::ast::BinOp;
-		enum TyC {
-			Float,
-			Unsigned,
-			Signed,
-		}
-		let _ty = match ty_l.basetype
-			{
-			BaseType::Float(_) => TyC::Float,
-			BaseType::Pointer(_) => TyC::Unsigned,
-			BaseType::Integer(ref ic) => match ic.signedness()
-				{
-				crate::types::Signedness::Unsigned => TyC::Unsigned,
-				crate::types::Signedness::Signed => TyC::Signed,
-				},
-			BaseType::Bool => {
-				let op = match op
-					{
-					BinOp::LogicOr => "|",
-					BinOp::LogicAnd => "&",
-					_ => panic!("TODO: handle_node - BinOp Bool {:?}", op),
-					};
-				return ValueRef::Value(format!("BINOP {} {} {}", val_l, op, val_r), "bool".to_string())
-				},
-			_ => panic!("Invalid type for bin-op: {:?}", ty_l),
-			};
 		let ty_s = self.parent.fmt_type(ty_l).to_string();
 		let (op,ty_s) = match op
 			{
@@ -1134,8 +1115,36 @@ impl Builder<'_>
 
 			BinOp::BitAnd => ("&",ty_s),
 			BinOp::BitOr => ("|",ty_s),
+			BinOp::BitXor => ("^",ty_s),
 
-			_ => panic!("TODO: handle_node - BinOp Signed - {:?}", op),
+			BinOp::LogicAnd|BinOp::LogicOr => {
+				let dst = self.alloc_local_raw("bool".to_owned());
+				let bb_end = self.create_block();
+				let bb_check2 = self.create_block();
+				let bb_true = self.create_block();
+				let bb_false = self.create_block();
+
+				if let BinOp::LogicAnd = op {
+					self.push_term_if(val_l, bb_check2, bb_false);
+					self.set_block(bb_check2);
+					self.push_term_if(val_r, bb_true, bb_false);
+				}
+				else {
+					self.push_term_if(val_l, bb_true, bb_check2);
+					self.set_block(bb_check2);
+					self.push_term_if(val_r, bb_true, bb_false);
+				}
+
+				self.set_block(bb_true);
+				self.push_stmt_assign(dst.clone(), ValueRef::Value("true".to_owned(), "bool".to_owned()));
+				self.push_term_goto(bb_end);
+				self.set_block(bb_false);
+				self.push_stmt_assign(dst.clone(), ValueRef::Value("false".to_owned(), "bool".to_owned()));
+				self.push_term_goto(bb_end);
+				self.set_block(bb_end);
+				return ValueRef::Value(format!("={}", dst), "bool".to_owned())
+				},
+			//_ => panic!("TODO: handle_node - BinOp - {:?}", op),
 			};	
 
 		return ValueRef::Value(format!("BINOP {} {} {}", val_l, op, val_r), ty_s);

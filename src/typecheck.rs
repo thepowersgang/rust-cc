@@ -758,6 +758,39 @@ impl<'a> Context<'a>
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			}),
+		  (BaseType::Integer(i1), &BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits })),)
+		| (&BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits })), BaseType::Integer(i1), )
+			=> {
+			let (ic_s,ic_bits) = match i1
+				{
+				IntClass::Char(None) => (false, 7),
+				IntClass::Char(Some(s)) => (!s.is_unsigned(), 8),
+				IntClass::Short(s) => (!s.is_unsigned(), 16),
+				IntClass::Int(s) => (!s.is_unsigned(), 16),
+				IntClass::Long(s) => (!s.is_unsigned(), 32),
+				IntClass::LongLong(s) => (!s.is_unsigned(), 64),
+				};
+			let ic_bits = ic_bits - (!ic_s) as u8;
+			let bits = bits - (!signed) as u8;
+			// `int` and `u16` needs `long` (must be signed, but `signed int` can't fit `u16`)
+			let out_sign = ic_s | signed;
+			let req_bits = bits.max(ic_bits) + out_sign as u8;
+			BaseType::Integer(if req_bits <= 8 {
+					IntClass::Char(Some(Signedness::from_bool_signed(out_sign)))
+				}
+				else if req_bits <= 16 {
+					IntClass::Int(Signedness::from_bool_signed(out_sign))
+				}
+				else if req_bits <= 32 {
+					IntClass::Long(Signedness::from_bool_signed(out_sign))
+				}
+				else if req_bits <= 64 {
+					IntClass::LongLong(Signedness::from_bool_signed(out_sign))
+				}
+				else {
+					todo!("Pick 'max' of {:?} and {:?}", ty1, ty2)
+				})
+			},
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
 			let bt = if i1.basetype != i2.basetype {
 					if let BaseType::Void = i2.basetype {
@@ -808,7 +841,14 @@ impl<'a> Context<'a>
 				{
 				BaseType::Bool => {},
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
-				//BaseType::MagicType(ref mt) => 
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
+				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				},
+			BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => match inner_ty.basetype
+				{
+				BaseType::Bool => {},
+				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
 			BaseType::Pointer(ref i1) => match inner_ty.basetype
