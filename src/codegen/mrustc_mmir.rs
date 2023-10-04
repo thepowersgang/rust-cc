@@ -109,7 +109,10 @@ impl Context
 				match v
 				{
 				crate::ast::ConstVal::None => todo!("Is None possible here?"),
-				crate::ast::ConstVal::Integer(val) => buf.copy_from_slice(&val.to_le_bytes()[..buf.len()]),
+				crate::ast::ConstVal::Integer(val) => {
+					let s = ty.get_size().unwrap() as usize;
+					buf[..s].copy_from_slice(&val.to_le_bytes()[..s])
+					},
 				crate::ast::ConstVal::Float(_) => todo!("float"),
 				crate::ast::ConstVal::Address(s,ofs) => {
 					buf[..4].copy_from_slice( &(0x10 + ofs as u32).to_le_bytes() );
