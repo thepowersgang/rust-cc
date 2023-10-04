@@ -121,6 +121,40 @@ impl Context
 					},
 				}
 				},
+			crate::ast::Initialiser::ListLiteral(ref ents) => {
+				for (i, e) in ents.iter().enumerate()
+				{
+					let (ofs, ty) = match ty.basetype
+						{
+						BaseType::Array(ref inner, _) => (i*inner.get_size().unwrap() as usize, inner.clone()),
+						BaseType::Struct(ref s) =>
+							match s.borrow().get_field_idx(i)
+							{
+							Some( (ofs, _, ty) ) => (ofs as usize, ty.clone()),
+							None => panic!("Too many initialisers for struct"),
+							},
+						_ => todo!("List literal {:?}", ty),
+						};
+					generate_init(base_ofs+ofs, &mut buf[ofs..], &mut *relocs, &ty, e);
+				}
+				},
+			crate::ast::Initialiser::ArrayLiteral(ref ents) => {
+				for (idx, e) in ents.iter()
+				{
+					let i = match idx.const_eval_req()
+						{
+						crate::ast::ConstVal::None => todo!(),
+						crate::ast::ConstVal::Integer(v) => v as usize,
+						_ => panic!("Invalid consteval for array literal index")
+						};
+					let (ofs, ty) = match ty.basetype
+						{
+						BaseType::Array(ref inner, _) => (i*inner.get_size().unwrap() as usize, inner.clone()),
+						_ => todo!("List literal {:?}", ty),
+						};
+					generate_init(base_ofs+ofs, &mut buf[ofs..], &mut *relocs, &ty, e);
+				}
+				},
 			crate::ast::Initialiser::StructLiteral(ref ents) => {
 				for (name, e) in ents.iter()
 				{
@@ -137,7 +171,6 @@ impl Context
 					generate_init(base_ofs+ofs, &mut buf[ofs..], &mut *relocs, &ty, e);
 				}
 				},
-			_ => todo!("Initialise static: init={:?}", val),
 			}
 		}
 		fn fmt_bytes(dst: &mut Vec<u8>, src: &[u8]) {
