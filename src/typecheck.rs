@@ -831,6 +831,7 @@ impl<'a> Context<'a>
 				BaseType::Integer(_) => {},
 				BaseType::Float(_) => {},
 				BaseType::Pointer(..) => {},
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
 			BaseType::Integer(_ic) => match inner_ty.basetype

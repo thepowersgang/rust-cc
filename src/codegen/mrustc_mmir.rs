@@ -1063,7 +1063,10 @@ impl Builder<'_>
 				match ty.basetype
 				{
 				//BaseType::Bool => ValueRef::Temporary(self.builder.ins().bnot(val)),
-				BaseType::Integer(_) => ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), self.parent.fmt_type(ty).to_string()),
+				BaseType::Integer(_)
+				| BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
+					=> ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), self.parent.fmt_type(ty).to_string()),
+				
 				_ => todo!("BitNot on {:?}", ty),
 				}
 				},
@@ -1072,7 +1075,9 @@ impl Builder<'_>
 				match ty.basetype
 				{
 				BaseType::Bool => ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), "bool".to_owned()),
-				BaseType::Integer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
+				BaseType::Integer(_)
+				| BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
+					=> ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
 				BaseType::Pointer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), "usize"), "bool".to_owned()),
 				_ => todo!("LogicNot on {:?}", ty),
 				}
