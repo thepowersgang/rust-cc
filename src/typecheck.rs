@@ -267,8 +267,9 @@ impl<'a> Context<'a>
 				return v.symtype.clone();
 			}
 			if let Some( (enm, idx) ) = self.program.find_enum_var(name) {
-				*binding = Some(ast::IdentRef::Enum( enm, idx ));
-				return crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::int()));
+				*binding = Some(ast::IdentRef::Enum( enm.clone(), idx ));
+				return crate::types::Type::new_ref_bare(BaseType::Enum(enm));
+				//return crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::int()));
 			}
 			span.error(format_args!("Unable to find '{}'", name));
 			},
@@ -837,21 +838,22 @@ impl<'a> Context<'a>
 				BaseType::Float(_) => {},
 				BaseType::Pointer(..) => {},
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
-				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			BaseType::Integer(_ic) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
+				BaseType::Enum(_) => {},	// TODO: Any range checks needed?
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
-				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
-				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			BaseType::Pointer(ref i1) => match inner_ty.basetype
 				{
@@ -859,13 +861,13 @@ impl<'a> Context<'a>
 				BaseType::Array(_, _) => {},	// TODO: Const/restrict/etc warnings
 				BaseType::Function(ref ft_s) => {
 					let BaseType::Function(ref ft_d) = i1.basetype else {
-						todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)
+						node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty))
 						};
 					if ft_s.ret != ft_d.ret {
 					}
 					// TODO: Check signature
 					}
-				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			_ => {
 				node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty));

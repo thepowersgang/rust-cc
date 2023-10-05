@@ -33,6 +33,7 @@ impl Span {
 	//	self.message("bug", msg);
 	//	panic!("bug hit");
 	//}
+	#[track_caller]
 	pub fn todo(&self, msg: ::std::fmt::Arguments<'_>) -> ! {
 		self.message("TODO", msg);
 		panic!("TODO hit");

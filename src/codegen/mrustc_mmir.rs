@@ -286,9 +286,12 @@ impl Context
 				name
 			}
 			},
-		BaseType::Enum(_) => todo!(),
+		BaseType::Enum(_enm) => {
+			// TODO: Get the min/max range to determine which type to use
+			format!("i32")
+		},
 		BaseType::Union(_) => {
-			todo!();
+			todo!("Union types");
 			},
 		BaseType::Float(fc) => match fc
 			{
