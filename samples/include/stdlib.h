@@ -1,5 +1,7 @@
 #pragma once
 
+#include "stddef.h"
+
 extern void abort(void);
 
 extern int atoi(const char *nptr);
