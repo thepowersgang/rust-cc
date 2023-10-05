@@ -311,6 +311,8 @@ impl Context
 			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::VoidPointer) => todo!("magic_type output - {:?}", ty),
 			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits }) =>
 				format!("{}{}", if *signed { "i" } else { "u" }, bits),
+			crate::types::MagicType::Named(name, crate::types::MagicTypeRepr::Opaque { .. }) =>
+				format!("MAGIC_{}#", name),
 			},
 		BaseType::Pointer(inner) => {
 			format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
@@ -361,7 +363,17 @@ impl Context
 		BaseType::Union(_) => todo!("union"),
 		BaseType::Float(_) => {},
 		BaseType::Integer(_) => {},
-		BaseType::MagicType(_) => {},
+		BaseType::MagicType(crate::types::MagicType::VaList) => {},
+		BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::VoidPointer)) => {},
+		BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
+		BaseType::MagicType(crate::types::MagicType::Named(_name, crate::types::MagicTypeRepr::Opaque { bytes })) => {
+			write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
+			let (s,a) = ty.get_size_align().unwrap();
+			assert!(s == *bytes as u32);
+			write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", s,a).unwrap();
+			write!(self.output_buffer, "\t0 = [u8; {}];\n", bytes).unwrap();
+			write!(self.output_buffer, "}}\n").unwrap();
+			},
 		BaseType::Pointer(inner) => self.register_type(inner),
 		BaseType::Array(inner, _size) => self.register_type(inner),
 		BaseType::Function(ft) => self.register_functiontype(ft),

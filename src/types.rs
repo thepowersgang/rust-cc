@@ -37,7 +37,8 @@ pub enum MagicType
 pub enum MagicTypeRepr
 {
 	VoidPointer,
-	Integer {signed: bool, bits: u8}
+	Integer { signed: bool, bits: u8 },
+	Opaque { bytes: u8 }
 }
 #[derive(Clone,PartialEq)]
 pub enum ArraySize
@@ -443,10 +444,14 @@ impl Type
 		self.get_size_align().map(|(s,_a)| s)
 	}
 	pub fn get_size_align(&self) -> Option<(u32,u32)> {
+		// TODO: Move this to something configurable?
+		const PTR_SIZE: u32 = 4;
 		match self.basetype
 		{
+		BaseType::Void => None,
 		BaseType::Bool => Some( (1, 1) ),
-		BaseType::Pointer(_) => Some( (4, 4) ),
+		BaseType::Pointer(_) => Some( (PTR_SIZE, PTR_SIZE) ),
+		BaseType::Function(_) => Some( (PTR_SIZE,PTR_SIZE) ),
 		BaseType::Integer(ref ic) => Some(ic.size_align()),
 		BaseType::Float(fc) => Some( (fc.size(), fc.size()) ),
 
@@ -462,7 +467,13 @@ impl Type
 			None => None,
 			},
 		BaseType::Enum(_) => Some((4,4)),
-		_ => todo!("Type::get_size_align(): {:?}", self),
+		BaseType::MagicType(MagicType::VaList) => todo!("Type::get_size_align(): {:?}", self),
+		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::VoidPointer)) => Some( (PTR_SIZE,PTR_SIZE) ),
+		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Opaque { bytes })) => Some( (bytes as u32,PTR_SIZE) ),
+		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { bits, .. })) => {
+			let s = bits as u32 / 8;
+			Some( (s,s.min(PTR_SIZE)) )
+			},
 		}
 	}
 }
