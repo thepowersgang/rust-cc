@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 typedef struct FILE	FILE;
 typedef unsigned long long	fpos_t;
 
