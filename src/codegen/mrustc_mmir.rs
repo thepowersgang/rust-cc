@@ -311,11 +311,11 @@ impl Context
 		BaseType::MagicType(mt) => match mt
 			{
 			crate::types::MagicType::VaList => todo!("va_list"),
-			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::VoidPointer) => todo!("magic_type output - {:?}", ty),
+			crate::types::MagicType::Named(name, crate::types::MagicTypeRepr::VoidPointer) => format!("MAGIC_V_{}#", name),
 			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits }) =>
 				format!("{}{}", if *signed { "i" } else { "u" }, bits),
 			crate::types::MagicType::Named(name, crate::types::MagicTypeRepr::Opaque { .. }) =>
-				format!("MAGIC_{}#", name),
+				format!("MAGIC_O_{}#", name),
 			},
 		BaseType::Pointer(inner) => {
 			format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
