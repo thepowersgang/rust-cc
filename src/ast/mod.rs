@@ -8,8 +8,36 @@ pub mod pretty_print;
 
 pub type Ident = String;
 
-#[derive(Debug)]
-pub struct Span;
+#[derive(Debug,Clone)]
+pub struct Span {
+	pub layers: ::std::rc::Rc<Vec<String>>,
+}
+impl Span {
+	fn message(&self, ty: &str, msg: ::std::fmt::Arguments<'_>) {
+		let mut it = self.layers.iter().rev();
+		if let Some(l) = it.next() {
+			eprintln!("{}: {}: {}", l, ty, msg);
+			for v in it {
+				eprintln!("{}: from here", v);
+			}
+		}
+		else {
+			eprintln!("???: {}: {}", ty, msg);
+		}
+	}
+	pub fn error(&self, msg: ::std::fmt::Arguments<'_>) -> ! {
+		self.message("compile error", msg);
+		::std::process::exit(1);
+	}
+	//pub fn bug(&self, msg: ::std::fmt::Arguments<'_>) -> ! {
+	//	self.message("bug", msg);
+	//	panic!("bug hit");
+	//}
+	pub fn todo(&self, msg: ::std::fmt::Arguments<'_>) -> ! {
+		self.message("TODO", msg);
+		panic!("TODO hit");
+	}
+}
 
 #[derive(Default)]
 /// Representation of a C program/compilation unit
@@ -348,6 +376,7 @@ pub enum Statement
 #[derive(Debug)]
 pub struct VariableDefinition
 {
+	pub span: Span,
 	pub ty: ::types::TypeRef,
 	pub name: Ident,
 	pub index: Option<usize>,
@@ -375,6 +404,7 @@ pub enum ExprOrDef
 /// Expression node
 pub struct Node
 {
+	pub span: Span,
 	pub kind: NodeKind,
 	pub meta: Option<NodeMeta>,
 }
@@ -541,10 +571,11 @@ pub enum ConstVal
 
 impl Node
 {
-	pub fn new(kind: NodeKind) -> Node
+	pub fn new(span: Span, kind: NodeKind) -> Node
 	{
 		Node {
-			kind: kind,
+			span,
+			kind,
 			meta: None,
 			}
 	}

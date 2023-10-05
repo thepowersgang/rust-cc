@@ -151,6 +151,7 @@ impl<'ast> super::ParseState<'ast>
 		{
 		Some(basetype) => {
 			debug!("try_parse_local_var - basetype={:?}", basetype);
+			let sp = self.lex.point_span();
 			// Definition!
 			let (typeid, ident) = self.get_full_type(basetype.clone())?;
 			let rv = if ident != ""
@@ -166,13 +167,13 @@ impl<'ast> super::ParseState<'ast>
 					else
 					{
 						let init = self.parse_var_init()?;
-						let mut rv = vec![ ::ast::VariableDefinition { ty: typeid, name: ident, index: None, value: init } ];
+						let mut rv = vec![ ::ast::VariableDefinition { span: sp.clone(), ty: typeid, name: ident, index: None, value: init } ];
 						while peek_token!(self.lex, Token::Comma)
 						{
 							let (typeid, ident) = self.get_full_type(basetype.clone())?;
 							let init = self.parse_var_init()?;
 							
-							rv.push( ::ast::VariableDefinition { ty: typeid, name: ident, index: None, value: init } );
+							rv.push( ::ast::VariableDefinition { span: sp.clone(), ty: typeid, name: ident, index: None, value: init } );
 						}
 						Some(rv)
 					}
@@ -282,6 +283,7 @@ impl<'ast> super::ParseState<'ast>
 			
 			t @ Token::Ident(_) => {
 				self.lex.put_back(t);
+				let sp = self.lex.point_span();
 				let rv = self.parse_expr_list()?;
 				// If the expression was just an ident, AND it's followed by a colon: It's a label
 				if let ::ast::NodeKind::Identifier(i,_) = rv.kind
@@ -292,7 +294,7 @@ impl<'ast> super::ParseState<'ast>
 					else {
 						// Otherwise, check for the semicolon and return a bare ident
 						syntax_assert!(self.lex.get_token()?, Token::Semicolon);
-						::ast::Statement::Expr( ::ast::Node::new( ::ast::NodeKind::Identifier(i, None) ) )
+						::ast::Statement::Expr( ::ast::Node::new( sp, ::ast::NodeKind::Identifier(i, None) ) )
 					}
 				}
 				else {

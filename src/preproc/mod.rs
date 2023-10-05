@@ -126,7 +126,7 @@ enum InnerLexer
 struct LexHandle
 {
 	lexer: lex::Lexer<'static>,
-	filename: Option<::std::path::PathBuf>,
+	filename: Option<::std::rc::Rc<::std::path::PathBuf>>,
 	line: usize,
 }
 struct MacroExpansion
@@ -135,6 +135,16 @@ struct MacroExpansion
 	idx: usize,
 	tokens: ::std::vec::IntoIter<Token>,	// TODO: Instead store Rc<Vec<Token>> to MacroDefinition.expansion and HashMap<String,Vec<Tokens>>
 }
+
+/*
+pub struct ProtoSpan
+{
+	include_path: Vec<(::std::path::PathBuf,usize)>,
+	root_file: ::std::path::PathBuf,
+	root_line: usize,
+	root_ofs: usize,
+}
+*/
 
 macro_rules! syntax_assert{ ($tok:expr, $pat:pat => $val:expr) => ({ let v = $tok?; match v {
 	$pat => $val,
@@ -165,6 +175,24 @@ impl Preproc
 			if_stack: Default::default(),
 			options: options,
 			})
+	}
+
+	/*
+	pub fn start_span(&self) -> ProtoSpan {
+		ProtoSpan {
+			root_file: self.lexers.last().fmt_lineno(f)
+		}
+	}
+	pub fn end_span(&self) -> crate::ast::Span {
+		crate::ast::Span
+	}
+	*/
+	pub fn point_span(&self) -> crate::ast::Span {
+		crate::ast::Span {
+			layers: ::std::rc::Rc::new(self.lexers.lexers.iter().map(|v| {
+					v.span().to_string()
+				}).collect()),
+		}
 	}
 
 	pub fn parse_define_str(&mut self, s: &str) -> Result<()>
@@ -1251,25 +1279,35 @@ impl ::std::fmt::Display for Preproc
 		self.lexers.last().fmt_lineno(f)
 	}
 }
+#[derive(Clone)]
+struct SpanPoint {
+	filename: Option<::std::rc::Rc<::std::path::PathBuf>>,
+	line: usize,
+	//ofs: usize,
+}
+impl ::std::fmt::Display for SpanPoint {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match &self.filename {
+		Some(p) => write!(f, "{}:{}: ", p.display(), self.line),
+		None => write!(f, "<stdin>:{}: ", self.line),
+		}
+	}
+}
 impl InnerLexer
 {
 	fn fmt_lineno(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result
 	{
+		::std::fmt::Display::fmt(&self.span(), f)
+	}
+	fn span(&self) -> SpanPoint {
 		match self
 		{
 		InnerLexer::File(h) => {
-			if let Some(ref p) = h.filename
-			{
-				write!(f, "{}:{}: ", p.display(), h.line)
-			}
-			else
-			{
-				write!(f, "<stdin>:{}: ", h.line)
-			}
+			SpanPoint { filename: h.filename.clone(), line: h.line }
 			},
 		InnerLexer::MacroExpansion(h) => {
-			// TODO: Print something sane for macro expansions (macro source location?)
-			write!(f, "macro {}:{}: ", h.name, h.idx)
+			// Massive hack: Much better to get a span for the position in the macro expansion instead
+			SpanPoint { filename: Some(::std::rc::Rc::new(::std::path::Path::new(&format!("<macro {}>", h.name)).to_owned())), line: h.idx }
 			},
 		}
 	}
@@ -1283,7 +1321,7 @@ impl TokenSourceStack
 		TokenSourceStack {
 			lexers: vec![ InnerLexer::File(LexHandle {
 				lexer: lexer,
-				filename: filename,
+				filename: filename.map(::std::rc::Rc::new),
 				line: 1,
 				}) ],
 			include_inner_eof,
@@ -1298,7 +1336,7 @@ impl TokenSourceStack
 				Ok(f) => ::std::io::BufReader::new(f).chars(),
 				Err(e) => return Err(Error::IoError(e)),
 				})),
-			filename: Some(path),
+			filename: Some(::std::rc::Rc::new(path)),
 			line: 1,
 			}));
 		Ok( () )

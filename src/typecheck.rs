@@ -15,7 +15,7 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 	ctx.scopes.push(Default::default());
 	for (ty, name) in &ty.args
 	{
-		ctx.define_variable(name.clone(), ty.clone());
+		ctx.define_variable(&ast::Span { layers: Default::default() }, name.clone(), ty.clone());
 	}
 
 	ctx.visit_block(&mut fcn_body.code);
@@ -24,7 +24,7 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 	for e in ctx.variables
 	{
 		fcn_body.var_table.push(ast::VarTableEnt {
-			span: ast::Span,
+			span: e.span,
 			name: e.name,
 			ty: e.ty,
 			});
@@ -64,23 +64,25 @@ enum ValDef
 }
 struct VarDef
 {
+	span: crate::ast::Span,
 	name: Ident,
 	ty: TypeRef,
 }
 
 impl<'a> Context<'a>
 {
-	fn define_variable(&mut self, name: Ident, ty: TypeRef) -> usize
+	fn define_variable(&mut self, span: &crate::ast::Span, name: Ident, ty: TypeRef) -> usize
 	{
 		let idx = self.variables.len();
 		self.variables.push(VarDef {
+			span: span.clone(),
 			name: name.clone(),
 			ty: ty,
 			});
 		let scope = self.scopes.last_mut().unwrap();
 		if let Some(_v) = scope.variables.get(&name) {
 			// TODO: This could be just a warning (C standard doesn't allow multiple definitions, but we could)
-			panic!("Multiple defintions of `{}`", name);
+			span.error(format_args!("Multiple defintions of `{}`", name));
 		}
 		scope.variables.insert(name, ValDef::Variable(idx));
 		idx
@@ -104,7 +106,7 @@ impl<'a> Context<'a>
 		Statement::VarDef(ref mut list) => {
 			for var_def in list
 			{
-				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
+				var_def.index = Some(self.define_variable(&var_def.span, var_def.name.clone(), var_def.ty.clone()));
 				if let Some(init) = &mut var_def.value {
 					self.visit_init(&var_def.ty, init);
 				}
@@ -207,7 +209,7 @@ impl<'a> Context<'a>
 		ast::ExprOrDef::Definition(ref mut defs) => {
 			for var_def in defs
 			{
-				var_def.index = Some(self.define_variable(var_def.name.clone(), var_def.ty.clone()));
+				var_def.index = Some(self.define_variable(&var_def.span, var_def.name.clone(), var_def.ty.clone()));
 				if let Some(init) = &mut var_def.value {
 					self.visit_init(&var_def.ty, init);
 				}
@@ -218,13 +220,13 @@ impl<'a> Context<'a>
 
 	fn visit_node(&mut self, node: &mut ast::Node, req_lvalue: bool)
 	{
-		let ty = self.visit_node_inner(&mut node.kind, req_lvalue);
+		let ty = self.visit_node_inner(&node.span, &mut node.kind, req_lvalue);
 		node.meta = Some(ast::NodeMeta {
 			is_lvalue: req_lvalue,
 			ty: ty,
 			});
 	}
-	fn visit_node_inner(&mut self, node_kind: &mut ast::NodeKind, req_lvalue: bool) -> TypeRef
+	fn visit_node_inner(&mut self, span: &crate::ast::Span, node_kind: &mut ast::NodeKind, req_lvalue: bool) -> TypeRef
 	{
 		use crate::ast::NodeKind;
 		match *node_kind
@@ -268,7 +270,7 @@ impl<'a> Context<'a>
 				*binding = Some(ast::IdentRef::Enum( enm, idx ));
 				return crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::int()));
 			}
-			panic!("Unable to find '{}'", name);
+			span.error(format_args!("Unable to find '{}'", name));
 			},
 		NodeKind::String(_) => {
 			if req_lvalue {
@@ -614,18 +616,18 @@ impl<'a> Context<'a>
 				let (val, idx) = match *node_kind {
 					NodeKind::Index(ref mut val, ref mut idx) => {
 						(
-							::std::mem::replace(val, Box::new( null_node() ) ),
-							::std::mem::replace(idx, Box::new( null_node() ) ),
+							::std::mem::replace(val, Box::new( null_node(span) ) ),
+							::std::mem::replace(idx, Box::new( null_node(span) ) ),
 							)
 						},
 					_ => unreachable!(),
 					};
 				// - Update the node to be `(*val).NAME`
 				*node_kind = NodeKind::UniOp(ast::UniOp::Deref,
-					Box::new(ast::Node::new(NodeKind::BinOp(ast::BinOp::Add, val, idx)))
+					Box::new(ast::Node::new(span.clone(), NodeKind::BinOp(ast::BinOp::Add, val, idx)))
 					);
 				// - Recurse
-				self.visit_node_inner(node_kind, req_lvalue)
+				self.visit_node_inner(span, node_kind, req_lvalue)
 			},
 		// Implemented as `(*val).NAME` (using replacement)
 		NodeKind::DerefMember(..) => {
@@ -633,7 +635,7 @@ impl<'a> Context<'a>
 			let (val, name) = match *node_kind {
 				NodeKind::DerefMember(ref mut val, ref mut name) => {
 					(
-						::std::mem::replace(val, Box::new( null_node() ) ),
+						::std::mem::replace(val, Box::new( null_node(span) ) ),
 						::std::mem::replace(name, Ident::new()),
 						)
 					},
@@ -641,11 +643,11 @@ impl<'a> Context<'a>
 				};
 			// - Update the node to be `(*val).NAME`
 			*node_kind = NodeKind::Member(
-				Box::new( ast::Node::new(NodeKind::UniOp(ast::UniOp::Deref, val)) ),
+				Box::new( ast::Node::new(span.clone(), NodeKind::UniOp(ast::UniOp::Deref, val)) ),
 				name
 				);
 			// - Recurse
-			self.visit_node_inner(node_kind, req_lvalue)
+			self.visit_node_inner(span, node_kind, req_lvalue)
 			},
 		NodeKind::Member(ref mut val, ref name) => {
 			self.visit_node(val, req_lvalue);
@@ -815,8 +817,8 @@ impl<'a> Context<'a>
 	fn coerce_ty(&self, req_ty: &TypeRef, node: &mut ast::Node)
 	{
 		if req_ty.basetype != node_ty(&node).basetype {
-			let inner_node = ::std::mem::replace(node, null_node());
-			*node = ast::Node::new(ast::NodeKind::ImplicitCast(req_ty.clone(), Box::new(inner_node)));
+			let inner_node = ::std::mem::replace(node, null_node(&node.span));
+			*node = ast::Node::new(node.span.clone(), ast::NodeKind::ImplicitCast(req_ty.clone(), Box::new(inner_node)));
 			node.meta = Some(ast::NodeMeta {
 				is_lvalue: false,
 				ty: req_ty.clone(),
@@ -865,7 +867,9 @@ impl<'a> Context<'a>
 					}
 				_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
 				},
-			_ => todo!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty),
+			_ => {
+				node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty));
+				},
 			}
 		}
 	}
@@ -880,6 +884,6 @@ fn node_ty(n: &ast::Node) -> &TypeRef {
 	&n.meta.as_ref().unwrap().ty
 }
 
-fn null_node() -> ast::Node {
-	ast::Node::new(ast::NodeKind::StmtList(vec![]))
+fn null_node(span: &ast::Span) -> ast::Node {
+	ast::Node::new(span.clone(), ast::NodeKind::StmtList(vec![]))
 }
