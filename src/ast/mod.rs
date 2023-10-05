@@ -25,6 +25,9 @@ impl Span {
 			eprintln!("???: {}: {}", ty, msg);
 		}
 	}
+	pub fn warning(&self, msg: ::std::fmt::Arguments<'_>) {
+		self.message("warning", msg);
+	}
 	pub fn error(&self, msg: ::std::fmt::Arguments<'_>) -> ! {
 		self.message("compile error", msg);
 		::std::process::exit(1);

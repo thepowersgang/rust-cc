@@ -78,7 +78,7 @@ impl ArraySizeExpr {
 			self.1.set( Some(v) );
 			v
 			},
-		None => todo!("ArraySizeExpr::get_value - {:?} (not suppored by `literal_integer`)", self.0),
+		None => self.0.span.todo(format_args!("ArraySizeExpr::get_value - {:?} (not suppored by `literal_integer`)", self.0)),
 		}
 	}
 }

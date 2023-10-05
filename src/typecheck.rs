@@ -356,24 +356,13 @@ impl<'a> Context<'a>
 			},
 		NodeKind::Intrinsic(ref op, ref tys, ref mut vals) => match &op[..]
 			{
-			"va_start" => {
+			"va_start"|"va_end"|"va_copy" => {
 				if req_lvalue {
 					self.err_no_lvalue();
 				}
 				for n in vals {
 					self.visit_node(n, false);
 				}
-				//crate::types::c::void()
-				crate::types::Type::new_ref_bare(BaseType::Void)
-				},
-			"va_end" => {
-				if req_lvalue {
-					self.err_no_lvalue();
-				}
-				for n in vals {
-					self.visit_node(n, false);
-				}
-				//crate::types::c::void()
 				crate::types::Type::new_ref_bare(BaseType::Void)
 				},
 			"va_arg" => {
@@ -416,7 +405,7 @@ impl<'a> Context<'a>
 			self.visit_node(val_true, req_lvalue);
 			self.visit_node(val_false, req_lvalue);
 			if node_ty(&val_true) != node_ty(&val_false) {
-				let max = match self.max_ty( node_ty(&val_true), node_ty(&val_false))
+				let max = match self.max_ty( span, node_ty(&val_true), node_ty(&val_false))
 					{
 					Some(v) => v.clone(),
 					None => todo!("Error with mismatched ternary types: {:?} and {:?}", val_true, val_false),
@@ -517,7 +506,7 @@ impl<'a> Context<'a>
 			| BinOp::CmpGtE
 				=> {
 					if node_ty(&val_l).basetype != node_ty(&val_r).basetype {
-						let max = match self.max_ty( node_ty(&val_l), node_ty(&val_r))
+						let max = match self.max_ty(span, node_ty(&val_l), node_ty(&val_r))
 							{
 							Some(v) => v.clone(),
 							None => todo!("Error with mismatched cmp types: {:?} {:?} and {:?}", op, val_l, val_r),
@@ -569,7 +558,7 @@ impl<'a> Context<'a>
 						todo!("Handle RHS being a pointer but LHS not");
 					}
 					else if ty_l.basetype != ty_r.basetype {
-						let max = match self.max_ty(ty_l, ty_r)
+						let max = match self.max_ty(span, ty_l, ty_r)
 							{
 							Some(v) => v.clone(),
 							None => todo!("Error with mismatched binop types: {:?} {:?} and {:?}", op, val_l, val_r),
@@ -589,7 +578,7 @@ impl<'a> Context<'a>
 					let ty_l = node_ty(&val_l);
 					let ty_r = node_ty(&val_r);
 					if ty_l.basetype != ty_r.basetype {
-						let max = match self.max_ty(ty_l, ty_r)
+						let max = match self.max_ty(span, ty_l, ty_r)
 							{
 							Some(v) => v.clone(),
 							None => todo!("Error with mismatched bitop types: {:?} {:?} and {:?}", op, val_l, val_r),
@@ -711,7 +700,7 @@ impl<'a> Context<'a>
 		}
 	}
 
-	fn max_ty(&self, ty1: &TypeRef, ty2: &TypeRef) -> Option<TypeRef> {
+	fn max_ty(&self, span: &crate::ast::Span, ty1: &TypeRef, ty2: &TypeRef) -> Option<TypeRef> {
 		use crate::types::{Signedness,IntClass};
 		fn sgn(s1: &Signedness, s2: &Signedness) -> Signedness {
 			match (s1,s2)
@@ -790,7 +779,7 @@ impl<'a> Context<'a>
 					IntClass::LongLong(Signedness::from_bool_signed(out_sign))
 				}
 				else {
-					todo!("Pick 'max' of {:?} and {:?}", ty1, ty2)
+					span.todo(format_args!("Pick 'max' of {:?} and {:?}", ty1, ty2))
 				})
 			},
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
@@ -802,7 +791,7 @@ impl<'a> Context<'a>
 						i2.basetype.clone()
 					}
 					else {
-						todo!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2);
+						span.todo(format_args!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2));
 					}
 				}
 				else {
@@ -812,7 +801,13 @@ impl<'a> Context<'a>
 			q.merge_from(&i2.qualifiers);
 			crate::types::Type::new_ref(bt, q)
 			}),
-		_ => todo!("Pick 'max' of {:?} and {:?}", ty1, ty2),
+		(BaseType::Enum(_), BaseType::Integer(i), )
+		| (BaseType::Integer(i), BaseType::Enum(_), )
+			=> {
+				// TODO: Check the required size of the enum
+				BaseType::Integer(i.clone())
+			},
+		_ => span.todo(format_args!("Pick 'max' of {:?} and {:?}", ty1, ty2)),
 		}))
 	}
 	fn coerce_ty(&self, req_ty: &TypeRef, node: &mut ast::Node)
@@ -867,6 +862,13 @@ impl<'a> Context<'a>
 					}
 					// TODO: Check signature
 					}
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
+				},
+			BaseType::Enum(_) => match inner_ty.basetype
+				{
+				BaseType::Integer(_) => {
+					node.span.warning(format_args!("Coercing integer to enum ({:?} to {:?})", inner_ty, req_ty));
+					},
 				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			_ => {
