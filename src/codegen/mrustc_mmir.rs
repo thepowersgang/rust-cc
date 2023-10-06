@@ -58,11 +58,11 @@ impl Context
 				2 => format!("{}", var_name),	// But this is what `fmt_function_ty` would emit
 				_ => format!("arg{}", i),	// And this is what `standalone_miri` expects
 				};
-			builder.vars.push( (name, builder.parent.fmt_type(var_ty).to_string(),) );
+			builder.vars.push( Variable { lvalue: name, ty: builder.parent.fmt_type(var_ty).to_string(), } );
 		}
 		for (i,var) in body.var_table.iter().skip( ty.args.len() ).enumerate()
 		{
-			builder.vars.push( (format!("{}_v{}", var.name, i), builder.parent.fmt_type(&var.ty).to_string(),) );
+			builder.vars.push( Variable { lvalue: format!("{}_v{}", var.name, i), ty: builder.parent.fmt_type(&var.ty).to_string(), } );
 		}
 		builder.handle_block(&body.code);
 		if let BaseType::Void = ty.ret.basetype {
@@ -76,8 +76,8 @@ impl Context
 		write!(self.output_buffer, "{}\n", self.fmt_function_ty(ty, Some(name))).unwrap();
 		write!(self.output_buffer, "{{\n").unwrap();
 
-		for (var_name,var_ty) in vars {
-			write!(self.output_buffer, "\tlet {}: {};\n", var_name, var_ty).unwrap();
+		for v in vars {
+			write!(self.output_buffer, "\tlet {}: {};\n", v.lvalue, v.ty).unwrap();
 		}
 		for (i,(stmts,term)) in blocks.into_iter().enumerate() {
 			write!(self.output_buffer, "\t{}: {{\n", i).unwrap();
@@ -394,7 +394,7 @@ type BbIdx = usize;
 struct Builder<'a>
 {
 	parent: &'a mut Context,
-	vars: Vec<(String,String)>,
+	vars: Vec<Variable>,
 	stack: Vec<Scope>,
 
 	cur_block: usize,
@@ -405,6 +405,10 @@ struct Builder<'a>
 	labels: HashMap<Ident, BbIdx>,
 	/// Labels that are not yet defined
 	missed_labels: HashMap<Ident, BbIdx>,
+}
+struct Variable {
+	lvalue: String,
+	ty: String,
 }
 struct Scope {
 	blk_break: Option<BbIdx>,
@@ -524,7 +528,7 @@ impl Builder<'_>
 	fn alloc_local_raw(&mut self, ty: String) -> String {
 		let idx = self.vars.len();
 		let rv = format!("temp_{}", idx);
-		self.vars.push((rv.clone(), ty));
+		self.vars.push(Variable { lvalue: rv.clone(), ty });
 		rv
 	}
 	fn alloc_local(&mut self, ty: &crate::types::TypeRef) -> String {
@@ -569,7 +573,7 @@ impl Builder<'_>
 			{
 				self.define_var(var_def);
 			}
-			ValueRef::Slot(self.vars[list.last().unwrap().index.unwrap()].0.clone())
+			ValueRef::Slot(self.vars[list.last().unwrap().index.unwrap()].lvalue.clone())
 			},
 		}
 	}
@@ -577,7 +581,7 @@ impl Builder<'_>
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
 		let idx = var_def.index.unwrap();
-		let slot = self.vars[idx].clone().0;
+		let slot = self.vars[idx].lvalue.clone();
 		match var_def.value
 		{
 		None => {},
@@ -898,7 +902,7 @@ impl Builder<'_>
 			match binding
 			{
 			None => panic!("No binding on `NodeKind::Identifier`"),
-			Some(crate::ast::IdentRef::Local(idx)) => ValueRef::Slot(self.vars[*idx].0.clone()),
+			Some(crate::ast::IdentRef::Local(idx)) => ValueRef::Slot(self.vars[*idx].lvalue.clone()),
 			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Slot(format!("{}", name)),
 			Some(crate::ast::IdentRef::Function) => ValueRef::Function(name.clone(), self.parent.fmt_type(ty).to_string()),
 			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
