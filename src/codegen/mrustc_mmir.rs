@@ -580,17 +580,63 @@ impl Builder<'_>
 
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
-		let idx = var_def.index.unwrap();
-		let slot = self.vars[idx].lvalue.clone();
+		// TODO: If the type is an array with a variable-length, then insert an alloca
 		match var_def.value
 		{
 		None => {},
-		Some(crate::ast::Initialiser::Value(ref node)) => {
+		Some(ref init) => {
+			let idx = var_def.index.unwrap();
+			self.handle_init(&var_def.ty, self.vars[idx].lvalue.clone(), init);
+			},
+		}
+	}
+	fn handle_init(&mut self, ty: &crate::types::TypeRef, slot: String, init: &crate::ast::Initialiser)
+	{
+		match init
+		{
+		crate::ast::Initialiser::Value(ref node) => {
 			let v = self.handle_node(node);
 			self.push_stmt_assign(slot, v);
 			},
-		_ => todo!("${} = {:?}", idx, var_def.value),
+		crate::ast::Initialiser::ListLiteral(ref ents) => {
+			let ents_it = ents.iter().map(Some).chain(::std::iter::repeat(None));
+			match &ty.basetype
+			{
+			BaseType::Array(inner, count) => {
+				let count = count.get_value();
+				for (idx, val) in (0..count).zip(ents_it)
+				{
+					if let Some(i) = val {
+						self.handle_init(inner, format!("{}.{}", slot, idx), i);
+					}
+					else {
+						self.handle_init_zero(inner, format!("{}.{}", slot, idx));
+					}
+				}
+			},
+			BaseType::Struct(str) => {
+				for (idx,((_,_,fty),val)) in str.borrow().iter_fields().zip(ents_it).enumerate()
+				{
+					if let Some(i) = val {
+						self.handle_init(fty, format!("{}.{}", slot, idx), i);
+					}
+					else {
+						self.handle_init_zero(fty, format!("{}.{}", slot, idx));
+					}
+				}
+				},
+			_ => todo!("{} = {:?}: {:?}", slot, init, ty),
+			}
+			},
+		_ => todo!("{} = {:?}", slot, init),
 		}
+	}
+	fn handle_init_zero(&mut self, ty: &crate::types::TypeRef, slot: String)
+	{
+		// Zero initialise a field
+		let bb_next = self.create_block();
+		self.push_term(format!("CALL {} = \"zeroed\"::<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
+		self.set_block(bb_next);
 	}
 
 	fn handle_block(&mut self, stmts: &crate::ast::StatementList)
