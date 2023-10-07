@@ -198,7 +198,7 @@ impl Context
 		{
 			write!(self.output_buffer, "{{").unwrap();
 			for (ofs,r) in relocs {
-				write!(self.output_buffer, " @{}+{}=", ofs, 8).unwrap();
+				write!(self.output_buffer, " @{}+{}=", ofs, crate::types::POINTER_SIZE).unwrap();
 				match r {
 				Reloc::String(s) => fmt_bytes(&mut self.output_buffer, &s.as_bytes()),
 				Reloc::Addr(a) => write!(self.output_buffer, "{}", a).unwrap(),
@@ -268,12 +268,6 @@ impl Context
 		use crate::types::{FloatClass,IntClass};
 		use crate::types::Signedness;
 		use crate::types::ArraySize;
-		fn signed<'a>(s: Signedness, i: &'a str, u: &'a str) -> &'a str {
-			match s {
-			Signedness::Signed => i,
-			Signedness::Unsigned => u,
-			}
-		}
 		match &ty.basetype
 		{
 		BaseType::Void => "()".to_owned(),
@@ -300,15 +294,19 @@ impl Context
 			FloatClass::Double => "f64".to_owned(),
 			FloatClass::LongDouble => "f64".to_owned(),
 			}
-		BaseType::Integer(ic) => match ic
-			{
-			IntClass::Char(None) => "i8",
-			IntClass::Char(Some(s)) => signed(*s, "i8", "u8"),
-			IntClass::Short(s) => signed(*s, "i16", "u16"),
-			IntClass::Int(s)
-			| IntClass::Long(s)  => signed(*s, "i32", "u32"),
-			IntClass::LongLong(s)  => signed(*s, "i64", "u64"),
-			}.to_owned(),
+		BaseType::Integer(ic) => {
+			let s = match ic
+				{
+				IntClass::Char(None) => Signedness::Signed,
+				IntClass::Char(Some(s)) => *s,
+				IntClass::Short(s) => *s,
+				IntClass::Int(s) => *s,
+				IntClass::Long(s) => *s,
+				IntClass::LongLong(s) => *s,
+				};
+			let size = ty.get_size().unwrap();
+			format!("{}{}", match s { Signedness::Signed => "i", Signedness::Unsigned => "u" }, size*8)
+			}
 		BaseType::MagicType(mt) => match mt
 			{
 			crate::types::MagicType::VaList => todo!("va_list"),

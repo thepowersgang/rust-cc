@@ -3,6 +3,10 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 
+// TODO: Make configurable?
+//pub const POINTER_SIZE: u32 = 4;
+pub const POINTER_SIZE: u32 = 8;	// HACK: needed for mmir
+
 #[derive(PartialEq)]
 pub struct Type
 {
@@ -506,14 +510,12 @@ impl Type
 		self.get_size_align().map(|(s,_a)| s)
 	}
 	pub fn get_size_align(&self) -> Option<(u32,u32)> {
-		// TODO: Move this to something configurable?
-		const PTR_SIZE: u32 = 4;
 		match self.basetype
 		{
 		BaseType::Void => None,
 		BaseType::Bool => Some( (1, 1) ),
-		BaseType::Pointer(_) => Some( (PTR_SIZE, PTR_SIZE) ),
-		BaseType::Function(_) => Some( (PTR_SIZE,PTR_SIZE) ),
+		BaseType::Pointer(_) => Some( (POINTER_SIZE, POINTER_SIZE) ),
+		BaseType::Function(_) => Some( (POINTER_SIZE,POINTER_SIZE) ),
 		BaseType::Integer(ref ic) => Some(ic.size_align()),
 		BaseType::Float(fc) => Some( (fc.size(), fc.size()) ),
 
@@ -530,11 +532,11 @@ impl Type
 			},
 		BaseType::Enum(_) => Some((4,4)),
 		BaseType::MagicType(MagicType::VaList) => todo!("Type::get_size_align(): {:?}", self),
-		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::VoidPointer)) => Some( (PTR_SIZE,PTR_SIZE) ),
-		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Opaque { bytes })) => Some( (bytes as u32,PTR_SIZE) ),
+		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::VoidPointer)) => Some( (POINTER_SIZE,POINTER_SIZE) ),
+		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Opaque { bytes })) => Some( (bytes as u32,POINTER_SIZE) ),
 		BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { bits, .. })) => {
 			let s = bits as u32 / 8;
-			Some( (s,s.min(PTR_SIZE)) )
+			Some( (s,s.min(POINTER_SIZE)) )
 			},
 		}
 	}
