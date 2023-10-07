@@ -82,7 +82,12 @@ impl Context
 		for (i,(stmts,term)) in blocks.into_iter().enumerate() {
 			write!(self.output_buffer, "\t{}: {{\n", i).unwrap();
 			for stmt in stmts {
-				write!(self.output_buffer, "\t\t{};\n", stmt).unwrap();
+				if !stmt.ends_with('/') {
+					write!(self.output_buffer, "\t\t{};\n", stmt).unwrap();
+				}
+				else {
+					write!(self.output_buffer, "\t\t{}\n", stmt).unwrap();
+				}
 			}
 			write!(self.output_buffer, "\t\t{}\n", term.unwrap_or_else(|| "INCOMPLETE".to_owned())).unwrap();
 			write!(self.output_buffer, "\t}}\n").unwrap();
@@ -514,6 +519,9 @@ impl Builder<'_>
 		self.push_term(format!("IF {} goto {} else {}", val, bb_true, bb_false))
 	}
 
+	fn push_comment(&mut self, t: ::std::fmt::Arguments<'_>) {
+		self.blocks[self.cur_block].0.push(format!("/* {} */", t));
+	}
 	fn push_stmt(&mut self, t: String) {
 		assert!( self.blocks[self.cur_block].1.is_none(), "Pushing to a closed block" );
 		self.blocks[self.cur_block].0.push(t);
@@ -686,6 +694,7 @@ impl Builder<'_>
 			},
 		Statement::Expr(ref e) => {
 			trace!("{}{:?}", self.indent(), stmt);
+			self.push_comment(format_args!("{:?}", e.span));
 			let _v = self.handle_node(e);
 			},
 		Statement::Block(ref stmts) => {
@@ -1164,8 +1173,13 @@ impl Builder<'_>
 				BaseType::Bool => ValueRef::Value(format!("UNIOP ! {}", self.get_value(val_in)), "bool".to_owned()),
 				BaseType::Integer(_)
 				| BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
-					=> ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
-				BaseType::Pointer(_) => ValueRef::Value(format!("BINOP {} != 0 {}", self.get_value(val_in), "usize"), "bool".to_owned()),
+					=> ValueRef::Value(format!("BINOP {} == 0 {}", self.get_value(val_in), self.parent.fmt_type(ty).to_string()), "bool".to_owned()),
+				BaseType::Pointer(_) => {
+					let v = ValueRef::Value("0 usize".into(), "usize".into());
+					let t = ValueRef::Value(format!("CAST {} as {}", self.get_value(v), self.parent.fmt_type(ty)), self.parent.fmt_type(ty).to_string());
+					// If equal to 0, return 1
+					ValueRef::Value(format!("BINOP {} == {}", self.get_value(val_in), self.get_value(t)), "bool".to_owned())
+					},
 				_ => todo!("LogicNot on {:?}", ty),
 				}
 				},
@@ -1195,11 +1209,13 @@ impl Builder<'_>
 
 		NodeKind::SizeofType(ref ty) => {
 			let size = ty.get_size().expect("sizeof on opaque");
-			ValueRef::Value(format!("{} i32", size), "i32".to_owned())
+			let rty = self.parent.fmt_type(res_ty).to_string();
+			ValueRef::Value(format!("{} {}", size, rty), rty)
 			},
 		NodeKind::SizeofExpr(ref node) => {
 			let size = node.meta.as_ref().expect("No meta?").ty.get_size().expect("sizeof on opaque");
-			ValueRef::Value(format!("{} i32", size), "i32".to_owned())
+			let rty = self.parent.fmt_type(res_ty).to_string();
+			ValueRef::Value(format!("{} {}", size, rty), rty)
 			},
 		NodeKind::Intrinsic(ref name, ref _types, ref values) => match &name[..]
 			{
@@ -1313,6 +1329,22 @@ impl Builder<'_>
 			let _ = self.get_value(src_val);
 			ValueRef::Value("( )".to_owned(), "()".to_owned())
 		}
+		else if let BaseType::Bool = dst_ty.basetype {
+			let v = self.get_value(src_val);
+			match src_ty.basetype
+			{
+			BaseType::Integer(..)
+			|BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
+				=> ValueRef::Value(format!("BINOP {} != 0 {}", v, self.parent.fmt_type(&src_ty)), "bool".into()),
+			BaseType::Pointer(..) => {
+				let src_ty_s = self.parent.fmt_type(src_ty).to_string();
+				let zero = self.get_value(ValueRef::Value("0 usize".into(), "usize".into()));
+				let zero = ValueRef::Value(format!("CAST {} as {}", zero, src_ty_s), src_ty_s);
+				ValueRef::Value(format!("BINOP {} == {}", v, self.get_value(zero)), "bool".into())
+				},
+			_ => todo!("Cast {:?} to bool", src_ty),
+			}
+		}
 		// Casting/decaying an array to a pointer
 		else if let BaseType::Array(..) = src_ty.basetype {
 			match dst_ty.basetype
@@ -1324,6 +1356,17 @@ impl Builder<'_>
 			let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
 			let v = ValueRef::Value(format!("&{}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
 			ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
+		}
+		else if let BaseType::Pointer(_) = dst_ty.basetype {
+			// Force integers to cast to usize first
+			let src_val = if let BaseType::Integer(_) = src_ty.basetype {
+					ValueRef::Value(format!("CAST {} as usize", self.get_value(src_val)), "usize".to_owned())
+				}
+				else {
+					src_val
+				};
+			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
+			ValueRef::Value(format!("CAST {} as {}", self.get_value(src_val), dst_ty_s), dst_ty_s)
 		}
 		else {
 			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
