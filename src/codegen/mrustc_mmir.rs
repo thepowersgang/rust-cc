@@ -198,11 +198,12 @@ impl Context
 		{
 			write!(self.output_buffer, "{{").unwrap();
 			for (ofs,r) in relocs {
-				write!(self.output_buffer, " @{}=", ofs).unwrap();
+				write!(self.output_buffer, " @{}+{}=", ofs, 8).unwrap();
 				match r {
 				Reloc::String(s) => fmt_bytes(&mut self.output_buffer, &s.as_bytes()),
 				Reloc::Addr(a) => write!(self.output_buffer, "{}", a).unwrap(),
 				}
+				write!(self.output_buffer, ",").unwrap();
 			}
 			write!(self.output_buffer, " }}").unwrap();
 		}
@@ -597,8 +598,8 @@ impl Builder<'_>
 					let size = self.handle_node(e);
 					let size = self.get_value(size);
 					let next_block = self.create_block();
-					self.push_term(format!("{} = \"alloca_array\"::<{}>({}) goto {} else {}",
-						self.vars[idx].lvalue, size, self.parent.fmt_type(inner), next_block, next_block));
+					self.push_term(format!("CALL {} = \"alloca_array\"<{}>({}) goto {} else {}",
+						self.vars[idx].lvalue, self.parent.fmt_type(inner), size, next_block, next_block));
 					self.set_block(next_block);
 					},
 				}
@@ -658,7 +659,7 @@ impl Builder<'_>
 	{
 		// Zero initialise a field
 		let bb_next = self.create_block();
-		self.push_term(format!("CALL {} = \"zeroed\"::<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
+		self.push_term(format!("CALL {} = \"zeroed\"<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
 		self.set_block(bb_next);
 	}
 
@@ -1208,7 +1209,7 @@ impl Builder<'_>
 				let list = self.handle_node(&values[0]);
 				// TODO: Check the other argument (must be the last non `...` arg)
 				let next_block = self.create_block();
-				self.push_term(format!("{} = \"va_start\"() goto {} else {}", list.unwrap_slot(), next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_start\"() goto {} else {}", list.unwrap_slot(), next_block, next_block));
 				self.set_block(next_block);
 				ValueRef::Value("()".to_owned(), "()".to_owned())
 				},
@@ -1217,7 +1218,7 @@ impl Builder<'_>
 				let src = self.handle_node(&values[1]);
 				let src = self.get_value(src);
 				let next_block = self.create_block();
-				self.push_term(format!("{} = \"va_copy\"({}) goto {} else {}", dst.unwrap_slot(), src, next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_copy\"({}) goto {} else {}", dst.unwrap_slot(), src, next_block, next_block));
 				self.set_block(next_block);
 				ValueRef::Value("()".to_owned(), "()".to_owned())
 				},
@@ -1225,7 +1226,7 @@ impl Builder<'_>
 				let list = self.handle_node(&values[0]);
 				let next_block = self.create_block();
 				let rv = self.alloc_local_raw("()".to_owned());
-				self.push_term(format!("{} = \"va_end\"({}) goto {} else {}", rv, list.unwrap_slot(), next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_end\"({}) goto {} else {}", rv, list.unwrap_slot(), next_block, next_block));
 				self.set_block(next_block);
 				ValueRef::Slot(rv)
 				},
