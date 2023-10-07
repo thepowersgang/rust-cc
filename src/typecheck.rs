@@ -150,7 +150,7 @@ impl<'a> Context<'a>
 			}
 			},
 		Statement::Expr(ref mut e) => {
-			trace!("{:?}", e);
+			debug!("{:?} {:?}", e.span.layers.last(), e);
 			self.visit_node(e, false);
 			},
 		Statement::Block(ref mut stmts) => {
@@ -545,8 +545,8 @@ impl<'a> Context<'a>
 					if node_ty(&val_l).basetype != node_ty(&val_r).basetype {
 						let max = match self.max_ty(span, node_ty(&val_l), node_ty(&val_r))
 							{
-							Some(v) => v.clone(),
-							None => todo!("Error with mismatched cmp types: {:?} {:?} and {:?}", op, val_l, val_r),
+							Some(v) => v,
+							None => span.todo(format_args!("Error with mismatched cmp types: {:?} {:?} and {:?}", op, val_l, val_r)),
 							};
 						self.coerce_ty(&max, val_l);
 						self.coerce_ty(&max, val_r);
@@ -865,6 +865,7 @@ impl<'a> Context<'a>
 	fn coerce_ty(&self, req_ty: &TypeRef, node: &mut ast::Node)
 	{
 		if req_ty.basetype != node_ty(&node).basetype {
+			trace!("coerce({:?}) from {:?}", req_ty, node_ty(node));
 			let inner_node = ::std::mem::replace(node, null_node(&node.span));
 			*node = ast::Node::new(node.span.clone(), ast::NodeKind::ImplicitCast(req_ty.clone(), Box::new(inner_node)));
 			node.meta = Some(ast::NodeMeta {

@@ -294,7 +294,7 @@ impl IntClass {
 		IntClass::Char(_) => (1, 1,),
 		IntClass::Short(_) => (2, 2,),
 		IntClass::Int(_) => (4, 4,),
-		IntClass::Long(_) => (4, 4,),
+		IntClass::Long(_) => (POINTER_SIZE, POINTER_SIZE,),
 		IntClass::LongLong(_) => (8, 8,),
 		}
 	}
