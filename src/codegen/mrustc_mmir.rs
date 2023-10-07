@@ -1273,6 +1273,26 @@ impl Builder<'_>
 
 	fn handle_binop(&mut self, op: &crate::ast::BinOp, ty_l: &crate::types::TypeRef, val_l: String, val_r: String) -> ValueRef
 	{
+		if let BaseType::Pointer(ref inner) = ty_l.basetype {
+			match op
+			{
+			BinOp::Add|BinOp::Sub => {
+				let method = match op
+					{
+					BinOp::Add => "offset",
+					BinOp::Sub => "ptr_diff",
+					_ => panic!(""),
+					};
+				let dst = self.alloc_local(ty_l);
+				let next_block = self.create_block();
+				self.push_term(format!("CALL {} = \"{}\"<{}>({}, {}) goto {} else {}",
+					dst, method, self.parent.fmt_type(inner), val_l, val_r, next_block, next_block));
+				self.set_block(next_block);
+				return ValueRef::Slot(dst);
+				},
+			_ => {},
+			}
+		}
 		use crate::ast::BinOp;
 		let ty_s = self.parent.fmt_type(ty_l).to_string();
 		let (op,ty_s) = match op
