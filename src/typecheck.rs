@@ -751,6 +751,7 @@ impl<'a> Context<'a>
 		(BaseType::Bool, BaseType::Integer(i), )
 		| (BaseType::Integer(i), BaseType::Bool, )
 			=> BaseType::Integer(i.clone()),
+		
 		(BaseType::Integer(i1), BaseType::Integer(i2)) => BaseType::Integer(match i1
 			{
 			//IntClass::Bits(_s1, _n) => todo!("max_ty Integers {:?} {:?}", i1, i2),
@@ -819,6 +820,20 @@ impl<'a> Context<'a>
 					span.todo(format_args!("Pick 'max' of {:?} and {:?}", ty1, ty2))
 				})
 			},
+		
+		(BaseType::Float(fc), BaseType::Integer(_), )
+		| (BaseType::Integer(_), BaseType::Float(fc), )
+			=> BaseType::Float(fc.clone()),
+		(BaseType::Float(fc1), BaseType::Float(fc2), )
+			=> BaseType::Float(match (fc1,fc2)
+				{
+				(crate::types::FloatClass::Float, fc) => *fc,
+				(fc @ crate::types::FloatClass::Double, crate::types::FloatClass::Float) => *fc,
+				(fc @ crate::types::FloatClass::Double, crate::types::FloatClass::Double) => *fc,
+				(crate::types::FloatClass::Double, fc @ crate::types::FloatClass::LongDouble) => *fc,
+				(fc @ crate::types::FloatClass::LongDouble, _) => *fc,
+				}),
+		
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
 			let bt = if i1.basetype != i2.basetype {
 					if let BaseType::Void = i2.basetype {
@@ -872,6 +887,14 @@ impl<'a> Context<'a>
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
 				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
+			BaseType::Float(_fc) => match inner_ty.basetype
+				{
+				BaseType::Bool => {},
+				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
+				BaseType::Float(_) => {},
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
+				}
 			BaseType::Integer(_ic) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},
