@@ -161,8 +161,8 @@ impl<'ast> super::ParseState<'ast>
 	parse_left_assoc!{
 		/// Expression #8 - Unary Righthand
 		self, parse_expr_8, parse_expr_9, sp, rv, {
-		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc, Box::new(rv)) ),
-		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec, Box::new(rv)) ),
+		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PreInc, Box::new(rv)) ),
+		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PreDec, Box::new(rv)) ),
 	}}
 	
 	/// Expression #9 - Unary left
@@ -174,8 +174,8 @@ impl<'ast> super::ParseState<'ast>
 		Token::Minus       => node!( sp, UniOp(::ast::UniOp::Neg,      Box::new(self.parse_expr_9()?)) ),
 		Token::Tilde       => node!( sp, UniOp(::ast::UniOp::BitNot,   Box::new(self.parse_expr_9()?)) ),
 		Token::Exclamation => node!( sp, UniOp(::ast::UniOp::LogicNot, Box::new(self.parse_expr_9()?)) ),
-		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PreInc,   Box::new(self.parse_expr_9()?)) ),
-		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PreDec,   Box::new(self.parse_expr_9()?)) ),
+		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc,   Box::new(self.parse_expr_9()?)) ),
+		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec,   Box::new(self.parse_expr_9()?)) ),
 		Token::Star        => node!( sp, UniOp(::ast::UniOp::Deref,    Box::new(self.parse_expr_9()?)) ),
 		Token::Ampersand   => node!( sp, UniOp(::ast::UniOp::Address, Box::new(self.parse_expr_member()?)) ),	// different, as double addr is inval
 		t @ _ => {
