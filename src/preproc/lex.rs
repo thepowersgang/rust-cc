@@ -361,7 +361,7 @@ impl<'a> Lexer<'a>
 			let (base, whole) = if ch == '0' {
 					let ch2 = try_eof!(self.getc(), Token::Integer(0, ::types::IntClass::int(), self.end_capture(caph)));
 					match ch2 {
-					'1' ..= '7' => {
+					'0' ..= '7' => {
 						self.ungetc(ch2);
 						(8, self.read_number( 8)?)
 						},

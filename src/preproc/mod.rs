@@ -1288,8 +1288,8 @@ struct SpanPoint {
 impl ::std::fmt::Display for SpanPoint {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match &self.filename {
-		Some(p) => write!(f, "{}:{}: ", p.display(), self.line),
-		None => write!(f, "<stdin>:{}: ", self.line),
+		Some(p) => write!(f, "{}:{}", p.display(), self.line),
+		None => write!(f, "<stdin>:{}", self.line),
 		}
 	}
 }
