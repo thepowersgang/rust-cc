@@ -18,7 +18,7 @@ enum TypeNode
 impl<'ast> super::ParseState<'ast>
 {
 	/// Parse a bare type name (no pointer handling)
-	pub fn get_base_type(&mut self) -> ParseResult<::types::TypeRef> {
+	pub fn get_base_type(&mut self) -> ParseResult<(Option<crate::types::StorageClass>, ::types::TypeRef,)> {
 		match self.get_base_type_opt()?
 		{
 		Some(t) => Ok(t),
@@ -28,7 +28,7 @@ impl<'ast> super::ParseState<'ast>
 	
 	/// Read a single basic type.
 	/// - Could be a primitive, a verbatim struct/union/enum, or a typedef
-	pub fn get_base_type_opt(&mut self) -> ParseResult<Option<::types::TypeRef>>
+	pub fn get_base_type_opt(&mut self) -> ParseResult<Option<(Option<crate::types::StorageClass>, ::types::TypeRef,)>>
 	{
 		let mut qualifiers = ::types::Qualifiers::new();
 		let mut storageclass = None;
@@ -227,7 +227,7 @@ impl<'ast> super::ParseState<'ast>
 				}
 			};
 		
-		Ok( Some(::types::Type::new_ref(rv, qualifiers)) )
+		Ok( Some((storageclass, ::types::Type::new_ref(rv, qualifiers),)) )
 	}
 	/// Parse a full type (Pointers, arrays, and functions) from a base (starting) type
 	///	
@@ -342,7 +342,7 @@ impl<'ast> super::ParseState<'ast>
 					is_variadic = true;
 					break;
 				}
-				let basetype = self.get_base_type()?;
+				let basetype = self.get_base_type()?.1;
 				args.push( self.get_full_type(basetype)? );
 				match self.lex.get_token()?
 				{
@@ -461,7 +461,8 @@ impl<'ast> super::ParseState<'ast>
 			}
 			
 			// 1. Get base type
-			let basetype = self.get_base_type()?;
+			// TODO: No storage classes allowed
+			let basetype = self.get_base_type()?.1;
 			debug!("do_definition: basetype={:?}", basetype);
 			// 2. Get extended type and identifier
 			let (ft, ident) = self.get_full_type(basetype.clone())?;
@@ -548,7 +549,8 @@ impl<'ast> super::ParseState<'ast>
 			}
 			
 			// 1. Get base type
-			let basetype = self.get_base_type()?;
+			let basetype = self.get_base_type()?.1;
+			// TODO: No storage class allowed
 			debug!("populate_union: basetype={:?}", basetype);
 			// 2. Get extended type and identifier
 			items.push( self.get_full_type(basetype.clone())? );

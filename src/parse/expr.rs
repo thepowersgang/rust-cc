@@ -222,7 +222,7 @@ impl<'ast> super::ParseState<'ast>
 		// - Either a cast, or a grouped expression
 		Token::ParenOpen => match self.get_base_type_opt()?
 			{
-			Some(basetype) => {
+			Some((_sc, basetype)) => {
 				let (fulltype, ident) = self.get_full_type(basetype)?;
 				if ident != "" {
 					syntax_error!("Unexpected identifier in cast");
@@ -277,7 +277,7 @@ impl<'ast> super::ParseState<'ast>
 						break;
 					}
 
-					let base_ty = self.get_base_type()?;
+					let (_sc, base_ty) = self.get_base_type()?;
 					let (ty, name) = self.get_full_type( base_ty )?;
 					if ! name.is_empty() {
 						syntax_error!("Unexpected name in magic call");
@@ -333,7 +333,7 @@ impl<'ast> super::ParseState<'ast>
 			let expect_paren = peek_token!(self.lex, Token::ParenOpen);
 			let rv = match self.get_base_type_opt()?
 				{
-				Some(t) => {
+				Some((_sc,t)) => {
 					let (tr, name) = self.get_full_type(t)?;
 					if ! name.is_empty() {
 						syntax_error!("Unexpected name in sizeof");

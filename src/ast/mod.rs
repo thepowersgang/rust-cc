@@ -83,6 +83,8 @@ pub struct Symbol
 {
 	// TODO: Storage classes?
 	name: Ident,
+	#[allow(dead_code)]
+	vis: Visibility,
 	pub symtype: ::types::TypeRef,
 	pub value: Option<SymbolValue>,
 }
@@ -95,6 +97,7 @@ pub enum SymbolValue
 #[derive(Debug)]
 pub struct FunctionBody
 {
+	pub inline: bool,
 	pub code: Block,
 	pub var_table: Vec<VarTableEnt>,
 }
@@ -104,6 +107,13 @@ pub struct VarTableEnt
 	pub span: Span,
 	pub name: Ident,
 	pub ty: crate::types::TypeRef,
+}
+#[derive(PartialEq,Copy,Clone)]
+enum Visibility
+{
+	Auto,
+	Static,
+	Extern,
 }
 
 impl Program
@@ -115,15 +125,63 @@ impl Program
 		}
 	}
 	
-	pub fn define_function(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Block>)
+	pub fn define_function(&mut self, span: Span, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Block>)
 	{
-		self.define_symbol(typeid, name, value.map(|v| SymbolValue::Code(::std::cell::RefCell::new(FunctionBody { code: v, var_table: Vec::new() }))))
+		let (vis, is_inline) = match storage_class
+			{
+			None => { (Visibility::Auto, false,) },
+			Some(crate::types::StorageClass::Extern) => {
+				if value.is_some() {
+					// TODO: Warning?
+				}
+				(Visibility::Extern, false,)
+			},
+			Some(crate::types::StorageClass::Static) => (Visibility::Static, false,),
+			Some(crate::types::StorageClass::Inline) => (Visibility::Extern, true,),
+			Some(crate::types::StorageClass::Register)
+			|Some(crate::types::StorageClass::Auto) => panic!("TODO: Error message"),
+			};
+		let value = match value
+			{
+			None => None,
+			Some(v) => Some(SymbolValue::Code(::std::cell::RefCell::new(FunctionBody {
+					inline: is_inline,
+					code: v,
+					var_table: Vec::new()
+				}))),
+			};
+		self.define_symbol(span, vis, typeid, name, value)
 	}
-	pub fn define_variable(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
+	pub fn define_variable(&mut self, span: Span, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
 	{
-		self.define_symbol(typeid, name, value.map(Some).map(std::cell::RefCell::new).map(SymbolValue::Value))
+		if let crate::types::BaseType::Function(_) = typeid.basetype {
+			if value.is_none() {
+				return self.define_function(span, storage_class, typeid, name, None);
+			}
+		}
+		let vis = match storage_class
+			{
+			None => Visibility::Auto,
+			Some(crate::types::StorageClass::Extern) => {
+				if value.is_some() {
+					// TODO: Warning?
+				}
+				Visibility::Extern
+			},
+			Some(crate::types::StorageClass::Static) => Visibility::Static,
+			Some(crate::types::StorageClass::Register) => Visibility::Auto,
+			Some(crate::types::StorageClass::Inline)
+			|Some(crate::types::StorageClass::Auto) => todo!("Invalid storage class on global?"),
+			};
+		let value = match value
+			{
+			Some(v) => Some(SymbolValue::Value(::std::cell::RefCell::new(Some(v)))),
+			None if Visibility::Extern == vis => None,
+			None => Some(SymbolValue::Value(::std::cell::RefCell::new(None))),
+			};
+		self.define_symbol(span, vis, typeid, name, value)
 	}
-	fn define_symbol(&mut self, typeid: ::types::TypeRef, name: Ident, value: Option<SymbolValue>)
+	fn define_symbol(&mut self, span: Span, vis: Visibility, typeid: ::types::TypeRef, name: Ident, value: Option<SymbolValue>)
 	{
 		if value.is_some() {
 			self.item_order.push(ItemRef::Value(name.clone()));
@@ -138,27 +196,41 @@ impl Program
 			if e.get().symtype != typeid {
 				// TODO: Don't check argument names (they should be separate?)
 				// ERROR: Conflicting declarations
-				panic!("TODO: Conflicting definitions of {} - {:?} != {:?}", name, e.get().symtype, typeid);
-			}
-			else if e.get().value.is_some() {
-				if value.is_some() {
-					// ERROR: Duplicated definition
-					panic!("TODO: Re-definition of {} - {:?} and {:?}", name, e.get().value, value);
-				}
-				else {
-					// WARN: Trailing declaration
-				}
+				span.error(format_args!("Conflicting definitions of `{}` - {:?} != {:?}", name, e.get().symtype, typeid));
 			}
 			else {
-				e.get_mut().symtype = typeid;
-				e.get_mut().value = value;
+				match e.get().value {
+				None => {
+					e.get_mut().symtype = typeid;
+					e.get_mut().value = value;
+					},
+				Some(SymbolValue::Value(ref v)) if v.borrow().is_none() => {
+					// Was forward declared with no initialiser
+					e.get_mut().value = value;
+					},
+				Some(_) => 
+					match value
+					{
+					None => {
+						// WARN: Trailing declaration
+						},
+					Some(SymbolValue::Value(ref v)) if v.borrow().is_none() => {
+						// WARN: Also trailing declaration
+						},
+					Some(_) => {
+						// ERROR: Duplicated definition
+						span.error(format_args!("Re-definition of `{}` - {:?} and {:?}", name, e.get().value, value));
+						}
+					},
+				}
 			}
 			},
 		Entry::Vacant(e) => {
 			e.insert(Symbol {
-				name: name,
+				name,
+				vis,
 				symtype: typeid,
-				value: value,
+				value,
 				});
 			},
 		}
