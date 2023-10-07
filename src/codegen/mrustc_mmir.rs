@@ -1028,7 +1028,7 @@ impl Builder<'_>
 			let slot = match self.handle_node(slot)
 				{
 				ValueRef::Slot(s) => s,
-				_ => panic!("Assiging to a value"),
+				_ => node.span.error(format_args!("Assiging to a value")),
 				};
 			let val = self.handle_node(val);
 			self.push_stmt_assign(slot.clone(), val);
