@@ -174,10 +174,10 @@ impl<'ast> super::ParseState<'ast>
 		Token::Minus       => node!( sp, UniOp(::ast::UniOp::Neg,      Box::new(self.parse_expr_9()?)) ),
 		Token::Tilde       => node!( sp, UniOp(::ast::UniOp::BitNot,   Box::new(self.parse_expr_9()?)) ),
 		Token::Exclamation => node!( sp, UniOp(::ast::UniOp::LogicNot, Box::new(self.parse_expr_9()?)) ),
-		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc,   Box::new(self.parse_expr_9()?)) ),
-		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec,   Box::new(self.parse_expr_9()?)) ),
+		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc,  Box::new(self.parse_expr_9()?)) ),
+		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec,  Box::new(self.parse_expr_9()?)) ),
 		Token::Star        => node!( sp, UniOp(::ast::UniOp::Deref,    Box::new(self.parse_expr_9()?)) ),
-		Token::Ampersand   => node!( sp, UniOp(::ast::UniOp::Address, Box::new(self.parse_expr_member()?)) ),	// different, as double addr is inval
+		Token::Ampersand   => node!( sp, UniOp(::ast::UniOp::Address,  Box::new(self.parse_expr_member()?)) ),	// different, as double addr is inval
 		t @ _ => {
 			self.lex.put_back(t);
 			self.parse_expr_member()?
