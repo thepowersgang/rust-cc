@@ -58,6 +58,13 @@ impl Context
 				2 => format!("{}", var_name),	// But this is what `fmt_function_ty` would emit
 				_ => format!("arg{}", i),	// And this is what `standalone_miri` expects
 				};
+			// HACK: Handle anon arrays
+			let name = if let BaseType::Array(_, crate::types::ArraySize::None) = var_ty.basetype {
+					format!("(*{})", name)
+				}
+				else {
+					name
+				};
 			builder.vars.push( Variable { lvalue: name, ty: builder.parent.fmt_type(var_ty).to_string(), } );
 		}
 		for (i,var) in body.var_table.iter().skip( ty.args.len() ).enumerate()
@@ -76,7 +83,10 @@ impl Context
 		write!(self.output_buffer, "{}\n", self.fmt_function_ty(ty, Some(name))).unwrap();
 		write!(self.output_buffer, "{{\n").unwrap();
 
-		for v in vars {
+		for (i,v) in vars.into_iter().enumerate() {
+			if i < ty.args.len() {
+				continue;
+			}
 			write!(self.output_buffer, "\tlet {}: {};\n", v.lvalue, v.ty).unwrap();
 		}
 		for (i,(stmts,term)) in blocks.into_iter().enumerate() {
