@@ -321,11 +321,14 @@ impl Context
 			format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
 			},
 		BaseType::Array(inner, size) => {
-			if let ArraySize::None = size {
-				format!("*mut {}", self.fmt_type(inner))
-			}
-			else {
-				format!("[{}; {}]", self.fmt_type(inner), size.get_value())
+			match size {
+			ArraySize::None => format!("*mut {}", self.fmt_type(inner)),
+			ArraySize::Fixed(v) => format!("[{}; {}]", self.fmt_type(inner), v),
+			ArraySize::Expr(e) => match e.get_value_opt()
+				{
+				Ok(v) => format!("[{}; {}]", self.fmt_type(inner), v),
+				Err(_) => format!("*mut {}", self.fmt_type(inner)),
+				},
 			}
 			},
 		BaseType::Function(ft) => self.fmt_function_ty(ft, None),
@@ -535,7 +538,7 @@ impl Builder<'_>
 		self.alloc_local_raw(self.parent.fmt_type(ty).to_string())
 	}
 
-	// Get a stack slot/lvalue
+	/// Get a stack slot/lvalue (e.g. for a param)
 	fn get_value(&mut self, vr: ValueRef) -> String {
 		match vr
 		{
@@ -581,6 +584,26 @@ impl Builder<'_>
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
 		// TODO: If the type is an array with a variable-length, then insert an alloca
+		if let BaseType::Array(inner, size) = &var_def.ty.basetype {
+			match size {
+			crate::types::ArraySize::None => todo!("Error for unsized array local?"),
+			crate::types::ArraySize::Fixed(_) => {},
+			crate::types::ArraySize::Expr(e) => match e.get_value_opt()
+				{
+				Ok(_) => {},
+				Err(e) => {
+					let idx = var_def.index.unwrap();
+
+					let size = self.handle_node(e);
+					let size = self.get_value(size);
+					let next_block = self.create_block();
+					self.push_term(format!("{} = \"alloca_array\"::<{}>({}) goto {} else {}",
+						self.vars[idx].lvalue, size, self.parent.fmt_type(inner), next_block, next_block));
+					self.set_block(next_block);
+					},
+				}
+			}
+		}
 		match var_def.value
 		{
 		None => {},
