@@ -638,6 +638,7 @@ impl Node
 				(&BinOp::Div,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a/b),
 				(&BinOp::Mod,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a%b),
 				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
+				(&BinOp::BitOr,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a|b),
 				_ => ConstVal::None,
 				},
 			NodeKind::Identifier(ref name, ref binding) =>
@@ -668,7 +669,7 @@ impl Node
 			_ => ConstVal::None,
 			}
 		{
-		ConstVal::None if required => panic!("TODO: consteval {:?}", self),
+		ConstVal::None if required => self.span.todo(format_args!("consteval {:?}", self)),
 		rv => rv,
 		}
 	}
