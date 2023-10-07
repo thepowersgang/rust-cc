@@ -1202,8 +1202,33 @@ impl Builder<'_>
 			let size = node.meta.as_ref().expect("No meta?").ty.get_size().expect("sizeof on opaque");
 			ValueRef::Value(format!("{} i32", size), "i32".to_owned())
 			},
-		NodeKind::Intrinsic(ref name, ref _types, ref _values) => match &name[..]
+		NodeKind::Intrinsic(ref name, ref _types, ref values) => match &name[..]
 			{
+			"va_start" => {
+				let list = self.handle_node(&values[0]);
+				// TODO: Check the other argument (must be the last non `...` arg)
+				let next_block = self.create_block();
+				self.push_term(format!("{} = \"va_start\"() goto {} else {}", list.unwrap_slot(), next_block, next_block));
+				self.set_block(next_block);
+				ValueRef::Value("()".to_owned(), "()".to_owned())
+				},
+			"va_copy" => {
+				let dst = self.handle_node(&values[0]);
+				let src = self.handle_node(&values[1]);
+				let src = self.get_value(src);
+				let next_block = self.create_block();
+				self.push_term(format!("{} = \"va_copy\"({}) goto {} else {}", dst.unwrap_slot(), src, next_block, next_block));
+				self.set_block(next_block);
+				ValueRef::Value("()".to_owned(), "()".to_owned())
+				},
+			"va_end" => {
+				let list = self.handle_node(&values[0]);
+				let next_block = self.create_block();
+				let rv = self.alloc_local_raw("()".to_owned());
+				self.push_term(format!("{} = \"va_end\"({}) goto {} else {}", rv, list.unwrap_slot(), next_block, next_block));
+				self.set_block(next_block);
+				ValueRef::Slot(rv)
+				},
 			//"va_arg" => {
 			//	let list = self.handle_node(&values[0]);
 			//	let ty = cvt_ty(&types[0]);
@@ -1216,7 +1241,7 @@ impl Builder<'_>
 			//	_ => todo!("handle_node - va_arg ty={:?} list={:?}", ty, list),
 			//	}
 			//	},
-			_ => panic!("TODO: handle_node - {:?}", node),
+			_ => node.span.todo(format_args!("TODO: handle_node - {:?}", node)),
 			},
 		}
 	}
