@@ -45,9 +45,10 @@ pub enum ArraySize
 {
 	None,
 	Fixed(u64),
-	Expr(ArraySizeExpr),
+	Expr(Rc<ArraySizeExpr>),
 }
 impl ArraySize {
+	#[track_caller]
 	pub fn get_value(&self) -> u64 {
 		match *self
 		{
@@ -59,39 +60,100 @@ impl ArraySize {
 }
 impl From<ArraySizeExpr> for ArraySize {
 	fn from(v: ArraySizeExpr) -> Self {
-		ArraySize::Expr(v)
+		ArraySize::Expr(Rc::new(v))
 	}
 }
-#[derive(Clone)]
-pub struct ArraySizeExpr(Rc<::ast::Node>, ::std::cell::Cell<Option<u64>>);
+//#[derive(Clone)]
+pub struct ArraySizeExpr {
+	span: crate::ast::Span,
+	unresolved_node: ::std::cell::RefCell<Option<::ast::Node>>,
+	resolved: ::std::cell::OnceCell<Result<u64,crate::ast::Node>>
+}
 impl ArraySizeExpr {
 	pub fn new(n: ::ast::Node) -> Self {
-		ArraySizeExpr(Rc::new(n), Default::default())
-	}
-	pub fn get_value(&self) -> u64 {
-		if let Some(v) = self.1.get() {
-			return v;
+		ArraySizeExpr {
+			span: n.span.clone(),
+			unresolved_node: ::std::cell::RefCell::new(Some(n)),
+			resolved: Default::default(),
 		}
-		match self.0.literal_integer()
+	}
+	pub fn with_node(&self, cb: impl FnOnce(&::ast::Node))
+	{
+		match self.resolved.get()
 		{
-		Some(v) => {
-			self.1.set( Some(v) );
-			v
+		None|Some(Ok(_)) => match *self.unresolved_node.borrow()
+			{
+			None => if self.resolved.get().is_none() {
+				self.span.todo(format_args!("Better error for unresolved w/ no node"));
+				},
+			Some(ref n) => cb(n),
 			},
-		None => self.0.span.todo(format_args!("ArraySizeExpr::get_value - {:?} (not suppored by `literal_integer`)", self.0)),
+		Some(Err(n)) => cb(n),
+		}
+	}
+	pub fn resolve(&self, cb: impl FnOnce(&mut ::ast::Node)) {
+		if self.resolved.get().is_none()
+		{
+			let opt_node = self.unresolved_node.borrow_mut().take();
+			match opt_node {
+			None => {},
+			Some(mut node) => {
+				cb(&mut node);
+				let _ = self.resolved.set(match node.literal_integer()
+					{
+					Some(v) => {
+						*self.unresolved_node.borrow_mut() = Some(node);
+						Ok(v)
+						},
+					None => Err(node),
+					});
+				}
+			}
+		}
+	}
+	pub fn get_value_opt(&self) -> Result<u64,&crate::ast::Node> {
+		if let Some(v) = self.resolved.get() {
+			return match *v {
+				Ok(v) => Ok(v),
+				Err(ref expr) => Err(&*expr),
+				};
+		}
+		else {
+			match *self.unresolved_node.borrow() {
+			None => panic!("No expression but also no resolved value?"),
+			Some(_) => self.span.todo(format_args!("Non-resolved arary size")),
+			}
+		}
+	}
+	#[track_caller]
+	pub fn get_value(&self) -> u64 {
+		match self.resolved.get()
+		{
+		Some( Ok(v) ) => *v,
+		Some( Err(expr) )
+			=> self.span.todo(format_args!("ArraySizeExpr::get_value - {:?} (not suppored by `literal_integer`)", expr)),
+		None => self.span.todo(format_args!("Unresolved array size")),
 		}
 	}
 }
 impl PartialEq for ArraySizeExpr {
 	fn eq(&self, v: &Self) -> bool {
-		panic!("TODO: eq for ArraySizeExpr - {:?} == {:?}", self.0, v.0);
+		panic!("TODO: eq for ArraySizeExpr - {} == {}", self, v);
 	}
 }
-impl ::std::ops::Deref for ArraySizeExpr {
-	type Target = ::ast::Node;
-	fn deref(&self) -> &::ast::Node {
-		&*self.0
-	}
+impl ::std::fmt::Display for ArraySizeExpr
+{
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self.unresolved_node.borrow() {
+		Some(ref n) => write!(f, "{:?}", n),
+		None => match self.resolved.get()
+			{
+			None => "?".fmt(f),
+			Some( Ok(v) ) => v.fmt(f),
+			Some( Err(n) ) => write!(f, "{:?}", n),
+			}
+		}
+    }
 }
 
 #[derive(Debug,Default,PartialEq,Clone)]
@@ -393,7 +455,7 @@ impl ::std::fmt::Display for ArraySize
 		{
 		&ArraySize::None => f.write_str("[]"),
 		&ArraySize::Fixed(v) => write!(f, "[{}]", v),
-		&ArraySize::Expr(ref v) => write!(f, "[{:?}]", *v.0),
+		&ArraySize::Expr(ref v) => write!(f, "[{}]", v),
 		}
 	}
 }

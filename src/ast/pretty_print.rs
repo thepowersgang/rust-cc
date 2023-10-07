@@ -292,7 +292,9 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				{
 				&::types::ArraySize::None => {},
 				&::types::ArraySize::Fixed(v) => { write!(s, "{}", v); },
-				&::types::ArraySize::Expr(ref v) => { s.write_node(v, super::NodePrecedence::CommaOperator.up()); },
+				&::types::ArraySize::Expr(ref v) => {
+					v.with_node(|node| s.write_node(node, super::NodePrecedence::CommaOperator.up()));
+					},
 				}
 				s.write_str("]");
 				});

@@ -73,6 +73,8 @@ impl<'a> Context<'a>
 {
 	fn define_variable(&mut self, span: &crate::ast::Span, name: Ident, ty: TypeRef) -> usize
 	{
+		self.visit_ty(span, &ty, true);
+
 		let idx = self.variables.len();
 		self.variables.push(VarDef {
 			span: span.clone(),
@@ -86,6 +88,41 @@ impl<'a> Context<'a>
 		}
 		scope.variables.insert(name, ValDef::Variable(idx));
 		idx
+	}
+
+	fn visit_ty(&mut self, span: &crate::ast::Span, ty: &TypeRef, allow_dyn_arrays: bool)
+	{
+		match &ty.basetype
+		{
+		BaseType::Void
+		|BaseType::Bool
+		|BaseType::Struct(_)
+		|BaseType::Enum(_)
+		|BaseType::Union(_)
+		|BaseType::Float(_)
+		|BaseType::Integer(_)
+		|BaseType::MagicType(_)
+			=> {},
+		BaseType::Pointer(inner) => self.visit_ty(span, inner, false),
+		BaseType::Array(inner, size) => {
+			self.visit_ty(span, inner, false);
+			match size
+			{
+			crate::types::ArraySize::None => if allow_dyn_arrays {} else { span.error(format_args!("Unexpected unsized array"))},
+			crate::types::ArraySize::Fixed(_) => {},
+			crate::types::ArraySize::Expr(e) => e.resolve(|node| {
+				self.visit_node(node, false);
+				let t = node_ty(node);
+				match t.basetype {
+				BaseType::Integer(_) => {},
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
+				_ => {},
+				}
+				})
+			}
+			},
+		BaseType::Function(_) => {},
+		}
 	}
 
 	fn visit_block(&mut self, blk: &mut ast::Block)
