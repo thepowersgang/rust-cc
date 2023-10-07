@@ -166,8 +166,8 @@ impl<'ast> super::ParseState<'ast>
 					"i16" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 16 },
 					"i32" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 32 },
 					"i64" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 64 },
-					//"iptr" => crate::types::MagicTypeRepr::Integer { signed: true, bits: 64 },
-					//"uptr" => crate::types::MagicTypeRepr::Integer { signed: false, bits: 64 },
+					"iptr" => crate::types::MagicTypeRepr::Integer { signed: true, bits: crate::types::POINTER_SIZE as u8 * 8 },
+					"uptr" => crate::types::MagicTypeRepr::Integer { signed: false, bits: crate::types::POINTER_SIZE as u8 * 8 },
 					"v64" => crate::types::MagicTypeRepr::Opaque { bytes: 64 },
 					_ => syntax_error!("Unknown magic type repr {:?}", repr),
 					};
@@ -472,13 +472,17 @@ impl<'ast> super::ParseState<'ast>
 			if peek_token!(self.lex, Token::Colon)
 			{
 				// Ensure that `ft` is the correct type (an integer)
-				let sign = match &ft.basetype
+				let _sign = match &ft.basetype
 					{
 					&::types::BaseType::Integer(::types::IntClass::Int(s)) => s,
+					&::types::BaseType::MagicType(crate::types::MagicType::Named(_, ::types::MagicTypeRepr::Integer { signed, .. }))
+						=> crate::types::Signedness::from_bool_signed(signed),
 					ft @ _ => syntax_error!("Invalid type for bitfield, expected signed/unsigned, got {:?}", ft),
 					};
-				let i = syntax_assert!( self.lex.get_token()?, Token::Integer(i,_class,_s) => i as u8 );
-				items.fields.push( (StructFieldTy::Bitfield(sign, i), ident) );
+				let size = self.parse_expr()?;
+				let size = crate::types::ArraySizeExpr::new(size);
+				size.resolve(|_| {});
+				items.fields.push( (StructFieldTy::Bitfield(ft, size), ident) );
 				
 				if peek_token!(self.lex, Token::Comma) { parse_todo!("Comma separated bitfields"); }
 				/*

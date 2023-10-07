@@ -145,6 +145,11 @@ impl PartialEq for ArraySizeExpr {
 		panic!("TODO: eq for ArraySizeExpr - {} == {}", self, v);
 	}
 }
+impl ::std::fmt::Debug for ArraySizeExpr {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		::std::fmt::Display::fmt(self, f)
+	}
+}
 impl ::std::fmt::Display for ArraySizeExpr
 {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -371,7 +376,7 @@ pub struct Struct
 #[derive(Debug,PartialEq)]
 pub enum StructFieldTy
 {
-	Bitfield(Signedness, u8),
+	Bitfield(TypeRef, ArraySizeExpr),
 	Value(TypeRef),
 }
 #[derive(Default,Debug,PartialEq)]
@@ -591,7 +596,8 @@ impl Struct
 				0 ..= 8 => 1,
 				0 ..= 16 => 2,
 				0 ..= 32 => 4,
-				_ => panic!(""),
+				0 ..= 64 => 8,
+				_ => panic!("TODO: Handle big bitfields (size is {})", size),
 				};
 			*align = ::std::cmp::max(*align, bytes);
 			*ofs = make_aligned(*ofs, bytes) + bytes;
@@ -614,15 +620,16 @@ impl Struct
 				field_offsets.push( ofs );
 				ofs += fld_size;
 				},
-			&StructFieldTy::Bitfield(_sgn, bits) => {
-				if bitfield_ofs + bits > 32 {
-					if bits > 32 {
+			StructFieldTy::Bitfield(_ty, bits) => {
+				let bits = bits.get_value() as u8;
+				if bitfield_ofs + bits > POINTER_SIZE as u8 * 8 {
+					if bits > POINTER_SIZE as u8 * 8 {
 						todo!("Error for over-sized bitfield");
 					}
 					finish_bitfield(&mut ofs, &mut align, &mut bitfield_ofs);
 				}
 				//field_offsets.push( Bitfield(ofs, bitfield_ofs) );
-				bitfield_ofs += bits;
+				bitfield_ofs += bits as u8;
 				},
 			}
 		}

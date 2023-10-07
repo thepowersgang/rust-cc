@@ -96,8 +96,9 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				crate::types::StructFieldTy::Value(ref ty) => {
 					self.write_type(ty, |s| s.write_str(name));
 					},
-				crate::types::StructFieldTy::Bitfield(s, bits) => {
-					write!(self, "{}signed {}: {}", if s.is_unsigned() { "" } else { "un" }, name, bits);
+				crate::types::StructFieldTy::Bitfield(ty, bits) => {
+					self.write_type(ty, |s| s.write_str(name));
+					write!(self, ": {}", bits);
 					},
 				}
 				self.write_str(";"); self.write_str(nl);
