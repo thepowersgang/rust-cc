@@ -727,7 +727,7 @@ impl Union
 				max_size = ::std::cmp::max(max_size, s);
 				align = ::std::cmp::max(align, a);
 				},
-			None => panic!("Incomplte type {:?}", ty),
+			None => panic!("Incomplete type {:?}", ty),
 			}
 		}
 		self.items = Some(UnionData {
@@ -735,6 +735,9 @@ impl Union
 			size: make_aligned(max_size, align),
 			align: align,
 			});
+	}
+	pub fn get_items(&self) -> Option<&[(TypeRef,String)]> {
+		Some( &self.items.as_ref()?.body )
 	}
 }
 

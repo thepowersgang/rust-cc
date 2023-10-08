@@ -11,7 +11,7 @@ pub struct Context
 	declared_functions: Vec<(crate::ast::Ident, crate::types::FunctionType)>,
 	//defined_functions: Vec<crate::ast::Ident>,
 
-	struct_field_mapping: HashMap<String,Vec<usize>>,
+	struct_field_mapping: HashMap<String,Vec<(usize,String)>>,
 
 	output_buffer: Vec<u8>,
 }
@@ -333,8 +333,14 @@ impl Context
 			// TODO: Get the min/max range to determine which type to use
 			format!("i32")
 		},
-		BaseType::Union(_) => {
-			todo!("Union types");
+		BaseType::Union(sr) => {
+			let name = sr.borrow().name.clone();
+			if name == "" {
+				format!("union_{:p}", sr)
+			}
+			else {
+				format!("union_{}", name)
+			}
 			},
 		BaseType::Float(fc) => match fc
 			{
@@ -408,9 +414,7 @@ impl Context
 				let mut out_field_idx = 0;
 				let mut field_mapping = Vec::new();
 
-				let mut bitfield_ofs = None;
-				for (ofs,name,ty, mask) in structref.borrow().iter_fields()
-				{
+				fn maybe_end_bitfield(output_buffer: &mut Vec<u8>, field_mapping: &mut [(usize,String)], bitfield_ofs: Option<u32>, ofs: u32) -> bool {
 					match bitfield_ofs
 					{
 					Some(old_ofs) if old_ofs != ofs => {
@@ -422,29 +426,62 @@ impl Context
 							64 => "u64",
 							_ => todo!(""),
 							};
-						write!(self.output_buffer, "\t{} = {}; // -bitfields-\n", old_ofs, t).unwrap();
-						out_field_idx += 1;
+						write!(output_buffer, "\t{} = {}; // -bitfields-\n", old_ofs, t).unwrap();
+						// Fill types
+						for (_,ty) in field_mapping.iter_mut().rev() {
+							if ty != "" {
+								break;
+							}
+							*ty = t.to_owned();
+						}
+						true
 						},
-					_ => {},
+					_ => false,
 					}
-					field_mapping.push(out_field_idx);
+				}
+				let mut bitfield_ofs = None;
+				for (ofs,name,ty, mask) in structref.borrow().iter_fields()
+				{
+					if maybe_end_bitfield(&mut self.output_buffer, &mut field_mapping, bitfield_ofs, ofs) {
+						out_field_idx += 1;
+					}
 					match mask {
 					None => {
 						write!(self.output_buffer, "\t{} = {}; // {}\n", ofs, self.fmt_type(ty), name).unwrap();
+						field_mapping.push((out_field_idx, self.fmt_type(ty).to_string(),));
 						out_field_idx += 1;
 						},
 					Some(_mask) => {
+						field_mapping.push((out_field_idx, String::new(),));
 						// TODO: Need to know the field size, which requires seeing all of the bitfield entries
 						bitfield_ofs = Some(ofs);
 						},
 					}
 				}
+				maybe_end_bitfield(&mut self.output_buffer, &mut field_mapping, bitfield_ofs, size);
 				write!(self.output_buffer, "}}\n").unwrap();
 				self.struct_field_mapping.insert(self.fmt_type(ty).to_string(), field_mapping);
 			}
 			},
 		BaseType::Enum(_) => {},	// Nothing needed for enums, they're not rust enums
-		BaseType::Union(_) => todo!("union - {:?}", ty),
+		BaseType::Union(unm) => {
+			let unm = unm.borrow();
+			if let Some(items) = unm.get_items()
+			{
+				for (ty, _name) in items
+				{
+					self.register_type(ty)
+				}
+				write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
+				let (size,align) = ty.get_size_align().unwrap_or((0,0) );
+				write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", size,align).unwrap();
+				for (ty, name) in items
+				{
+					write!(self.output_buffer, "\t0 = {}; // {}\n", self.fmt_type(ty), name).unwrap();
+				}
+				write!(self.output_buffer, "}}\n").unwrap();
+			}
+			},
 		BaseType::Float(_) => {},
 		BaseType::Integer(_) => {},
 		BaseType::MagicType(crate::types::MagicType::VaList) => {},
@@ -467,6 +504,15 @@ impl Context
 		self.register_type(&ty.ret);
 		for arg in &ty.args {
 			self.register_type(&arg.0);
+		}
+	}
+
+	fn get_struct_field(&self, span: &crate::ast::Span, ty: &crate::types::TypeRef, idx: usize) -> (usize,&String) {
+		let mapping = &self.struct_field_mapping[&self.fmt_type(ty).to_string()];
+		match mapping.get(idx)
+		{
+		None => span.error(format_args!("Bad field index {} for {:?}", idx, ty)),
+		Some(&(idx, ref ty)) => (idx,ty),
 		}
 	}
 }
@@ -664,10 +710,10 @@ impl Builder<'_>
 
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
-		// TODO: If the type is an array with a variable-length, then insert an alloca
+		// If the type is an array with a variable-length, then insert an alloca
 		if let BaseType::Array(inner, size) = &var_def.ty.basetype {
 			match size {
-			crate::types::ArraySize::None => todo!("Error for unsized array local?"),
+			crate::types::ArraySize::None => var_def.span.todo(format_args!("Error for unsized array local?")),
 			crate::types::ArraySize::Fixed(_) => {},
 			crate::types::ArraySize::Expr(e) => match e.get_value_opt()
 				{
@@ -690,11 +736,11 @@ impl Builder<'_>
 		None => {},
 		Some(ref init) => {
 			let idx = var_def.index.unwrap();
-			self.handle_init(&var_def.ty, self.vars[idx].lvalue.clone(), init);
+			self.handle_init(&var_def.span, &var_def.ty, self.vars[idx].lvalue.clone(), init);
 			},
 		}
 	}
-	fn handle_init(&mut self, ty: &crate::types::TypeRef, slot: String, init: &crate::ast::Initialiser)
+	fn handle_init(&mut self, span: &crate::ast::Span, ty: &crate::types::TypeRef, slot: String, init: &crate::ast::Initialiser)
 	{
 		match init
 		{
@@ -711,24 +757,37 @@ impl Builder<'_>
 				for (idx, val) in (0..count).zip(ents_it)
 				{
 					if let Some(i) = val {
-						self.handle_init(inner, format!("{}.{}", slot, idx), i);
+						self.handle_init(span, inner, format!("{}.{}", slot, idx), i);
 					}
 					else {
-						self.handle_init_zero(inner, format!("{}.{}", slot, idx));
+						self.handle_init_zero(span, inner, format!("{}.{}", slot, idx));
 					}
 				}
 			},
 			BaseType::Struct(str) => {
 				for (idx,((_,_,fty, mask),val)) in str.borrow().iter_fields().zip(ents_it).enumerate()
 				{
-					if let Some(_bits) = mask {
-						todo!("bitfield initialisation");
+					let (idx,ty) = self.parent.get_struct_field(span, ty, idx);
+					let ty = ty.clone();
+					let dst = format!("{}.{}", slot, idx);
+					if let Some(mask) = mask {
+						let ofs = mask.trailing_ones();
+						let val = match val
+							{
+							Some(crate::ast::Initialiser::Value(v)) => self.handle_node(v),
+							None => ValueRef::Value("0".into(), "".into()),
+							_ => span.todo(format_args!("bitfield initialisation - {:?}", val)),
+							};
+						let shifted = ValueRef::Value(format!("BINOP {} << {} u32", self.get_value(val), ofs), ty.clone());
+						let masked = ValueRef::Value(format!("BINOP {} & {} {}", self.get_value(shifted), mask, ty), ty.clone());
+						let src = ValueRef::Value(format!("BINOP {} | {}", dst, self.get_value(masked)), ty.into());
+						self.push_stmt_assign(dst, src);
 					}
 					else if let Some(i) = val {
-						self.handle_init(fty, format!("{}.{}", slot, idx), i);
+						self.handle_init(span, fty, dst, i);
 					}
 					else {
-						self.handle_init_zero(fty, format!("{}.{}", slot, idx));
+						self.handle_init_zero(span, fty, dst);
 					}
 				}
 				},
@@ -738,7 +797,7 @@ impl Builder<'_>
 		_ => todo!("{} = {:?}", slot, init),
 		}
 	}
-	fn handle_init_zero(&mut self, ty: &crate::types::TypeRef, slot: String)
+	fn handle_init_zero(&mut self, _pan: &crate::ast::Span, ty: &crate::types::TypeRef, slot: String)
 	{
 		// Zero initialise a field
 		let bb_next = self.create_block();
@@ -1280,7 +1339,8 @@ impl Builder<'_>
 			match ty.get_field(name)
 			{
 			Some((idx, _ofs, _ity, opt_mask)) => {
-				let idx = self.parent.struct_field_mapping[&self.parent.fmt_type(ty).to_string()][idx];
+				let (idx, fld_ty) = self.parent.get_struct_field(&node.span, ty, idx);
+				let fld_ty = fld_ty.clone();
 				match opt_mask {
 				None => ValueRef::Slot(format!("{} .{}", self.get_value(val), idx)),
 				Some(mask) => {
@@ -1288,9 +1348,8 @@ impl Builder<'_>
 					let ofs = mask.trailing_zeros();
 					//let bits = (mask >> ofs).trailing_ones();
 					let v = ValueRef::Slot(format!("{} .{}", self.get_value(val), idx));
-					let t = "u64";
-					let v = ValueRef::Value(format!("BINOP {} >> {} usize", self.get_value(v), ofs), t.into());
-					ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(v), mask >> ofs, t), t.into())
+					let v = ValueRef::Value(format!("BINOP {} >> {} usize", self.get_value(v), ofs), fld_ty.clone());
+					ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(v), mask >> ofs, fld_ty), fld_ty.into())
 					},
 				}
 				},
