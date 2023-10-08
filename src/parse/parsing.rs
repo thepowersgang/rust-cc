@@ -165,6 +165,13 @@ impl<'ast> super::ParseState<'ast>
 						return Ok(Some(vec![]));
 						//parse_todo!("Nested functions");
 					}
+					// If the storage class is specified as `static`, it's a "global"
+					else if let Some(crate::types::StorageClass::Static) = storage_class
+					{
+						self.parse_variable_def(sp, storage_class.clone(), typeid, ident)?;
+						self.parse_variable_list(storage_class, basetype)?;
+						return Ok(Some(vec![]));
+					}
 					else
 					{
 						let init = self.parse_var_init()?;
@@ -371,16 +378,18 @@ impl<'ast> super::ParseState<'ast>
 				},
 			Token::Rword_case => {
 				// TODO: Allow named constants (from #define)?
-				let first = match self.parse_expr()?.literal_integer()
+				let n = self.parse_expr()?;
+				let first = match n.const_eval_opt()
 					{
-					Some(i) => i as u64,
-					None => syntax_error!("Case value is not literal"),
+					crate::ast::ConstVal::Integer(i) => i,
+					_ => syntax_error!("Case value is not constant - {:?}", n),
 					};
 				if peek_token!(self.lex, Token::Vargs) {
-					let last = match self.parse_expr()?.literal_integer()
+					let n = self.parse_expr()?;
+					let last = match n.const_eval_opt()
 						{
-						Some(i) => i as u64,
-						None => syntax_error!("Case value is not literal"),
+						crate::ast::ConstVal::Integer(i) => i,
+						_ => syntax_error!("Case value is not constant - {:?}", n),
 						};
 					code.push( ::ast::Statement::CaseRange(first, last) );
 				}

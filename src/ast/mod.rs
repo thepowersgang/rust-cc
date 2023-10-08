@@ -712,6 +712,8 @@ impl Node
 				(&BinOp::Mod,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a%b),
 				(&BinOp::Mul,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a*b),
 				(&BinOp::BitOr,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a|b),
+				(&BinOp::BitAnd,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a&b),
+				(&BinOp::ShiftLeft,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a<<b),
 				_ => ConstVal::None,
 				},
 			NodeKind::Identifier(ref name, ref binding) =>
