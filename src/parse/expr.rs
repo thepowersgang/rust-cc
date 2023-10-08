@@ -228,6 +228,10 @@ impl<'ast> super::ParseState<'ast>
 					syntax_error!("Unexpected identifier in cast");
 				}
 				syntax_assert!(self.lex => Token::ParenClose);
+				// Handle `(struct Foo){...}` expressions
+				if peek_token_nc!(self.lex, Token::BraceOpen) {
+					self.lex.point_span().todo(format_args!("Handle inline init syntax `(struct Foo){{ ... }}`"));
+				}
 				node!( sp, Cast(fulltype, Box::new(self.parse_expr_9()?)) )
 				},
 			None => {

@@ -41,7 +41,7 @@ impl<'ast> super::ParseState<'ast>
 		let mut double_seen = false;
 		
 		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__") {
-			panic!("{}TODO: Handle gcc __attribute__ at start of type", self.lex);
+			self.lex.point_span().todo(format_args!("Handle gcc __attribute__ at start of type"));
 		}
 
 		// 1. Storage classes (extern, static, auto, register)
