@@ -681,7 +681,7 @@ impl<'a> Context<'a>
 			match node_ty(&val).get_field(name)
 			{
 			None => panic!("Unable to find field"),
-			Some( (_idx, _ofs, ty) ) => ty,
+			Some( (_idx, _ofs, ty, _bit_mask) ) => ty,
 			}
 			},
 		}
@@ -707,7 +707,7 @@ impl<'a> Context<'a>
 					BaseType::Struct(ref s) =>
 						match s.borrow().get_field_idx(i)
 						{
-						Some( (_, _, ty) ) => ty.clone(),
+						Some( (_, _, ty, _) ) => ty.clone(),
 						None => panic!("Too many initialisers for struct"),
 						},
 					_ => todo!("List literal {:?}", exp_ty),
@@ -726,7 +726,7 @@ impl<'a> Context<'a>
 					BaseType::Struct(ref s) =>
 						match s.borrow().iter_fields().find(|v| v.1 == name)
 						{
-						Some( (_, _, ty) ) => ty.clone(),
+						Some( (_, _, ty, _) ) => ty.clone(),
 						None => panic!("Unknown struct entry: {} in {:?}", name, exp_ty),
 						},
 					_ => todo!("Struct literal {:?}", exp_ty),

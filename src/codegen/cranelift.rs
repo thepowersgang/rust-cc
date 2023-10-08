@@ -126,9 +126,14 @@ impl Context
 				}
 				},
 			BaseType::Struct(ref s) => {
-				for (val, (ofs, _name, inner_ty)) in Iterator::zip( vals.iter(), s.borrow().iter_fields() )
+				for (val, (ofs, _name, inner_ty, mask)) in Iterator::zip( vals.iter(), s.borrow().iter_fields() )
 				{
-					self.init_data_ctx(data_ctx, data, offset + ofs as usize, inner_ty, val);
+					if let Some(_mask) = mask {
+						todo!("Handle bitfields in init");
+					}
+					else {
+						self.init_data_ctx(data_ctx, data, offset + ofs as usize, inner_ty, val);
+					}
 				}
 				},
 			_ => todo!("init_data_ctx: ListLiteral with {:?}", ty),
@@ -926,16 +931,22 @@ impl Builder<'_>
 			let val = self.handle_node(val);
 			match ty.get_field(name)
 			{
-			Some((_idx, ofs, ity)) =>
-				match val
+			Some((_idx, ofs, ity, mask)) => {
+				let v = match val
+					{
+					ValueRef::StackSlot(ss, bofs, _) => {
+						ValueRef::StackSlot(ss, bofs + ofs, ity)
+						},
+					ValueRef::Pointer(bv, bofs, _) => {
+						ValueRef::Pointer(bv, bofs + ofs, ity)
+						},
+					_ => todo!("Get field {} from {:?}: +{} {:?}", name, val, ofs, ity),
+					};
+				match mask
 				{
-				ValueRef::StackSlot(ss, bofs, _) => {
-					ValueRef::StackSlot(ss, bofs + ofs, ity)
-					},
-				ValueRef::Pointer(bv, bofs, _) => {
-					ValueRef::Pointer(bv, bofs + ofs, ity)
-					},
-				_ => todo!("Get field {} from {:?}: +{} {:?}", name, val, ofs, ity),
+				None => v,
+				Some(_mask) => todo!("bitfield"),
+				}
 				},
 			None => panic!("No field {:?} on {:?}", name, ty),
 			}

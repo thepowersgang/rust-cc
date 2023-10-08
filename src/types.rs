@@ -492,15 +492,15 @@ impl Type
 		_ => None,
 		}
 	}
-	pub fn get_field(&self, name: &str) -> Option<(usize, u32, TypeRef)> {
+	pub fn get_field(&self, name: &str) -> Option<(usize, u32, TypeRef, Option<u64>)> {
 		match self.basetype
 		{
 		BaseType::Struct(ref r) => {
 			let b = r.borrow();
-			for (i,(ofs, fld_name, fld_ty)) in b.iter_fields().enumerate()
+			for (i,(ofs, fld_name, fld_ty, bit_mask)) in b.iter_fields().enumerate()
 			{
 				if fld_name == name {
-					return Some( (i, ofs, fld_ty.clone()) );
+					return Some( (i, ofs, fld_ty.clone(), bit_mask) );
 				}
 			}
 			None
@@ -648,7 +648,7 @@ impl Struct
 		self.items.as_ref()
 	}
 
-	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef)>
+	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef, Option<u64>)>
 	{
 		let items = match self.items
 			{
@@ -657,28 +657,43 @@ impl Struct
 			};
 		items.iter_fields()
 	}
-	pub fn get_field_idx(&self, idx: usize) -> Option<(u32, &str, &TypeRef)> {
+	pub fn get_field_idx(&self, idx: usize) -> Option<(u32, &str, &TypeRef, Option<u64>)> {
 		self.iter_fields().skip(idx).next()
 	}
 }
 impl StructBody
 {
-	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef)>
+	pub fn iter_fields(&self) -> impl Iterator<Item=(u32, &str, &TypeRef, Option<u64>)>
 	{
 		let mut ofs = 0;
+		let mut bit_ofs = 0;
 		self.fields.iter()
 			.map( move |(fld_ty, fld_name)| {
 				match fld_ty
 				{
 				StructFieldTy::Value(fld_ty) => {
+					if bit_ofs > 0 {
+						ofs += (bit_ofs+7) / 8;
+						bit_ofs = 0;
+					}
 					let (size, align) = fld_ty.get_size_align().expect("Opaque type in struct");
 					ofs = make_aligned(ofs, align);
 					let o = ofs;
 					ofs += size;
-					(o, &fld_name[..], fld_ty)
+					(o, &fld_name[..], fld_ty, None)
 					},
-				StructFieldTy::Bitfield(sgn, bits) => {
-					todo!("Bitfield {:?} {}", sgn, bits);
+				StructFieldTy::Bitfield(fld_ty, bits) => {
+					let (_size, align) = fld_ty.get_size_align().expect("Opaque type in struct");
+					if bit_ofs == 0 {
+						ofs = make_aligned(ofs, align);
+					}
+					let a = make_aligned(bit_ofs / 8, align);
+					ofs += a;
+					bit_ofs -= a * 8;
+					let bits = bits.get_value() as u32;
+					let mask = ((1 << bits) - 1) << bit_ofs;
+					bit_ofs += bits;
+					(ofs, &fld_name[..], fld_ty, Some(mask))
 					},
 				}
 				})

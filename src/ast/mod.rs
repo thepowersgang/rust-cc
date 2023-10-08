@@ -675,10 +675,11 @@ impl Node
 			crate::types::BaseType::Struct(ref s) =>
 				match s.borrow().iter_fields().find(|v| v.1 == name)
 				{
-				Some( (ofs, _, _) ) => Some( (rv_name, rv_ofs + ofs as usize) ),
-				None => panic!("Unknown struct entry: {} in {:?}", name, ty),
+				Some( (ofs, _, _, None) ) => Some( (rv_name, rv_ofs + ofs as usize) ),
+				Some( (_, _, _, Some(_)) ) => self.span.error(format_args!("Getting address of bitfield")),
+				None => self.span.error(format_args!("Unknown struct entry: {} in {:?}", name, ty)),
 				},
-			_ => todo!("Struct literal {:?}", ty),
+			_ => self.span.todo(format_args!("Struct literal {:?}", ty)),
 			}
 			},
 		_ => None,

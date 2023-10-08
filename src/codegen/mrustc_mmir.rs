@@ -11,6 +11,8 @@ pub struct Context
 	declared_functions: Vec<(crate::ast::Ident, crate::types::FunctionType)>,
 	//defined_functions: Vec<crate::ast::Ident>,
 
+	struct_field_mapping: HashMap<String,Vec<usize>>,
+
 	output_buffer: Vec<u8>,
 }
 impl Context
@@ -20,7 +22,7 @@ impl Context
 		Context {
 			types: Default::default(),
 			declared_functions: Default::default(),
-			//defined_functions: Default::default(),
+			struct_field_mapping: Default::default(),
 			output_buffer: Vec::new(),
 			}
 	}
@@ -117,6 +119,29 @@ impl Context
 		}
 		fn generate_init(base_ofs: usize, buf: &mut [u8], relocs: &mut Vec<(usize,Reloc)>, ty: &crate::types::TypeRef, val: &crate::ast::Initialiser)
 		{
+			fn generate_init_bitfield(buf: &mut [u8], _ty: &crate::types::TypeRef, mask: u64, val: &crate::ast::Initialiser) {
+				let ofs = mask.trailing_zeros();
+				let bits = (mask >> ofs).trailing_ones();
+				assert!(mask >> ofs >> bits == 0);
+				let val = match val
+					{
+					crate::ast::Initialiser::Value(v) => {
+						let v = v.const_eval_req();
+						match v
+						{
+						crate::ast::ConstVal::Integer(val) => val,
+						_ => panic!("Invalid constant value for bitfield - {:?}", v),
+						}
+						},
+					_ => panic!("Invalid initialiser value for bitfield - {:?}", val),
+					};
+				let val = val << ofs;
+				for (dst,(&val, &mask))
+					in Iterator::zip(buf.iter_mut(), Iterator::zip(val.to_le_bytes().iter(),mask.to_le_bytes().iter()))
+				{
+					*dst = (*dst & !mask) | (val & mask);
+				}
+			}
 			match val
 			{
 			crate::ast::Initialiser::Value(v) => {
@@ -148,7 +173,11 @@ impl Context
 						BaseType::Struct(ref s) =>
 							match s.borrow().get_field_idx(i)
 							{
-							Some( (ofs, _, ty) ) => (ofs as usize, ty.clone()),
+							Some( (ofs, _, ty, None) ) => (ofs as usize, ty.clone()),
+							Some( (ofs, _, ty, Some(mask)) ) => {
+								generate_init_bitfield(&mut buf[ofs as usize..], ty, mask, e);
+								continue
+								},
 							None => panic!("Too many initialisers for struct"),
 							},
 						_ => todo!("List literal {:?}", ty),
@@ -181,7 +210,11 @@ impl Context
 						BaseType::Struct(ref s) =>
 							match s.borrow().iter_fields().find(|v| v.1 == name)
 							{
-							Some( (ofs, _, ty) ) => (ofs as usize, ty.clone()),
+							Some( (ofs, _, ty, None) ) => (ofs as usize, ty.clone()),
+							Some( (ofs, _, ty, Some(mask)) ) => {
+								generate_init_bitfield(&mut buf[ofs as usize..], ty, mask, e);
+								continue
+								},
 							None => panic!("Unknown struct entry: {} in {:?}", name, ty),
 							},
 						_ => todo!("Struct literal {:?}", ty),
@@ -364,23 +397,54 @@ impl Context
 		BaseType::Struct(structref) => {
 			if structref.borrow().is_populated()
 			{
-				for (_ofs,_name,ty) in structref.borrow().iter_fields()
+				for (_ofs,_name,ty, _) in structref.borrow().iter_fields()
 				{
 					self.register_type(ty)
 				}
 				write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
 				let (size,align) = ty.get_size_align().unwrap_or((0,0) );
 				write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", size,align).unwrap();
-				for (ofs,name,ty) in structref.borrow().iter_fields()
+				// Track the mapping between fields and entries in the `type`
+				let mut out_field_idx = 0;
+				let mut field_mapping = Vec::new();
+
+				let mut bitfield_ofs = None;
+				for (ofs,name,ty, mask) in structref.borrow().iter_fields()
 				{
-					write!(self.output_buffer, "\t{} = {}; // {}\n", ofs, self.fmt_type(ty), name).unwrap();
-					//write!(self.output_buffer, "\t{} = {};\n", ofs, self.fmt_type(ty)).unwrap();
+					match bitfield_ofs
+					{
+					Some(old_ofs) if old_ofs != ofs => {
+						let bf_size = ofs - old_ofs;
+						let t = match bf_size {
+							8 => "u8",
+							16 => "u16",
+							32 => "u32",
+							64 => "u64",
+							_ => todo!(""),
+							};
+						write!(self.output_buffer, "\t{} = {}; // -bitfields-\n", old_ofs, t).unwrap();
+						out_field_idx += 1;
+						},
+					_ => {},
+					}
+					field_mapping.push(out_field_idx);
+					match mask {
+					None => {
+						write!(self.output_buffer, "\t{} = {}; // {}\n", ofs, self.fmt_type(ty), name).unwrap();
+						out_field_idx += 1;
+						},
+					Some(_mask) => {
+						// TODO: Need to know the field size, which requires seeing all of the bitfield entries
+						bitfield_ofs = Some(ofs);
+						},
+					}
 				}
 				write!(self.output_buffer, "}}\n").unwrap();
+				self.struct_field_mapping.insert(self.fmt_type(ty).to_string(), field_mapping);
 			}
 			},
 		BaseType::Enum(_) => {},	// Nothing needed for enums, they're not rust enums
-		BaseType::Union(_) => todo!("union"),
+		BaseType::Union(_) => todo!("union - {:?}", ty),
 		BaseType::Float(_) => {},
 		BaseType::Integer(_) => {},
 		BaseType::MagicType(crate::types::MagicType::VaList) => {},
@@ -655,9 +719,12 @@ impl Builder<'_>
 				}
 			},
 			BaseType::Struct(str) => {
-				for (idx,((_,_,fty),val)) in str.borrow().iter_fields().zip(ents_it).enumerate()
+				for (idx,((_,_,fty, mask),val)) in str.borrow().iter_fields().zip(ents_it).enumerate()
 				{
-					if let Some(i) = val {
+					if let Some(_bits) = mask {
+						todo!("bitfield initialisation");
+					}
+					else if let Some(i) = val {
 						self.handle_init(fty, format!("{}.{}", slot, idx), i);
 					}
 					else {
@@ -1212,7 +1279,21 @@ impl Builder<'_>
 			let val = self.handle_node(val);
 			match ty.get_field(name)
 			{
-			Some((idx, _ofs, _ity)) => ValueRef::Slot(format!("{} .{}", self.get_value(val), idx)),
+			Some((idx, _ofs, _ity, opt_mask)) => {
+				let idx = self.parent.struct_field_mapping[&self.parent.fmt_type(ty).to_string()][idx];
+				match opt_mask {
+				None => ValueRef::Slot(format!("{} .{}", self.get_value(val), idx)),
+				Some(mask) => {
+					// TODO: iterate to be able to find the correct index according to our rules
+					let ofs = mask.trailing_zeros();
+					//let bits = (mask >> ofs).trailing_ones();
+					let v = ValueRef::Slot(format!("{} .{}", self.get_value(val), idx));
+					let t = "u64";
+					let v = ValueRef::Value(format!("BINOP {} >> {} usize", self.get_value(v), ofs), t.into());
+					ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(v), mask >> ofs, t), t.into())
+					},
+				}
+				},
 			None => panic!("No field {:?} on {:?}", name, ty),
 			}
 			},
