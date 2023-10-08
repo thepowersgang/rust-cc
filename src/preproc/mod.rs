@@ -1152,6 +1152,7 @@ impl Preproc
 				{
 				Some(Token::Exclamation) => { self.get_tok(); Ok( (cur(self)? == 0) as _ ) },
 				Some(Token::Minus) => { self.get_tok(); Ok( -cur(self)? ) },
+				Some(Token::Tilde) => { self.get_tok(); Ok( !cur(self)? ) },
 				_ => next(self),
 				}
 			}
