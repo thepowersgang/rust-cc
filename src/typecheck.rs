@@ -348,7 +348,7 @@ impl<'a> Context<'a>
 			let fcn_ty = match fcn_ty.basetype
 				{
 				BaseType::Function(ref f) => f,
-				_ => panic!("TODO: Error when calling a non-function. {:?}", fcn_ty),
+				_ => span.todo(format_args!("TODO: Error when calling a non-function. {:?}", fcn_ty)),
 				};
 			for arg_val in args.iter_mut() {
 				self.visit_node(arg_val, false);
@@ -411,7 +411,7 @@ impl<'a> Context<'a>
 				}
 				tys[0].clone()
 				},
-			_ => todo!("NodeKind::Intrinsic - {:?}", node_kind),
+			_ => span.todo(format_args!("NodeKind::Intrinsic - {:?}", node_kind)),
 			}
 
 		NodeKind::ImplicitCast(..) => panic!("Unexpected ImplicitCast in typecheck"),
@@ -445,7 +445,7 @@ impl<'a> Context<'a>
 				let max = match self.max_ty( span, node_ty(&val_true), node_ty(&val_false))
 					{
 					Some(v) => v.clone(),
-					None => todo!("Error with mismatched ternary types: {:?} and {:?}", val_true, val_false),
+					None => span.todo(format_args!("Error with mismatched ternary types: {:?} and {:?}", val_true, val_false)),
 					};
 				self.coerce_ty(&max, val_true);
 				self.coerce_ty(&max, val_false);
@@ -598,7 +598,7 @@ impl<'a> Context<'a>
 						let max = match self.max_ty(span, ty_l, ty_r)
 							{
 							Some(v) => v.clone(),
-							None => todo!("Error with mismatched binop types: {:?} {:?} and {:?}", op, val_l, val_r),
+							None => span.todo(format_args!("Error with mismatched binop types: {:?} {:?} and {:?}", op, val_l, val_r)),
 							};
 						self.coerce_ty(&max, val_l);
 						self.coerce_ty(&max, val_r);
@@ -618,7 +618,7 @@ impl<'a> Context<'a>
 						let max = match self.max_ty(span, ty_l, ty_r)
 							{
 							Some(v) => v.clone(),
-							None => todo!("Error with mismatched bitop types: {:?} {:?} and {:?}", op, val_l, val_r),
+							None => span.todo(format_args!("Error with mismatched bitop types: {:?} {:?} and {:?}", op, val_l, val_r)),
 							};
 						self.coerce_ty(&max, val_l);
 						self.coerce_ty(&max, val_r);
@@ -680,7 +680,7 @@ impl<'a> Context<'a>
 			self.visit_node(val, req_lvalue);
 			match node_ty(&val).get_field(name)
 			{
-			None => panic!("Unable to find field"),
+			None => span.error(format_args!("Unable to find field `{}`", name)),
 			Some( (_idx, _ofs, ty, _bit_mask) ) => ty,
 			}
 			},
@@ -930,6 +930,12 @@ impl<'a> Context<'a>
 				BaseType::Integer(_) => {
 					node.span.warning(format_args!("Coercing integer to enum ({:?} to {:?})", inner_ty, req_ty));
 					},
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
+				},
+			// TODO: unsized Arrays (for arguments)
+			BaseType::Array(ref inner, crate::types::ArraySize::None) => match inner_ty.basetype
+				{
+				BaseType::Pointer(ref inner_src) if inner_src.basetype == inner.basetype => {},
 				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			_ => {

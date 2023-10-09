@@ -144,6 +144,10 @@ impl<'ast> super::ParseState<'ast>
 				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				typeid = Some(::types::BaseType::Enum(self.get_enum()?));
 				},
+			Token::Ident(ref n) if n == "typeof" => {
+				let e = self.parse_expr()?;
+				self.lex.point_span().todo(format_args!("typeof"));
+				},
 			Token::Ident(ref n) if n == "__gnuc_va_list" => {
 				typeid = Some(::types::BaseType::MagicType(::types::MagicType::VaList));
 				},
@@ -405,7 +409,7 @@ impl<'ast> super::ParseState<'ast>
 					Some( size )
 					},
 				};
-			Ok( TypeNode::Array(Box::new(inner), sizenode) )
+			self.get_fulltype_array(TypeNode::Array(Box::new(inner), sizenode))
 			},
 		tok @ _ => {
 			self.lex.put_back(tok);

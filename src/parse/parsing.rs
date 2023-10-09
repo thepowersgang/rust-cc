@@ -417,7 +417,7 @@ impl<'ast> super::ParseState<'ast>
 			Token::Semicolon => break,
 			t @ _ => {
 				error!("{}: Unexpected token {:?}", self.lex, t);
-				return Err( ::parse::Error::SyntaxError(format!("syntax error[parse_variable_list]")) );
+				return Err( ::parse::Error::SyntaxError(format!("Unexpected token {:?} in parse_variable_list, expected comma or semicolon", t)) );
 				}
 			}
 			

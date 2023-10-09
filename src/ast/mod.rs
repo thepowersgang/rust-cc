@@ -702,6 +702,7 @@ impl Node
 			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(false))
 				{
 				(&UniOp::Neg,ConstVal::Integer(a)) => ConstVal::Integer(!a + 1),
+				(&UniOp::BitNot,ConstVal::Integer(a)) => ConstVal::Integer(!a),
 				_ => ConstVal::None,
 				},
 			NodeKind::BinOp(ref op,ref a,ref b) => match (op,a.const_eval(required), b.const_eval(required))
@@ -714,6 +715,7 @@ impl Node
 				(&BinOp::BitOr,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a|b),
 				(&BinOp::BitAnd,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a&b),
 				(&BinOp::ShiftLeft,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a<<b),
+				(&BinOp::ShiftRight,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a<<b),
 				_ => ConstVal::None,
 				},
 			NodeKind::Identifier(ref name, ref binding) =>
@@ -723,7 +725,7 @@ impl Node
 				&Some(IdentRef::Function) => ConstVal::Address(name.clone(), 0),
 				_ => ConstVal::None,
 				},
-			NodeKind::Cast(ref ty, ref val) =>
+			NodeKind::ImplicitCast(ref ty, ref val)|NodeKind::Cast(ref ty, ref val) =>
 				match val.const_eval(false)
 				{
 				v @ ConstVal::None => v,
@@ -744,7 +746,7 @@ impl Node
 			_ => ConstVal::None,
 			}
 		{
-		ConstVal::None if required => self.span.todo(format_args!("consteval {:?}", self)),
+		ConstVal::None if required => self.span.todo(format_args!("consteval {:#?}", self)),
 		rv => rv,
 		}
 	}

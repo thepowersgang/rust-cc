@@ -46,6 +46,9 @@ pub struct Preproc
 	/// Stack of active `#if`/`#else` statements
 	if_stack: Vec<Conditional>,
 
+	/// A hashset used to implement `#pragma once`
+	pragma_once_set: ::std::collections::HashSet<::std::path::PathBuf>,
+
 	/// User-provided pre-processor options
 	options: Options,
 }
@@ -173,6 +176,7 @@ impl Preproc
 			saved_tok: None,
 			macros: Default::default(),
 			if_stack: Default::default(),
+			pragma_once_set: Default::default(),
 			options: options,
 			})
 	}
@@ -250,7 +254,7 @@ impl Preproc
 	}
 	pub fn get_token_int(&mut self) -> Result<Token>
 	{
-		loop
+		'outer: loop
 		{
 			// ---
 			// Handle #if-ed out blocks (only used when internal handling is enabled)
@@ -603,6 +607,10 @@ impl Preproc
 					{
 					"once" => {
 						syntax_assert!(self.eat_comments(), Token::Newline => ());
+						if !self.pragma_once_set.insert(self.lexers.cur_path().to_owned()) {
+							self.lexers.lexers.pop();
+							continue 'outer;
+						}
 						// TODO: Ensure single-inclusion of this file
 						// TODO: If enabled, propagate a token::Preprocessor::PragmaOnce
 						},
@@ -928,11 +936,14 @@ impl Preproc
 						match arg_mapping.get(&i[..])
 						{
 						Some(v) =>
-							match &v[..]
-							{
-							&[Token::Ident(ref i)] => prev.push_str(i),
-							&[Token::Integer(_v, _, ref s)] => prev.push_str(s),
-							_ => panic!("{}: TODO: Concat `{}` with expanded - {:?}", self, prev, v),
+							for v in v {
+								match v
+								{
+								&Token::Whitespace => {},
+								&Token::Ident(ref i) => prev.push_str(i),
+								&Token::Integer(_v, _, ref s) => prev.push_str(s),
+								_ => panic!("{}: TODO: Concat `{}` with expanded - {:?}", self, prev, v),
+								}
 							},
 						None => {
 							prev.push_str(i);
