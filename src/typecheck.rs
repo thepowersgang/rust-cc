@@ -742,6 +742,7 @@ impl<'a> Context<'a>
 
 	fn max_ty(&self, span: &crate::ast::Span, ty1: &TypeRef, ty2: &TypeRef) -> Option<TypeRef> {
 		use crate::types::{Signedness,IntClass};
+		use crate::types::{MagicType,MagicTypeRepr};
 		fn sgn(s1: &Signedness, s2: &Signedness) -> Signedness {
 			match (s1,s2)
 			{
@@ -749,11 +750,21 @@ impl<'a> Context<'a>
 			_ => Signedness::Signed,
 			}
 		}
+		if let BaseType::TypeOf(ref inner) = ty1.basetype {
+			return self.max_ty(span, inner.get(), ty2);
+		}
+		if let BaseType::TypeOf(ref inner) = ty2.basetype {
+			return self.max_ty(span, ty1, inner.get());
+		}
 		Some(crate::types::Type::new_ref_bare(match (&ty1.basetype, &ty2.basetype)
 		{
+		// Bool with any integer just uses the other integer
 		(BaseType::Bool, BaseType::Integer(i), )
 		| (BaseType::Integer(i), BaseType::Bool, )
 			=> BaseType::Integer(i.clone()),
+		(BaseType::Bool, t @ BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { .. })), )
+		| (t @ BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { .. })), BaseType::Bool, )
+			=> t.clone(),
 		
 		(BaseType::Integer(i1), BaseType::Integer(i2)) => BaseType::Integer(match i1
 			{
@@ -790,8 +801,8 @@ impl<'a> Context<'a>
 				_ => i1.clone_with_sgn( sgn(s1, &i2.signedness()) ),
 				},
 			}),
-		  (BaseType::Integer(i1), &BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits })),)
-		| (&BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits })), BaseType::Integer(i1), )
+		  (BaseType::Integer(i1), &BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { signed, bits })),)
+		| (&BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { signed, bits })), BaseType::Integer(i1), )
 			=> {
 			let (ic_s,ic_bits) = match i1
 				{
@@ -802,11 +813,9 @@ impl<'a> Context<'a>
 				IntClass::Long(s) => (!s.is_unsigned(), 32),
 				IntClass::LongLong(s) => (!s.is_unsigned(), 64),
 				};
-			let ic_bits = ic_bits - (!ic_s) as u8;
-			let bits = bits - (!signed) as u8;
 			// `int` and `u16` needs `long` (must be signed, but `signed int` can't fit `u16`)
 			let out_sign = ic_s | signed;
-			let req_bits = bits.max(ic_bits) + out_sign as u8;
+			let req_bits = bits.max(ic_bits) + if ic_s != signed { out_sign as u8 } else { 0 };
 			BaseType::Integer(if req_bits <= 8 {
 					IntClass::Char(Some(Signedness::from_bool_signed(out_sign)))
 				}
@@ -820,8 +829,22 @@ impl<'a> Context<'a>
 					IntClass::LongLong(Signedness::from_bool_signed(out_sign))
 				}
 				else {
-					span.todo(format_args!("Pick 'max' of {:?} and {:?}", ty1, ty2))
+					//span.todo(format_args!("Pick 'max' of {:?} and {:?} (req_bits={})", ty1, ty2, req_bits))
+					IntClass::LongLong(Signedness::from_bool_signed(true))
 				})
+			},
+		(BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { signed: s1, bits: b1 })),
+			BaseType::MagicType(MagicType::Named(_, MagicTypeRepr::Integer { signed: s2, bits: b2 })),
+			) => {
+			if s1 != s2 {
+				span.todo(format_args!("Pick 'max' of {:?} and {:?}", ty1, ty2))
+			}
+			if b1 > b2 {
+				ty1.basetype.clone()
+			}
+			else {
+				ty2.basetype.clone()
+			}
 			},
 		
 		(BaseType::Float(fc), BaseType::Integer(_), )
@@ -837,6 +860,12 @@ impl<'a> Context<'a>
 				(fc @ crate::types::FloatClass::LongDouble, _) => *fc,
 				}),
 		
+		(BaseType::Array(i1, _), BaseType::Array(i2, _)) => if i1 != i2 {
+				span.todo(format_args!("Pick 'max' of {:?} and {:?} - Mismatched pointer inner", ty1, ty2));
+			}
+			else {
+				BaseType::Pointer(i1.clone())
+			}
 		(BaseType::Pointer(i1), BaseType::Pointer(i2)) => BaseType::Pointer({
 			let bt = if i1.basetype != i2.basetype {
 					if let BaseType::Void = i2.basetype {
@@ -867,6 +896,13 @@ impl<'a> Context<'a>
 	}
 	fn coerce_ty(&self, req_ty: &TypeRef, node: &mut ast::Node)
 	{
+		fn expand_typeof(mut req_ty: &TypeRef) -> &TypeRef {
+			while let BaseType::TypeOf(ref inner) = req_ty.basetype {
+				req_ty = inner.get();
+			}
+			req_ty
+		}
+		let req_ty = expand_typeof(req_ty);
 		if req_ty.basetype != node_ty(&node).basetype {
 			trace!("coerce({:?}) from {:?}", req_ty, node_ty(node));
 			let inner_node = ::std::mem::replace(node, null_node(&node.span));
@@ -880,6 +916,7 @@ impl<'a> Context<'a>
 				ast::NodeKind::ImplicitCast(_, ref node) => node_ty(&node),
 				_ => unreachable!(),
 				};
+			let inner_ty = expand_typeof(inner_ty);
 			match req_ty.basetype
 			{
 			BaseType::Bool => match inner_ty.basetype
@@ -912,7 +949,7 @@ impl<'a> Context<'a>
 				BaseType::Bool => {},
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
-				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
+				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value:\n {:?}\n from\n {:?}", req_ty, inner_ty)),
 				},
 			BaseType::Pointer(ref i1) => match inner_ty.basetype
 				{

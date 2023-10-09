@@ -527,13 +527,31 @@ impl Type
 			let b = r.borrow();
 			for (i,(ofs, fld_name, fld_ty, bit_mask)) in b.iter_fields().enumerate()
 			{
+				if fld_name == "" {
+					if let Some((_, s_ofs, fld_ty, mask)) = fld_ty.get_field(name) {
+						return Some((i, ofs + s_ofs, fld_ty, mask));
+					}
+				}
 				if fld_name == name {
 					return Some( (i, ofs, fld_ty.clone(), bit_mask) );
 				}
 			}
 			None
 			},
-		BaseType::Union(ref _r) => todo!("Type::get_field({:?}, {})", self, name),
+		BaseType::Union(ref r) => {
+			let r = r.borrow();
+			for (i, (fld_ty,fld_name)) in r.get_items().unwrap_or(&[]).iter().enumerate() {
+				if fld_name == "" {
+					if let Some((_, s_ofs, fld_ty, mask)) = fld_ty.get_field(name) {
+						return Some((i, 0 + s_ofs, fld_ty, mask));
+					}
+				}
+				if fld_name == name {
+					return Some((i, 0, fld_ty.clone(), None));
+				}
+			}
+			None
+			},
 		BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
 		_ => None,
 		}
