@@ -30,6 +30,33 @@ pub enum BaseType
 	Pointer(Rc<Type>),
 	Array(Rc<Type>, ArraySize),
 	Function(FunctionType),
+	TypeOf(TypeOf),
+}
+#[derive(Clone,PartialEq,Debug)]
+pub struct TypeOf
+{
+	expr: RcRefCellPtrEq<crate::ast::Node>,
+	resolved: ::std::cell::OnceCell<TypeRef>,
+}
+impl TypeOf
+{
+	pub fn new(node: crate::ast::Node) -> Self {
+		TypeOf {
+			expr: RcRefCellPtrEq::new(node),
+			resolved: Default::default(),
+		}
+	}
+	pub fn resolve(&self, v: impl FnOnce(&mut crate::ast::Node)) {
+		let mut d = self.expr.borrow_mut();
+		v( &mut d );
+		let _ = self.resolved.set(d.meta.as_ref().unwrap().ty.clone());
+	}
+	pub fn node(&self) -> ::std::cell::Ref<crate::ast::Node> {
+		self.expr.borrow()
+	}
+	pub fn get(&self) -> &TypeRef {
+		self.resolved.get().expect("Unresolved TypeOf")
+	}
 }
 #[derive(Clone,PartialEq,Debug)]
 pub enum MagicType
@@ -452,6 +479,7 @@ impl ::std::fmt::Debug for BaseType
 		&BaseType::Array(ref typeref, ref size) => write!(fmt, "{:?}{}", typeref, size),
 		&BaseType::Pointer(ref typeref) => write!(fmt, "*{:?}", typeref),
 		&BaseType::Function(ref info) => write!(fmt, "Fcn({:?}, {:?})", info.ret, info.args),
+		&BaseType::TypeOf(ref info) => write!(fmt, "TypeOf({:?})", info.node()),
 		}
 	}
 }
@@ -543,6 +571,7 @@ impl Type
 			let s = bits as u32 / 8;
 			Some( (s,s.min(POINTER_SIZE)) )
 			},
+		BaseType::TypeOf(ref inner) => inner.get().get_size_align(),
 		}
 	}
 }

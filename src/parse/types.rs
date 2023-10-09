@@ -145,8 +145,9 @@ impl<'ast> super::ParseState<'ast>
 				typeid = Some(::types::BaseType::Enum(self.get_enum()?));
 				},
 			Token::Ident(ref n) if n == "typeof" => {
+				if typeid.is_some() { syntax_error!("Multiple types in definition") }
 				let e = self.parse_expr()?;
-				self.lex.point_span().todo(format_args!("typeof"));
+				typeid = Some(::types::BaseType::TypeOf(::types::TypeOf::new(e)));
 				},
 			Token::Ident(ref n) if n == "__gnuc_va_list" => {
 				typeid = Some(::types::BaseType::MagicType(::types::MagicType::VaList));

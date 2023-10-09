@@ -319,6 +319,11 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			self.write_str(")");
 			self.write_type_qualifiers(&ty.qualifiers);
 			},
+		BaseType::TypeOf(ref inner) => {
+			self.write_str("typeof(");
+			self.write_node(&inner.node(), super::NodePrecedence::CommaOperator.up());
+			self.write_str(")");
+			},
 		}
 	}
 	fn write_type_qualifiers(&mut self, qualifiers: &::types::Qualifiers)

@@ -318,6 +318,7 @@ impl Context
 		use crate::types::ArraySize;
 		match &ty.basetype
 		{
+		BaseType::TypeOf(inner) => self.fmt_type(&inner.get()),
 		BaseType::Void => "()".to_owned(),
 		BaseType::Bool => "bool".to_owned(),
 		BaseType::Struct(sr) => {
@@ -398,6 +399,7 @@ impl Context
 		self.types.push(ty.clone());
 		match &ty.basetype
 		{
+		BaseType::TypeOf(inner) => self.register_type(inner.get()),
 		BaseType::Void => {},
 		BaseType::Bool => {},
 		BaseType::Struct(structref) => {

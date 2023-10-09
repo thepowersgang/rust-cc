@@ -103,6 +103,9 @@ impl<'a> Context<'a>
 		|BaseType::Integer(_)
 		|BaseType::MagicType(_)
 			=> {},
+		BaseType::TypeOf(inner) => {
+			inner.resolve(|node| self.visit_node(node, false));
+			},
 		BaseType::Pointer(inner) => self.visit_ty(span, inner, false),
 		BaseType::Array(inner, size) => {
 			self.visit_ty(span, inner, false);
