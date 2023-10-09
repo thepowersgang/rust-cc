@@ -79,6 +79,8 @@ impl<'ast> super::ParseState<'ast>
 		Token::AssignMul  => node!( sp, AssignOp(::ast::BinOp::Mul,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignDiv  => node!( sp, AssignOp(::ast::BinOp::Div,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignMod  => node!( sp, AssignOp(::ast::BinOp::Mod,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
+		Token::AssignShiftLeft  => node!( sp, AssignOp(::ast::BinOp::ShiftLeft , Box::new(rv), Box::new(self.parse_expr_0()?)) ),
+		Token::AssignShiftRight => node!( sp, AssignOp(::ast::BinOp::ShiftRight, Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		t @ _ => {
 			self.lex.put_back(t);
 			rv

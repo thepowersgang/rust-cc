@@ -854,6 +854,8 @@ impl Preproc
 							&Token::AssignLogicAnd => "&&=",
 							&Token::AssignBitOr => "|=",
 							&Token::AssignBitAnd => "&=",
+							&Token::AssignShiftLeft => "<<=",
+							&Token::AssignShiftRight => ">>=",
 							
 							&Token::ShiftRight => ">>",
 							&Token::ShiftLeft => "<<",
