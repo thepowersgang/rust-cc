@@ -74,6 +74,7 @@ impl<'ast> super::ParseState<'ast>
 		Token::Assign => node!( sp, Assign(Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignBitAnd => node!( sp, AssignOp(::ast::BinOp::BitAnd, Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignBitOr  => node!( sp, AssignOp(::ast::BinOp::BitOr,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
+		Token::AssignBitXor => node!( sp, AssignOp(::ast::BinOp::BitXor, Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignAdd  => node!( sp, AssignOp(::ast::BinOp::Add,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignSub  => node!( sp, AssignOp(::ast::BinOp::Sub,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),
 		Token::AssignMul  => node!( sp, AssignOp(::ast::BinOp::Mul,  Box::new(rv), Box::new(self.parse_expr_0()?)) ),

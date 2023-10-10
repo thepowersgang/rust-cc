@@ -47,6 +47,7 @@ pub enum Token
 	AssignLogicAnd,
 	AssignBitOr,
 	AssignBitAnd,
+	AssignBitXor,
 	AssignShiftLeft,
 	AssignShiftRight,
 	

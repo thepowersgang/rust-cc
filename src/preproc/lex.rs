@@ -281,7 +281,9 @@ impl<'a> Lexer<'a>
 		',' => Token::Comma,
 		'?' => Token::QuestionMark,
 		':' => Token::Colon,
-		'^' => Token::Caret,
+		'^' => match_ch!(self, Token::Caret,
+			'=' => Token::AssignBitXor,
+			),
 		'.' => match_ch!(self, Token::Period,
 			'.' => {
 				if try_eof!(self.getc(), Token::Period) != '.' {
