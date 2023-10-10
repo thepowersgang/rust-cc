@@ -422,11 +422,11 @@ impl Context
 					Some(old_ofs) if old_ofs != ofs => {
 						let bf_size = ofs - old_ofs;
 						let t = match bf_size {
-							8 => "u8",
-							16 => "u16",
-							32 => "u32",
-							64 => "u64",
-							_ => todo!(""),
+							0..=8 => "u8",
+							9..=16 => "u16",
+							17..=32 => "u32",
+							33..=64 => "u64",
+							_ => todo!("Bitfield bf_size={}", bf_size),
 							};
 						write!(output_buffer, "\t{} = {}; // -bitfields-\n", old_ofs, t).unwrap();
 						// Fill types
@@ -474,14 +474,21 @@ impl Context
 				{
 					self.register_type(ty)
 				}
+
+				let mut field_mapping = Vec::new();
+				let mut out_field_idx = 0;
+
 				write!(self.output_buffer, "type {} {{\n", self.fmt_type(ty)).unwrap();
 				let (size,align) = ty.get_size_align().unwrap_or((0,0) );
 				write!(self.output_buffer, "\tSIZE {}, ALIGN {};\n", size,align).unwrap();
 				for (ty, name) in items
 				{
 					write!(self.output_buffer, "\t0 = {}; // {}\n", self.fmt_type(ty), name).unwrap();
+					field_mapping.push((out_field_idx, self.fmt_type(ty).to_string(),));
+					out_field_idx += 1;
 				}
 				write!(self.output_buffer, "}}\n").unwrap();
+				self.struct_field_mapping.insert(self.fmt_type(ty).to_string(), field_mapping);
 			}
 			},
 		BaseType::Float(_) => {},
@@ -578,6 +585,8 @@ struct SwitchScope
 enum ValueRef {
 	// LValue
 	Slot(String),
+	// Bitfield
+	Bitfield(String, u64, ::std::borrow::Cow<'static, str>),
 	// RValue (with type)
 	Value(String, String),
 	// A function name (makes calls nicer)
@@ -653,6 +662,12 @@ impl Builder<'_>
 		{
 		ValueRef::Slot(src) => self.push_stmt(format!("ASSIGN {} = ={}", dst, src)),
 		ValueRef::Value(src, _) => self.push_stmt(format!("ASSIGN {} = {}", dst, src)),
+		ValueRef::Bitfield(base, mask, fld_ty) => {
+			let ofs = mask.trailing_zeros();
+			let v = ValueRef::Value(format!("BINOP {} >> {} usize", base, ofs), fld_ty.clone().into_owned());
+			let v = self.get_value(v);
+			self.push_stmt(format!("ASSIGN {} = BINOP {} & {:#x} {}", dst, v, mask >> ofs, fld_ty));
+			},
 		ValueRef::Function(name, _) => self.push_stmt(format!("ASSIGN {} = ADDR {}", dst, name)),
 		}
 	}
@@ -675,6 +690,11 @@ impl Builder<'_>
 		ValueRef::Value(val, ty) => {
 			let local = self.alloc_local_raw(ty);
 			self.push_stmt_assign(local.clone(), ValueRef::Value(val, Default::default()));
+			local
+			},
+		ValueRef::Bitfield(_, _, ref ty) => {
+			let local = self.alloc_local_raw(ty.clone().into_owned());
+			self.push_stmt_assign(local.clone(), vr);
 			local
 			},
 		ValueRef::Function(name, ty) => {
@@ -1171,14 +1191,24 @@ impl Builder<'_>
 			},
 
 		NodeKind::Assign(ref slot, ref val) => {
-			let slot = match self.handle_node(slot)
-				{
-				ValueRef::Slot(s) => s,
-				_ => node.span.error(format_args!("Assiging to a value")),
-				};
-			let val = self.handle_node(val);
-			self.push_stmt_assign(slot.clone(), val);
-			ValueRef::Slot(slot)
+			match self.handle_node(slot)
+			{
+			ValueRef::Slot(slot) => {
+				let val = self.handle_node(val);
+				self.push_stmt_assign(slot.clone(), val);
+				ValueRef::Slot(slot)
+				},
+			ValueRef::Bitfield(base, mask, ty) => {
+				let val = self.handle_node(val);
+				let val = ValueRef::Value(format!("BINOP {} << {}", self.get_value(val), mask.trailing_zeros()), ty.clone().into_owned());
+				let val = ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(val), mask, ty), ty.clone().into_owned());
+				let dst = ValueRef::Value(format!("BINOP {} & {:#x} {}", base, !mask, ty), ty.clone().into_owned());
+				let val = ValueRef::Value(format!("BINOP {} | {}", self.get_value(dst), self.get_value(val)), ty.clone().into_owned());
+				self.push_stmt_assign(base.clone(), val);
+				ValueRef::Bitfield(base, mask, ty)
+				},
+			_ => node.span.error(format_args!("Assiging to a value")),
+			}
 			},
 		NodeKind::AssignOp(ref op, ref slot, ref val) => {
 			let ty = &val.meta.as_ref().unwrap().ty;
@@ -1345,14 +1375,7 @@ impl Builder<'_>
 				let fld_ty = fld_ty.clone();
 				match opt_mask {
 				None => ValueRef::Slot(format!("{} .{}", self.get_value(val), idx)),
-				Some(mask) => {
-					// TODO: iterate to be able to find the correct index according to our rules
-					let ofs = mask.trailing_zeros();
-					//let bits = (mask >> ofs).trailing_ones();
-					let v = ValueRef::Slot(format!("{} .{}", self.get_value(val), idx));
-					let v = ValueRef::Value(format!("BINOP {} >> {} usize", self.get_value(v), ofs), fld_ty.clone());
-					ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(v), mask >> ofs, fld_ty), fld_ty.into())
-					},
+				Some(mask) => ValueRef::Bitfield(format!("{} .{}", self.get_value(val), idx), mask, fld_ty.into()),
 				}
 				},
 			None => panic!("No field {:?} on {:?}", name, ty),
