@@ -238,7 +238,7 @@ impl<'ast> super::ParseState<'ast>
 				node!( sp, Cast(fulltype, Box::new(self.parse_expr_9()?)) )
 				},
 			None => {
-				let rv = self.parse_expr()?;
+				let rv = self.parse_expr_list()?;
 				syntax_assert!(self.lex => Token::ParenClose);
 				rv
 				},

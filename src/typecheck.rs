@@ -276,7 +276,7 @@ impl<'a> Context<'a>
 			for n in nodes {
 				self.visit_node(n, false);
 			}
-			self.visit_node(last, true);
+			self.visit_node(last, req_lvalue);
 			node_ty(last).clone()
 			},
 		NodeKind::Identifier(ref name, ref mut binding) => {
@@ -315,7 +315,7 @@ impl<'a> Context<'a>
 			},
 		NodeKind::String(_) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			crate::types::Type::new_ref_bare(BaseType::Pointer(
 				crate::types::Type::new_ref(
@@ -326,20 +326,20 @@ impl<'a> Context<'a>
 			},
 		NodeKind::Integer(_val, ty) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			crate::types::Type::new_ref_bare(BaseType::Integer(ty))
 			},
 		NodeKind::Float(_val, ty) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			crate::types::Type::new_ref_bare(BaseType::Float(ty))
 			},
 
 		NodeKind::FcnCall(ref mut fcn, ref mut args) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			self.visit_node(fcn, false);	// Does it need to be addressable?
 			let fcn_ty = node_ty(&fcn);
@@ -398,7 +398,7 @@ impl<'a> Context<'a>
 			{
 			"va_start"|"va_end"|"va_copy" => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				for n in vals {
 					self.visit_node(n, false);
@@ -407,7 +407,7 @@ impl<'a> Context<'a>
 				},
 			"va_arg" => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				for n in vals {
 					self.visit_node(n, false);
@@ -420,7 +420,7 @@ impl<'a> Context<'a>
 		NodeKind::ImplicitCast(..) => panic!("Unexpected ImplicitCast in typecheck"),
 		NodeKind::Cast(ref ty, ref mut val) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			self.visit_node(val, false);
 			// TODO: Check cast validity
@@ -482,7 +482,7 @@ impl<'a> Context<'a>
 				},
 			ast::UniOp::Neg => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				self.visit_node(val, false);
 				// TODO: Check type (signed/float)
@@ -490,7 +490,7 @@ impl<'a> Context<'a>
 				},
 			ast::UniOp::BitNot => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				self.visit_node(val, false);
 				// TODO: Check type (unsigned only)
@@ -498,7 +498,7 @@ impl<'a> Context<'a>
 				},
 			ast::UniOp::LogicNot => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				self.visit_node(val, false);
 				// TODO: Check for bool-able
@@ -506,7 +506,7 @@ impl<'a> Context<'a>
 				},
 			ast::UniOp::Address => {
 				if req_lvalue {
-					self.err_no_lvalue();
+					self.err_no_lvalue(span, node_kind);
 				}
 				self.visit_node(val, true);	// Needs a lvalue
 				crate::types::Type::new_ref_bare( BaseType::Pointer(node_ty(&val).clone()) )
@@ -515,7 +515,7 @@ impl<'a> Context<'a>
 			},
 		NodeKind::BinOp(ref op, ref mut val_l, ref mut val_r) => {
 			if req_lvalue {
-				self.err_no_lvalue();
+				self.err_no_lvalue(span, node_kind);
 			}
 			self.visit_node(val_l, false);
 			self.visit_node(val_r, false);
@@ -985,9 +985,9 @@ impl<'a> Context<'a>
 		}
 	}
 
-	fn err_no_lvalue(&self)
+	fn err_no_lvalue(&self, span: &ast::Span, node_kind: &ast::NodeKind) -> !
 	{
-		panic!("Unexpected node in lvalue");
+		span.error(format_args!("Unexpected node in lvalue - {:?}", node_kind));
 	}
 }
 
