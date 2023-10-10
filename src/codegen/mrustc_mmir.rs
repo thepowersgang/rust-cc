@@ -49,6 +49,9 @@ impl Context
 	pub fn lower_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
 		self.register_functiontype(ty);
+		for var in body.var_table.iter() {
+			self.register_type(&var.ty);
+		}
 
 		// Define variables
 		let mut builder = Builder::new(self);
@@ -517,7 +520,10 @@ impl Context
 	}
 
 	fn get_struct_field(&self, span: &crate::ast::Span, ty: &crate::types::TypeRef, idx: usize) -> (usize,&String) {
-		let mapping = &self.struct_field_mapping[&self.fmt_type(ty).to_string()];
+		let tyname = self.fmt_type(ty).to_string();
+		let Some(mapping) = self.struct_field_mapping.get(&tyname) else {
+			span.error(format_args!("Type not registered {:?}", tyname))
+			};
 		match mapping.get(idx)
 		{
 		None => span.error(format_args!("Bad field index {} for {:?}", idx, ty)),
