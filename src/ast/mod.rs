@@ -723,7 +723,12 @@ impl Node
 				{
 				&Some(IdentRef::Enum(ref e, idx)) => ConstVal::Integer( e.borrow().get_item_val(idx).unwrap() as u64 ),
 				&Some(IdentRef::Function) => ConstVal::Address(name.clone(), 0),
-				_ => ConstVal::None,
+				_ => if let Some(crate::types::BaseType::Array(_, _)) = self.meta.as_ref().map(|m| &m.ty.basetype) {
+						ConstVal::Address(name.clone(), 0)
+					}
+					else {
+						ConstVal::None
+					},
 				},
 			NodeKind::ImplicitCast(ref ty, ref val)|NodeKind::Cast(ref ty, ref val) =>
 				match val.const_eval(false)

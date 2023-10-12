@@ -42,7 +42,6 @@ pub fn handle_global(program: &ast::Program, name: &str, ty: &crate::types::Type
 			ret_ty: ty.clone(),
 			};
 		ctx.visit_init(ty, init);
-		
 	}
 }
 
@@ -149,6 +148,22 @@ impl<'a> Context<'a>
 				var_def.index = Some(self.define_variable(&var_def.span, var_def.name.clone(), var_def.ty.clone()));
 				if let Some(init) = &mut var_def.value {
 					self.visit_init(&var_def.ty, init);
+					if let crate::ast::Initialiser::ArrayLiteral(ref v) = init {
+						let mut max_size = 0;
+						let mut size_known = true;
+						for (node, _) in v {
+							match node.const_eval_opt() {
+							ast::ConstVal::Integer(v) => max_size = max_size.max(v),
+							ast::ConstVal::None => { size_known = false; },
+							_ => {},
+							}
+						}
+						if size_known {
+							if let BaseType::Array(ref ity, crate::types::ArraySize::None) = var_def.ty.basetype {
+								var_def.ty = ::types::Type::new_ref(::types::BaseType::Array(ity.clone(), ::types::ArraySize::Fixed(max_size+1)), var_def.ty.qualifiers.clone());
+							}
+						}
+					}
 				}
 			}
 			},
@@ -718,8 +733,17 @@ impl<'a> Context<'a>
 				self.visit_init(&exp_ty, e);
 			}
 			},
-		ast::Initialiser::ArrayLiteral(_) => {
-			todo!("visit_init({:?}): val={:?}", exp_ty, init)
+		ast::Initialiser::ArrayLiteral(ref mut ents) => {
+			for (node, e) in ents.iter_mut()
+			{
+				self.visit_node(node, false);
+				let exp_ty = match exp_ty.basetype
+					{
+					BaseType::Array(ref inner, _) => inner.clone(),
+					_ => todo!("List literal {:?}", exp_ty),
+					};
+				self.visit_init(&exp_ty, e);
+			}
 			},
 		ast::Initialiser::StructLiteral(ref mut ents) => {
 			for (name, e) in ents.iter_mut()
@@ -947,6 +971,7 @@ impl<'a> Context<'a>
 			BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => match inner_ty.basetype
 				{
 				BaseType::Bool => {},
+				BaseType::Enum(_) => {},	// TODO: Any range checks needed?
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
 				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value:\n {:?}\n from\n {:?}", req_ty, inner_ty)),
