@@ -651,6 +651,12 @@ impl Preproc
 				_ => {},
 				}
 
+				// If this is in the macro stack, don't expand it - just return the ident
+				// [C99 Final Draft, N1256] 6.10.3.4
+				if self.lexers.has_macro(&v) {
+					return Ok(Token::Ident(v));
+				}
+
 				match self.macros.get(&v) {
 				Some(macro_def) => {
 					let arg_mapping: HashMap<&str,Vec<Token>> = if let Some(ref args) = macro_def.arg_names {
@@ -1070,6 +1076,9 @@ impl Preproc
 									let exp = self.self_.do_macro_expansion(md, &args);
 									// TODO: Calculate expansion, with recursion
 									self.macro_expansions.push( (0, exp.into_iter()) );
+									if self.macro_expansions.len() > 100 {
+										panic!("Macro expansion depth limit reached")
+									}
 									continue ;
 								}
 								else
@@ -1354,6 +1363,9 @@ impl TokenSourceStack
 			filename: Some(::std::rc::Rc::new(path)),
 			line: 1,
 			}));
+		if self.lexers.len() > 100 {
+			panic!("Maximum lexer (inlude+macro) depth count reached");
+		}
 		Ok( () )
 	}
 	fn push_macro(&mut self, name: String, tokens: Vec<Token>)
@@ -1363,6 +1375,16 @@ impl TokenSourceStack
 			tokens: tokens.into_iter(),
 			idx: 0,
 			}));
+		if self.lexers.len() > 100 {
+			panic!("Maximum lexer (inlude+macro) depth count reached");
+		}
+	}
+
+	fn has_macro(&self, ident: &str) -> bool {
+		self.lexers.iter().any(|l| match l {
+			InnerLexer::MacroExpansion(me) if me.name == ident => true,
+			_ => false
+			})
 	}
 
 	fn last(&self) -> &InnerLexer {
