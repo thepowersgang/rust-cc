@@ -822,6 +822,24 @@ impl Builder<'_>
 			_ => todo!("{} = {:?}: {:?}", slot, init, ty),
 			}
 			},
+		crate::ast::Initialiser::ArrayLiteral(ref vals) => {
+			for (idx_node, init) in vals {
+				let slot = if let crate::ast::ConstVal::Integer(idx) = idx_node.const_eval_opt() {
+						format!("{}.{}", slot, idx)
+					}
+					else {
+						let idx_val = self.handle_node(idx_node);
+						format!("{}[{}]", slot, self.get_value(idx_val))
+					};
+				match &ty.basetype
+				{
+				BaseType::Array(inner, _count) => {
+					self.handle_init(span, inner, slot, init);
+					},
+				_ => todo!("{} = {:?}: {:?}", slot, init, ty),
+				}
+			}
+			},
 		_ => todo!("{} = {:?}", slot, init),
 		}
 	}
