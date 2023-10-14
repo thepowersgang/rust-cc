@@ -74,7 +74,7 @@ impl Context
 		}
 		for (i,var) in body.var_table.iter().skip( ty.args.len() ).enumerate()
 		{
-			builder.vars.push( Variable { lvalue: format!("{}_v{}", var.name, i), ty: builder.parent.fmt_type(&var.ty).to_string(), } );
+			builder.vars.push( Variable { lvalue: format!("v{}_{}", i, var.name), ty: builder.parent.fmt_type(&var.ty).to_string(), } );
 		}
 		builder.handle_block(&body.code);
 		if let BaseType::Void = ty.ret.basetype {
@@ -690,7 +690,7 @@ impl Builder<'_>
 
 	fn alloc_local_raw(&mut self, ty: String) -> String {
 		let idx = self.vars.len();
-		let rv = format!("temp_{}", idx);
+		let rv = format!("t{}", idx);
 		self.vars.push(Variable { lvalue: rv.clone(), ty });
 		rv
 	}
