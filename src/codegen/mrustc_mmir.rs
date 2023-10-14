@@ -400,7 +400,19 @@ impl Context
 			},
 		BaseType::Function(ft) => self.fmt_function_ty(ft, None),
 		}
-		
+	}
+	/// Get the type of borrow (`mut` or ``) for a pointer type
+	fn borrow_type(&self, ty: &crate::types::TypeRef) -> &'static str {
+		match ty.basetype {
+		BaseType::Pointer(ref inner) =>
+			if inner.qualifiers.is_const() {
+				""
+			}
+			else {
+				"mut"
+			},
+		_ => "",
+		}
 	}
 
 	fn register_type(&mut self, ty: &crate::types::TypeRef) {
@@ -1356,7 +1368,7 @@ impl Builder<'_>
 			UniOp::Address => match val_in
 				{
 				ValueRef::Value(_,_) => panic!("Taking address of temporary"),
-				ValueRef::Slot(v) => ValueRef::Value(format!("& {}", v), self.parent.fmt_type(res_ty).to_string()),
+				ValueRef::Slot(v) => ValueRef::Value(format!("&{} {}", self.parent.borrow_type(res_ty), v), self.parent.fmt_type(res_ty).to_string()),
 				_ => todo!("handle_node - UniOp Address {:?}", val_in),
 				},
 			UniOp::Neg => {
@@ -1599,7 +1611,7 @@ impl Builder<'_>
 			}
 			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
 			let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
-			let v = ValueRef::Value(format!("&{}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
+			let v = ValueRef::Value(format!("&mut {}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
 			ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
 		}
 		else if let BaseType::Pointer(_) = dst_ty.basetype {
