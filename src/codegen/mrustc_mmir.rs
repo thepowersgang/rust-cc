@@ -1061,6 +1061,10 @@ impl Builder<'_>
 
 		Statement::Switch(ref val, ref body) => {
 			trace!("{}switch {:?}", self.indent(), val);
+			let is_signed = match val.meta.as_ref().unwrap().ty.basetype {
+				BaseType::Integer(ref ic) => !ic.signedness().is_unsigned(),
+				_ => todo!(""),
+				};
 			let val = self.handle_node(val);
 			let val = self.get_value(val);
 			// - Make a block to contain the condition table (don't start it yet), and for the break target
@@ -1083,7 +1087,12 @@ impl Builder<'_>
 				write!(term, "SWITCHVALUE {} {{", val).unwrap();
 				for (v,b) in &labels.case_labels
 				{
-					write!(term, "{} = {}, ", v, b).unwrap();
+					if is_signed {
+						write!(term, "{:+} = {}, ", *v as i64, b).unwrap();
+					}
+					else {
+						write!(term, "{} = {}, ", v, b).unwrap();
+					}
 				}
 				write!(term, "_ = {}", labels.case_default.unwrap_or(blk_end)).unwrap();
 				write!(term, "}}").unwrap();
