@@ -19,5 +19,6 @@ extern char *strndup(const char *s, size_t n);
 extern char *strchr(const char *s, int c);
 extern char *strrchr(const char *s, int c);
 
+extern char *strerror(int errnum);
 
 

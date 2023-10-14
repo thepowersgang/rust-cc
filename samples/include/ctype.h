@@ -16,3 +16,6 @@ extern int isxdigit(int c);
 extern int isascii(int c);
 extern int isblank(int c);
 
+
+extern int toupper(int c);
+extern int tolower(int c);

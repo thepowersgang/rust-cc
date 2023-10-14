@@ -2,8 +2,11 @@
 
 #include <stddef.h>
 
+#define BUFSIZ	4096
+
 typedef struct FILE	FILE;
 typedef unsigned long long	fpos_t;
+typedef __magictype__("off_t:i64")	off_t;	// POSIX
 
 extern FILE*	stdin;
 extern FILE*	stdout;

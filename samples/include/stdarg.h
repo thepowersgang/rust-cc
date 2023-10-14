@@ -7,6 +7,8 @@ typedef __magictype__("va_list:void")	va_list;
 #define va_arg(__list, __ty)	__magiccall__("va_arg" : __list : __ty)
 #define va_copy(__dst, __src)	__magiccall__("va_copy" : __dst, __src : )
 
+#include <stdio.h>
+
 extern int vprintf(const char *format, va_list ap);
 extern int vfprintf(FILE *stream, const char *format, va_list ap);
 extern int vdprintf(int fd, const char *format, va_list ap);
