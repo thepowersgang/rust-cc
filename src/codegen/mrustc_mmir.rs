@@ -162,8 +162,18 @@ impl Context
 					relocs.push( (base_ofs, Reloc::Addr(s)) );
 					},
 				crate::ast::ConstVal::String(s) => {
-					buf[1] = 0x10;
-					relocs.push( (base_ofs, Reloc::String(s)) );
+					match ty.basetype
+					{
+					BaseType::Pointer(_) => {
+						buf[1] = 0x10;
+						relocs.push( (base_ofs, Reloc::String(s)) );
+						},
+					BaseType::Array(_, _) => {
+						buf[..s.len()].copy_from_slice(s.as_bytes());
+						buf[s.len()] = 0;
+						},
+					_ => todo!(""),
+					}
 					},
 				}
 				},
@@ -785,10 +795,10 @@ impl Builder<'_>
 				for (idx, val) in (0..count).zip(ents_it)
 				{
 					if let Some(i) = val {
-						self.handle_init(span, inner, format!("{}.{}", slot, idx), i);
+						self.handle_init(span, inner, format!("{} .{}", slot, idx), i);
 					}
 					else {
-						self.handle_init_zero(span, inner, format!("{}.{}", slot, idx));
+						self.handle_init_zero(span, inner, format!("{} .{}", slot, idx));
 					}
 				}
 			},
@@ -797,7 +807,7 @@ impl Builder<'_>
 				{
 					let (idx,ty) = self.parent.get_struct_field(span, ty, idx);
 					let ty = ty.clone();
-					let dst = format!("{}.{}", slot, idx);
+					let dst = format!("{} .{}", slot, idx);
 					if let Some(mask) = mask {
 						let ofs = mask.trailing_ones();
 						let val = match val
@@ -825,7 +835,7 @@ impl Builder<'_>
 		crate::ast::Initialiser::ArrayLiteral(ref vals) => {
 			for (idx_node, init) in vals {
 				let slot = if let crate::ast::ConstVal::Integer(idx) = idx_node.const_eval_opt() {
-						format!("{}.{}", slot, idx)
+						format!("{} .{}", slot, idx)
 					}
 					else {
 						let idx_val = self.handle_node(idx_node);
@@ -847,7 +857,7 @@ impl Builder<'_>
 	{
 		// Zero initialise a field
 		let bb_next = self.create_block();
-		self.push_term(format!("CALL {} = \"zeroed\"<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
+		self.push_term(format!("CALL {} = \"init\"<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
 		self.set_block(bb_next);
 	}
 
@@ -885,6 +895,7 @@ impl Builder<'_>
 		Statement::IfStatement { ref cond, ref true_arm, ref else_arm } => {
 			trace!("{}if {:?}", self.indent(), cond);
 			let cond_v = self.handle_expr_def(cond);
+			let cond_v = self.handle_cast_to_bool(cond_v, cond.res_ty().unwrap());
 			let cond_v = self.get_value(cond_v);
 
 			let true_blk = self.create_block(); trace!("++{:?} true", true_blk);
@@ -917,6 +928,7 @@ impl Builder<'_>
 
 			self.stack.push(Scope::new_loop(blk_top, blk_exit));
 			let cond_v = self.handle_expr_def(cond);
+			let cond_v = self.handle_cast_to_bool(cond_v, cond.res_ty().unwrap());
 			let cond_v = self.get_value(cond_v);
 			self.push_term_if(cond_v, blk_body, blk_exit);
 
@@ -1224,7 +1236,11 @@ impl Builder<'_>
 				},
 			ValueRef::Bitfield(base, mask, ty) => {
 				let val = self.handle_node(val);
-				let val = ValueRef::Value(format!("BINOP {} << {}", self.get_value(val), mask.trailing_zeros()), ty.clone().into_owned());
+				let val = if mask.trailing_zeros() == 0 {
+						val
+					} else {
+						ValueRef::Value(format!("BINOP {} << {} i32", self.get_value(val), mask.trailing_zeros()), ty.clone().into_owned())
+					};
 				let val = ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(val), mask, ty), ty.clone().into_owned());
 				let dst = ValueRef::Value(format!("BINOP {} & {:#x} {}", base, !mask, ty), ty.clone().into_owned());
 				let val = ValueRef::Value(format!("BINOP {} | {}", self.get_value(dst), self.get_value(val)), ty.clone().into_owned());
@@ -1539,7 +1555,30 @@ impl Builder<'_>
 		return ValueRef::Value(format!("BINOP {} {} {}", val_l, op, val_r), ty_s);
 	}
 
-
+	fn handle_cast_to_bool(&mut self, src_val: ValueRef, src_ty: &crate::types::TypeRef) -> ValueRef {
+		let src_ty = if let BaseType::TypeOf(ref inner) = src_ty.basetype {
+				inner.get()
+			} else {
+				src_ty	
+			};
+		if let BaseType::Bool = src_ty.basetype {
+			return src_val;
+		}
+		let v = self.get_value(src_val);
+		match src_ty.basetype
+		{
+		BaseType::Integer(..)
+		|BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
+			=> ValueRef::Value(format!("BINOP {} != 0 {}", v, self.parent.fmt_type(&src_ty)), "bool".into()),
+		BaseType::Pointer(..) => {
+			let src_ty_s = self.parent.fmt_type(src_ty).to_string();
+			let zero = self.get_value(ValueRef::Value("0 usize".into(), "usize".into()));
+			let zero = ValueRef::Value(format!("CAST {} as {}", zero, src_ty_s), src_ty_s);
+			ValueRef::Value(format!("BINOP {} == {}", v, self.get_value(zero)), "bool".into())
+			},
+		_ => todo!("Cast {:?} to bool", src_ty),
+		}
+	}
 	/// Common processing of cast operations (between `ImplicitCast` and `Cast`)
 	fn handle_cast(&mut self, dst_ty: &crate::types::TypeRef, src_val: ValueRef, src_ty: &crate::types::TypeRef, is_implicit: bool) -> ValueRef
 	{
@@ -1549,20 +1588,7 @@ impl Builder<'_>
 			ValueRef::Value("( )".to_owned(), "()".to_owned())
 		}
 		else if let BaseType::Bool = dst_ty.basetype {
-			let v = self.get_value(src_val);
-			match src_ty.basetype
-			{
-			BaseType::Integer(..)
-			|BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. }))
-				=> ValueRef::Value(format!("BINOP {} != 0 {}", v, self.parent.fmt_type(&src_ty)), "bool".into()),
-			BaseType::Pointer(..) => {
-				let src_ty_s = self.parent.fmt_type(src_ty).to_string();
-				let zero = self.get_value(ValueRef::Value("0 usize".into(), "usize".into()));
-				let zero = ValueRef::Value(format!("CAST {} as {}", zero, src_ty_s), src_ty_s);
-				ValueRef::Value(format!("BINOP {} == {}", v, self.get_value(zero)), "bool".into())
-				},
-			_ => todo!("Cast {:?} to bool", src_ty),
-			}
+			self.handle_cast_to_bool(src_val, src_ty)
 		}
 		// Casting/decaying an array to a pointer
 		else if let BaseType::Array(..) = src_ty.basetype {

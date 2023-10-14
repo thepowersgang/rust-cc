@@ -477,6 +477,14 @@ pub enum ExprOrDef
 	Expr(Node),
 	Definition(VarDefList),
 }
+impl ExprOrDef {
+	pub fn res_ty(&self) -> Option<&crate::types::TypeRef> {
+		match self {
+		ExprOrDef::Expr(n) => n.meta.as_ref().map(|v| &v.ty),
+		ExprOrDef::Definition(d) => Some(&d.last()?.ty),
+		}
+	}
+}
 /// Expression node
 pub struct Node
 {
