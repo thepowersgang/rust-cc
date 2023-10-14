@@ -712,8 +712,15 @@ impl<'a> Context<'a>
 		{
 		Initialiser::Value(ref mut node) => {
 			self.visit_node(node, false);
-			if node_ty(node) != exp_ty {
-				// TODO: Check expected type
+			match exp_ty.basetype {
+			BaseType::Array(ref inner, _)
+				if matches!(inner.basetype, BaseType::Integer(crate::types::IntClass::Char(_)))
+				&& matches!(node.kind, crate::ast::NodeKind::String(_)) => {
+				return;
+				},
+			_ => {
+				self.coerce_ty(exp_ty, node);
+				},
 			}
 			},
 		ast::Initialiser::ListLiteral(ref mut ents) => {
@@ -935,9 +942,9 @@ impl<'a> Context<'a>
 				is_lvalue: false,
 				ty: req_ty.clone(),
 				});
-			let inner_ty = match node.kind
+			let (inner_ty, node) = match node.kind
 				{
-				ast::NodeKind::ImplicitCast(_, ref node) => node_ty(&node),
+				ast::NodeKind::ImplicitCast(_, ref node) => (node_ty(&node), &**node),
 				_ => unreachable!(),
 				};
 			let inner_ty = expand_typeof(inner_ty);
@@ -978,6 +985,8 @@ impl<'a> Context<'a>
 				},
 			BaseType::Pointer(ref i1) => match inner_ty.basetype
 				{
+				// Integer literal zero is allowed
+				BaseType::Integer(_) if matches!(node.kind, crate::ast::NodeKind::Integer(0, _)) => {},
 				BaseType::Pointer(ref _i2) => {},	// TODO: Const/restrict/etc warnings
 				BaseType::Array(_, _) => {},	// TODO: Const/restrict/etc warnings
 				BaseType::Function(ref ft_s) => {
