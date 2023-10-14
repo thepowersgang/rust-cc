@@ -57,12 +57,7 @@ impl Context
 		let mut builder = Builder::new(self);
 		for (i,(var_ty,var_name)) in ty.args.iter().enumerate()
 		{
-			let name = match 0
-				{
-				1 => format!("{}_a{}", var_name, i),	// Would like this
-				2 => format!("{}", var_name),	// But this is what `fmt_function_ty` would emit
-				_ => format!("arg{}", i),	// And this is what `standalone_miri` expects
-				};
+			let name = format!("a{}_{}", i, var_name);
 			// HACK: Handle anon arrays
 			let name = if let BaseType::Array(_, crate::types::ArraySize::None) = var_ty.basetype {
 					format!("(*{})", name)
@@ -306,13 +301,13 @@ impl Context
 			write!(rv, " {}", name).unwrap();
 		}
 		rv += "(";
-		for (arg_ty, arg_name) in &fcn_ty.args {
-			if false && name.is_some() {
+		for (i, (arg_ty, arg_name)) in fcn_ty.args.iter().enumerate() {
+			if name.is_some() {
 				if arg_name == "" {
 					write!(&mut rv, "_: ").unwrap();
 				}
 				else {
-					write!(&mut rv, "{}: ", arg_name).unwrap();
+					write!(&mut rv, "a{}_{}: ", i, arg_name).unwrap();
 				}
 			}
 			write!(&mut rv, "{}, ", self.fmt_type(arg_ty)).unwrap();
