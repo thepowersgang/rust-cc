@@ -1201,8 +1201,13 @@ impl Builder<'_>
 			}
 			},
 		NodeKind::Integer(val, ty) => {
-			let ty = self.parent.fmt_type(&crate::types::Type::new_ref_bare(BaseType::Integer(ty)));
-			ValueRef::Value(format!("{} {}", val, ty), ty.to_string())
+			let ty_s = self.parent.fmt_type(&crate::types::Type::new_ref_bare(BaseType::Integer(ty)));
+			if ty.signedness().is_unsigned() {
+				ValueRef::Value(format!("{} {}", val, ty_s), ty_s.to_string())
+			}
+			else {
+				ValueRef::Value(format!("{:+} {}", val as i64, ty_s), ty_s.to_string())
+			}
 			},
 		NodeKind::Float(val, ty) => match ty.size()
 			{
