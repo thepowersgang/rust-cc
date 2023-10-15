@@ -1588,7 +1588,7 @@ impl Builder<'_>
 			let src_ty_s = self.parent.fmt_type(src_ty).to_string();
 			let zero = self.get_value(ValueRef::Value("0 usize".into(), "usize".into()));
 			let zero = ValueRef::Value(format!("CAST {} as {}", zero, src_ty_s), src_ty_s);
-			ValueRef::Value(format!("BINOP {} == {}", v, self.get_value(zero)), "bool".into())
+			ValueRef::Value(format!("BINOP {} != {}", v, self.get_value(zero)), "bool".into())
 			},
 		_ => todo!("Cast {:?} to bool", src_ty),
 		}
