@@ -1188,18 +1188,23 @@ impl Builder<'_>
 			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
 				let val = enm.borrow().get_item_val(*idx).expect("Enum index out of range?");
 				let ty = crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::Int( crate::types::Signedness::Signed )));
-				let ty = self.parent.fmt_type(&ty).to_string();
-				ValueRef::Value(format!("{} {}", val, ty), ty)
+				let ty_s = self.parent.fmt_type(&ty).to_string();
+				if ty_s.starts_with("u") {
+					ValueRef::Value(format!("{} {}", val, ty_s), ty_s.into())
+				}
+				else {
+					ValueRef::Value(format!("{:+} {}", val as i64, ty_s), ty_s.into())
+				}
 				},
 			}
 			},
 		NodeKind::Integer(val, ty) => {
-			let ty_s = self.parent.fmt_type(&crate::types::Type::new_ref_bare(BaseType::Integer(ty)));
-			if ty.signedness().is_unsigned() {
-				ValueRef::Value(format!("{} {}", val, ty_s), ty_s.to_string())
+			let ty_s = self.parent.fmt_type(&crate::types::Type::new_ref_bare(BaseType::Integer(ty))).to_string();
+			if ty_s.starts_with("u") {
+				ValueRef::Value(format!("{} {}", val, ty_s), ty_s.into())
 			}
 			else {
-				ValueRef::Value(format!("{:+} {}", val as i64, ty_s), ty_s.to_string())
+				ValueRef::Value(format!("{:+} {}", val as i64, ty_s), ty_s.into())
 			}
 			},
 		NodeKind::Float(val, ty) => match ty.size()
