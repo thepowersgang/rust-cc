@@ -649,25 +649,31 @@ impl<'a> Context<'a>
 			}
 			},
 
-		// TODO: This is actually `*(val + idx)` - should implement it as so
+		// NOTE: This is actually `*(val + idx)` - should implement it as so
+		// - I would like to keep it as an operation, so the mmir backend can be neater
 		NodeKind::Index(ref mut val, ref mut idx) => if false {
 				// NOTE: Is always an LValue
-				self.visit_node(val, false);	// Already a pointer, so will be LValue output
+				self.visit_node(val, false);
 				self.visit_node(idx, false);
-				node_ty(&val).deref().expect("Can't index")
+				let ty_val = node_ty(&val);
+				let ty_idx = node_ty(&idx);
+				match ty_val.deref()
+				{
+				Some(rv) => rv,
+				None => match ty_idx.deref()
+					{
+					Some(rv) => rv,
+					None => span.error(format_args!("Indexing using invalid types - {:?} and {:?}", ty_val, ty_idx)),
+					},
+				}
 			}
 			else {
 				// - Get the value and field name
-				let (val, idx) = match *node_kind {
-					NodeKind::Index(ref mut val, ref mut idx) => {
-						(
-							::std::mem::replace(val, Box::new( null_node(span) ) ),
-							::std::mem::replace(idx, Box::new( null_node(span) ) ),
-							)
-						},
-					_ => unreachable!(),
-					};
-				// - Update the node to be `(*val).NAME`
+				let (val, idx) = (
+					::std::mem::replace(val, Box::new( null_node(span) ) ),
+					::std::mem::replace(idx, Box::new( null_node(span) ) ),
+					);
+				// - Update the node to be `*(a + b)`
 				*node_kind = NodeKind::UniOp(ast::UniOp::Deref,
 					Box::new(ast::Node::new(span.clone(), NodeKind::BinOp(ast::BinOp::Add, val, idx)))
 					);
@@ -675,17 +681,12 @@ impl<'a> Context<'a>
 				self.visit_node_inner(span, node_kind, req_lvalue)
 			},
 		// Implemented as `(*val).NAME` (using replacement)
-		NodeKind::DerefMember(..) => {
+		NodeKind::DerefMember(ref mut val, ref mut name) => {
 			// - Get the value and field name
-			let (val, name) = match *node_kind {
-				NodeKind::DerefMember(ref mut val, ref mut name) => {
-					(
-						::std::mem::replace(val, Box::new( null_node(span) ) ),
-						::std::mem::replace(name, Ident::new()),
-						)
-					},
-				_ => unreachable!(),
-				};
+			let (val, name) = (
+				::std::mem::replace(val, Box::new( null_node(span) ) ),
+				::std::mem::replace(name, Ident::new()),
+				);
 			// - Update the node to be `(*val).NAME`
 			*node_kind = NodeKind::Member(
 				Box::new( ast::Node::new(span.clone(), NodeKind::UniOp(ast::UniOp::Deref, val)) ),
@@ -1026,7 +1027,13 @@ impl<'a> Context<'a>
 }
 
 fn node_ty(n: &ast::Node) -> &TypeRef {
-	&n.meta.as_ref().unwrap().ty
+	let rv = &n.meta.as_ref().unwrap().ty;
+	if let BaseType::TypeOf(ref ty) = rv.basetype {
+		ty.get()
+	}
+	else {
+		rv
+	}
 }
 
 fn null_node(span: &ast::Span) -> ast::Node {
