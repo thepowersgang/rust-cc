@@ -58,13 +58,6 @@ impl Context
 		for (i,(var_ty,var_name)) in ty.args.iter().enumerate()
 		{
 			let name = format!("a{}_{}", i, var_name);
-			// HACK: Handle anon arrays
-			let name = if let BaseType::Array(_, crate::types::ArraySize::None) = var_ty.basetype {
-					format!("(*{})", name)
-				}
-				else {
-					name
-				};
 			builder.vars.push( Variable { lvalue: name, ty: builder.parent.fmt_type(var_ty).to_string(), } );
 		}
 		for (i,var) in body.var_table.iter().skip( ty.args.len() ).enumerate()
@@ -1612,16 +1605,22 @@ impl Builder<'_>
 			self.handle_cast_to_bool(src_val, src_ty)
 		}
 		// Casting/decaying an array to a pointer
-		else if let BaseType::Array(..) = src_ty.basetype {
-			match dst_ty.basetype
-			{
-			BaseType::Pointer(..) => {},
-			_ => panic!("Invalid {} from {:?} to {:?}", cast_name, src_ty, dst_ty),
+		else if let BaseType::Array(_, ref size) = src_ty.basetype {
+			if let crate::types::ArraySize::None = size {
+				// Unsied arrays are already pointers
+				src_val
 			}
-			let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
-			let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
-			let v = ValueRef::Value(format!("&mut {}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
-			ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
+			else {
+				match dst_ty.basetype
+				{
+				BaseType::Pointer(..) => {},
+				_ => panic!("Invalid {} from {:?} to {:?}", cast_name, src_ty, dst_ty),
+				}
+				let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
+				let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
+				let v = ValueRef::Value(format!("&mut {}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
+				ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
+			}
 		}
 		else if let BaseType::Pointer(_) = dst_ty.basetype {
 			// Force integers to cast to usize first
