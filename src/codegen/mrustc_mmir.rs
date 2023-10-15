@@ -5,6 +5,8 @@ use ::std::io::Write;
 use crate::ast::Ident;
 use crate::types::BaseType;
 
+const BLOCK_PANIC: usize = 1;
+
 pub struct Context
 {
 	types: Vec<crate::types::TypeRef>,
@@ -28,8 +30,11 @@ impl Context
 	}
 	pub fn finish(mut self, mut sink: impl ::std::io::Write) -> Result<(), Box<dyn std::error::Error>>
 	{
-		write!(self.output_buffer, "fn main#(isize, *const *const i8): i32 {{\n").unwrap();
-		write!(self.output_buffer, "0: {{ CALL RETURN = main(arg0, arg1) goto 1 else 1 }}\n1: {{ RETURN }}\n").unwrap();
+		//write!(self.output_buffer, "fn main#(arg0: isize, arg1: *const *const i8) -> i32 {{\n").unwrap();
+		write!(self.output_buffer, "fn main#(arg0: i32, arg1: *mut *mut i8) -> i32 {{\n").unwrap();
+		write!(self.output_buffer, "\t0: {{ CALL RETURN = main(arg0, arg1) goto 1 else 2 }}\n").unwrap();
+		write!(self.output_buffer, "\t1: {{ RETURN }}\n").unwrap();
+		write!(self.output_buffer, "\t2: {{ DIVERGE }}\n").unwrap();
 		write!(self.output_buffer, "}}\n").unwrap();
 		sink.write_all(&self.output_buffer).map_err(|e| e.into())
 	}
@@ -477,6 +482,10 @@ impl Context
 				write!(self.output_buffer, "}}\n").unwrap();
 				self.struct_field_mapping.insert(self.fmt_type(ty).to_string(), field_mapping);
 			}
+			else {
+				// Opaque type
+				write!(self.output_buffer, "type {};\n", self.fmt_type(ty)).unwrap();
+			}
 			},
 		BaseType::Enum(_) => {},	// Nothing needed for enums, they're not rust enums
 		BaseType::Union(unm) => {
@@ -636,7 +645,10 @@ impl<'a> Builder<'a>
 			vars: Vec::new(),
 			stack: Default::default(),
 			cur_block: 0,
-			blocks: vec![ Default::default() ],
+			blocks: vec![
+				Default::default(),
+				(Vec::new(), Some("DIVERGE".to_owned()),)
+				],
 			labels: Default::default(),
 			missed_labels: Default::default(),
 		}
@@ -763,7 +775,7 @@ impl Builder<'_>
 					let size = self.get_value(size);
 					let next_block = self.create_block();
 					self.push_term(format!("CALL {} = \"alloca_array\"<{}>({}) goto {} else {}",
-						self.vars[idx].lvalue, self.parent.fmt_type(inner), size, next_block, next_block));
+						self.vars[idx].lvalue, self.parent.fmt_type(inner), size, next_block, BLOCK_PANIC));
 					self.set_block(next_block);
 					},
 				}
@@ -857,7 +869,7 @@ impl Builder<'_>
 	{
 		// Zero initialise a field
 		let bb_next = self.create_block();
-		self.push_term(format!("CALL {} = \"init\"<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, bb_next));
+		self.push_term(format!("CALL {} = \"init\"<{}>() goto {} else {}", slot, self.parent.fmt_type(ty), bb_next, BLOCK_PANIC));
 		self.set_block(bb_next);
 	}
 
@@ -1237,7 +1249,7 @@ impl Builder<'_>
 					write!(term, "{},", self.get_value(v)).unwrap();
 				}
 				let ret_block = self.create_block();
-				write!(term, ") goto {} else {}", ret_block, 0).unwrap();
+				write!(term, ") goto {} else {}", ret_block, BLOCK_PANIC).unwrap();
 				(term, ret_block)
 				};
 			self.push_term(term);
@@ -1457,7 +1469,7 @@ impl Builder<'_>
 				let list = self.handle_node(&values[0]);
 				// TODO: Check the other argument (must be the last non `...` arg)
 				let next_block = self.create_block();
-				self.push_term(format!("CALL {} = \"va_start\"() goto {} else {}", list.unwrap_slot(), next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_start\"() goto {} else {}", list.unwrap_slot(), next_block, BLOCK_PANIC));
 				self.set_block(next_block);
 				ValueRef::Value("()".to_owned(), "()".to_owned())
 				},
@@ -1466,7 +1478,7 @@ impl Builder<'_>
 				let src = self.handle_node(&values[1]);
 				let src = self.get_value(src);
 				let next_block = self.create_block();
-				self.push_term(format!("CALL {} = \"va_copy\"({}) goto {} else {}", dst.unwrap_slot(), src, next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_copy\"({}) goto {} else {}", dst.unwrap_slot(), src, next_block, BLOCK_PANIC));
 				self.set_block(next_block);
 				ValueRef::Value("()".to_owned(), "()".to_owned())
 				},
@@ -1474,7 +1486,7 @@ impl Builder<'_>
 				let list = self.handle_node(&values[0]);
 				let next_block = self.create_block();
 				let rv = self.alloc_local_raw("()".to_owned());
-				self.push_term(format!("CALL {} = \"va_end\"({}) goto {} else {}", rv, list.unwrap_slot(), next_block, next_block));
+				self.push_term(format!("CALL {} = \"va_end\"({}) goto {} else {}", rv, list.unwrap_slot(), next_block, BLOCK_PANIC));
 				self.set_block(next_block);
 				ValueRef::Slot(rv)
 				},
@@ -1510,7 +1522,7 @@ impl Builder<'_>
 				let dst = self.alloc_local(ty_l);
 				let next_block = self.create_block();
 				self.push_term(format!("CALL {} = \"{}\"<{}>({}, {}) goto {} else {}",
-					dst, method, self.parent.fmt_type(inner), val_l, val_r, next_block, next_block));
+					dst, method, self.parent.fmt_type(inner), val_l, val_r, next_block, BLOCK_PANIC));
 				self.set_block(next_block);
 				return ValueRef::Slot(dst);
 				},
