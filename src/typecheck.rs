@@ -432,7 +432,12 @@ impl<'a> Context<'a>
 			_ => span.todo(format_args!("NodeKind::Intrinsic - {:?}", node_kind)),
 			}
 
-		NodeKind::ImplicitCast(..) => panic!("Unexpected ImplicitCast in typecheck"),
+		NodeKind::ImplicitCast(ref dst_ty, _) => {
+			// This can happen if the same node is visited multiple times
+			// - E.g. with `static const` globals
+			::log::warn!("Unexpected ImplicitCast in typecheck (created by typecheck)");
+			dst_ty.clone()
+		},
 		NodeKind::Cast(ref ty, ref mut val) => {
 			if req_lvalue {
 				self.err_no_lvalue(span, node_kind);
