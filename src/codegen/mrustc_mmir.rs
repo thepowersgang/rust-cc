@@ -330,7 +330,7 @@ impl Context
 		BaseType::Struct(sr) => {
 			let name = sr.borrow().name.clone();
 			if name == "" {
-				format!("struct_{:p}", sr)
+				format!("struct_{:p}", *sr)
 			}
 			else {
 				name
@@ -370,7 +370,7 @@ impl Context
 			}
 		BaseType::MagicType(mt) => match mt
 			{
-			crate::types::MagicType::VaList => todo!("va_list"),
+			crate::types::MagicType::VaList => format!("va_list"),
 			crate::types::MagicType::Named(name, crate::types::MagicTypeRepr::VoidPointer) => format!("MAGIC_V_{}#", name),
 			crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, bits }) =>
 				format!("{}{}", if *signed { "i" } else { "u" }, bits),
@@ -541,7 +541,7 @@ impl Context
 	fn get_struct_field(&self, span: &crate::ast::Span, ty: &crate::types::TypeRef, idx: usize) -> (usize,&String) {
 		let tyname = self.fmt_type(ty).to_string();
 		let Some(mapping) = self.struct_field_mapping.get(&tyname) else {
-			span.error(format_args!("Type not registered {:?}", tyname))
+			span.error(format_args!("Type not registered {:?} ({:?})", tyname, ty))
 			};
 		match mapping.get(idx)
 		{
@@ -760,6 +760,7 @@ impl Builder<'_>
 
 	fn define_var(&mut self, var_def: &crate::ast::VariableDefinition)
 	{
+		self.parent.register_type(&var_def.ty);
 		// If the type is an array with a variable-length, then insert an alloca
 		if let BaseType::Array(inner, size) = &var_def.ty.basetype {
 			match size {
@@ -1063,7 +1064,8 @@ impl Builder<'_>
 			trace!("{}switch {:?}", self.indent(), val);
 			let is_signed = match val.meta.as_ref().unwrap().ty.basetype {
 				BaseType::Integer(ref ic) => !ic.signedness().is_unsigned(),
-				_ => todo!(""),
+				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, .. })) => signed,
+				_ => todo!("Switch over non-integer - {:?}", val.meta.as_ref().unwrap().ty),
 				};
 			let val = self.handle_node(val);
 			let val = self.get_value(val);

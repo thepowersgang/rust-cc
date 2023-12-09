@@ -392,6 +392,11 @@ impl<T> RcRefCellPtrEq<T> {
 		self.0.borrow_mut()
 	}
 }
+impl<T> ::std::fmt::Pointer for RcRefCellPtrEq<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[derive(Debug,PartialEq)]
 pub struct Struct
@@ -469,7 +474,7 @@ impl ::std::fmt::Debug for BaseType
 		{
 		&BaseType::Void => write!(fmt, "void"),
 		&BaseType::Bool => write!(fmt, "_Bool"),
-		&BaseType::Struct(ref sr) => write!(fmt, "struct {:?}", sr.borrow().name),
+		&BaseType::Struct(ref sr) => write!(fmt, "struct {:?}#{:p}", sr.borrow().name, *sr),
 		&BaseType::Union(ref ur)  => write!(fmt, "union {:?}",  ur.borrow().name),
 		&BaseType::Enum(ref er)   => write!(fmt, "enum {:?}",   er.borrow().name),
 		&BaseType::Float(ref fc) => write!(fmt, "{:?}", fc),
