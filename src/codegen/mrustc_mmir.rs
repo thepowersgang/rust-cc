@@ -1065,6 +1065,7 @@ impl Builder<'_>
 			let is_signed = match val.meta.as_ref().unwrap().ty.basetype {
 				BaseType::Integer(ref ic) => !ic.signedness().is_unsigned(),
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, .. })) => signed,
+				BaseType::Enum(_) => true,
 				_ => todo!("Switch over non-integer - {:?}", val.meta.as_ref().unwrap().ty),
 				};
 			let val = self.handle_node(val);

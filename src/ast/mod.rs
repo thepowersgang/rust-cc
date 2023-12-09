@@ -752,7 +752,13 @@ impl Node
 					crate::types::BaseType::Integer(_) => ConstVal::Integer(i),
 					_ => ConstVal::None,
 					},
-				v @ _ => todo!("const_eval: {:?} - v={:?}", self, v),
+				v @ ConstVal::String(_) => match ty.basetype {
+					crate::types::BaseType::Pointer(ref inner)
+						if matches!(inner.basetype, crate::types::BaseType::Integer(crate::types::IntClass::Char(None)))
+						=> v,
+					_ => todo!("const_eval: {:?} from {:?} - v={:?}", ty, self, v),
+					},
+				v @ _ => todo!("const_eval: {:?} from {:?} - v={:?}", ty, self, v),
 				},
 			NodeKind::SizeofType(ref ty) => ConstVal::Integer(ty.get_size().expect("") as u64),
 			NodeKind::SizeofExpr(ref e) => ConstVal::Integer(e.meta.as_ref().unwrap().ty.get_size().expect("") as u64),

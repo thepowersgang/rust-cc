@@ -169,7 +169,21 @@ impl ArraySizeExpr {
 }
 impl PartialEq for ArraySizeExpr {
 	fn eq(&self, v: &Self) -> bool {
-		panic!("TODO: eq for ArraySizeExpr - {} == {}", self, v);
+		if self as *const _ == v as *const _ {
+			return true;
+		}
+		#[cfg(false_)]
+		self.with_node(|node_l| {
+			v.with_node(|node_r| {
+				match (node_l,node_r)
+				{
+				}
+			})
+		});
+		self.span.warning(format_args!("Eq ArraySizeExpr - LHS"));
+		v.span.warning(format_args!("Eq ArraySizeExpr - RHS"));
+		//panic!("TODO: eq for ArraySizeExpr - {:p} {:p}\n{}\n==\n{}", self, v, self, v);
+		false
 	}
 }
 impl ::std::fmt::Debug for ArraySizeExpr {

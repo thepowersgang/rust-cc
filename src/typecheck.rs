@@ -979,6 +979,7 @@ impl<'a> Context<'a>
 				BaseType::Integer(_ici) => {},	// TODO: Warn on signed-ness?
 				BaseType::Enum(_) => {},	// TODO: Any range checks needed?
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => {},
+				BaseType::Float(_) => {},
 				_ => node.span.todo(format_args!("Handle type mismatch using promotion/demotion of value: {:?} from {:?}", req_ty, inner_ty)),
 				},
 			BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { .. })) => match inner_ty.basetype
