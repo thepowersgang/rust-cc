@@ -939,7 +939,7 @@ impl Builder<'_>
 
 			self.set_block(blk_top);
 
-			self.stack.push(Scope::new_loop(blk_top, blk_exit));
+			self.stack.push(Scope::new_loop(blk_exit, blk_top));
 			let cond_v = self.handle_expr_def(cond);
 			let cond_v = self.handle_cast_to_bool(cond_v, cond.res_ty().unwrap());
 			let cond_v = self.get_value(cond_v);
@@ -962,7 +962,7 @@ impl Builder<'_>
 			let blk_exit = self.create_block(); trace!("++{:?}", blk_exit);	// target of break
 			self.push_term_goto(blk_body);
 
-			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
+			self.stack.push(Scope::new_loop(blk_exit, blk_foot));
 			self.set_block(blk_body);
 			self.stack.push(Scope::new());
 			self.handle_block(body);
@@ -974,6 +974,7 @@ impl Builder<'_>
 
 			{
 				let cond_v = self.handle_node(cond);
+				let cond_v = self.handle_cast_to_bool(cond_v, &cond.meta.as_ref().unwrap().ty);
 				let cond_v = self.get_value(cond_v);
 				self.push_term_if(cond_v, blk_body, blk_exit);
 			}
@@ -995,6 +996,7 @@ impl Builder<'_>
 
 			if let Some(cond) = cond {
 				let cond_v = self.handle_node(cond);
+				let cond_v = self.handle_cast_to_bool(cond_v, &cond.meta.as_ref().unwrap().ty);
 				let cond_v = self.get_value(cond_v);
 				self.push_term_if(cond_v, blk_body, blk_exit);
 			}
@@ -1002,7 +1004,7 @@ impl Builder<'_>
 				self.push_term_goto(blk_body);
 			}
 
-			self.stack.push(Scope::new_loop(blk_foot, blk_exit));
+			self.stack.push(Scope::new_loop(blk_exit, blk_foot));
 			self.set_block(blk_body);
 			self.stack.push(Scope::new());
 			self.handle_block(body);
@@ -1063,6 +1065,7 @@ impl Builder<'_>
 		Statement::Switch(ref val, ref body) => {
 			trace!("{}switch {:?}", self.indent(), val);
 			let is_signed = match val.meta.as_ref().unwrap().ty.basetype {
+				BaseType::Integer(crate::types::IntClass::Char(None)) => true,
 				BaseType::Integer(ref ic) => !ic.signedness().is_unsigned(),
 				BaseType::MagicType(crate::types::MagicType::Named(_, crate::types::MagicTypeRepr::Integer { signed, .. })) => signed,
 				BaseType::Enum(_) => true,
@@ -1224,12 +1227,13 @@ impl Builder<'_>
 			},
 		NodeKind::Float(val, ty) => match ty.size()
 			{
-			4 => ValueRef::Value(format!("{:+} f32", val), "f32".to_owned()),
-			8 => ValueRef::Value(format!("{:+} f64", val), "f64".to_owned()),
+			4 => ValueRef::Value(format!("{:+} f32", val), "f32".into()),
+			8 => ValueRef::Value(format!("{:+} f64", val), "f64".into()),
 			sz => panic!("NodeKind::Float sz={:?}", sz),
 			},
 		NodeKind::String(ref val) => {
-			ValueRef::Value(format!("{:?}", val.to_owned()+"\0"), "&str".to_owned())
+			let tmp = self.get_value(ValueRef::Value(format!("{:?}", val.to_owned()+"\0"), "&str".into()));
+			ValueRef::Value(format!("DSTPTR {tmp}"), "*const i8".into())
 			},
 
  		NodeKind::FcnCall(ref fcn, ref args) => {
@@ -1364,18 +1368,37 @@ impl Builder<'_>
 			{
 			UniOp::PostDec|UniOp::PostInc => {
 				let rv = self.alloc_local(ty);
-				// TODO: Pointers need different handling?
+				let ty_s = self.parent.fmt_type(ty).to_string();
 				self.push_stmt_assign(rv.clone(), val_in.clone());
-				let ty = if let BaseType::Pointer(_) = ty.basetype { "usize".to_owned() } else { self.parent.fmt_type(ty).to_string() };
-				let rvalue = format!("BINOP {} {} 1 {}", self.get_value(val_in.clone()), if let UniOp::PostDec = op { "-" } else { "+" }, ty);
-				self.push_stmt_assign(val_in.clone().unwrap_slot(), ValueRef::Value(rvalue, ty.clone()));
-				ValueRef::Value(format!("={}", rv), ty)
+				if let BaseType::Pointer(ref inner) = ty.basetype {
+					let next_block = self.create_block();
+					self.push_term(format!("CALL {} = \"offset\"<{}>({}, {}1 isize) goto {} else {}",
+						val_in.clone().unwrap_slot(), self.parent.fmt_type(inner),
+						val_in.unwrap_slot(), if let UniOp::PostDec = op { "-" } else { "+" },
+						next_block, BLOCK_PANIC));
+					self.set_block(next_block);
+				}
+				else {
+					let rvalue = format!("BINOP {} {} 1 {}", self.get_value(val_in.clone()), if let UniOp::PostDec = op { "-" } else { "+" }, ty_s);
+					self.push_stmt_assign(val_in.clone().unwrap_slot(), ValueRef::Value(rvalue, ty_s.clone()));
+				}
+				ValueRef::Value(format!("={}", rv), ty_s)
 				},
 			UniOp::PreDec|UniOp::PreInc => {
-				// TODO: Pointers need different handling?
-				let ty = if let BaseType::Pointer(_) = ty.basetype { "usize".to_owned() } else { self.parent.fmt_type(ty).to_string() };
-				let rvalue = format!("BINOP {} {} 1 {}", self.get_value(val_in.clone()), if let UniOp::PreDec = op { "-" } else { "+" }, ty);
-				self.push_stmt_assign(val_in.clone().unwrap_slot(), ValueRef::Value(rvalue, ty.clone()));
+				let ty_s = self.parent.fmt_type(ty).to_string();
+				if let BaseType::Pointer(ref inner) = ty.basetype {
+					let next_block = self.create_block();
+					self.push_term(format!("CALL {} = \"offset\"<{}>({}, {}1 isize) goto {} else {}",
+						val_in.clone().unwrap_slot(), self.parent.fmt_type(inner),
+						val_in.clone().unwrap_slot(), if let UniOp::PreDec = op { "-" } else { "+" },
+						next_block, BLOCK_PANIC));
+					self.set_block(next_block);
+				}
+				else {
+					let rvalue = format!("BINOP {} {} 1 {}",
+						self.get_value(val_in.clone()), if let UniOp::PreDec = op { "-" } else { "+" }, ty_s);
+					self.push_stmt_assign(val_in.clone().unwrap_slot(), ValueRef::Value(rvalue, ty_s.clone()));
+				}
 				val_in
 				},
 			UniOp::Deref => {
@@ -1516,13 +1539,12 @@ impl Builder<'_>
 			match op
 			{
 			BinOp::Add|BinOp::Sub => {
-				let method = match op
+				let (method,dst) = match op
 					{
-					BinOp::Add => "offset",
-					BinOp::Sub => "ptr_diff",
+					BinOp::Add => ("offset", self.alloc_local(ty_l),),
+					BinOp::Sub => ("ptr_diff", self.alloc_local_raw("usize".to_owned()),),
 					_ => panic!(""),
 					};
-				let dst = self.alloc_local(ty_l);
 				let next_block = self.create_block();
 				self.push_term(format!("CALL {} = \"{}\"<{}>({}, {}) goto {} else {}",
 					dst, method, self.parent.fmt_type(inner), val_l, val_r, next_block, BLOCK_PANIC));
