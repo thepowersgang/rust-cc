@@ -151,7 +151,7 @@ impl Context
 					},
 				crate::ast::ConstVal::Float(_) => todo!("float"),
 				crate::ast::ConstVal::Address(s,ofs) => {
-					buf[..4].copy_from_slice( &(0x10 + ofs as u32).to_le_bytes() );
+					buf[..4].copy_from_slice( &(0x1000 + ofs as u32).to_le_bytes() );
 					relocs.push( (base_ofs, Reloc::Addr(s)) );
 					},
 				crate::ast::ConstVal::String(s) => {
@@ -159,7 +159,7 @@ impl Context
 					{
 					BaseType::Pointer(_) => {
 						buf[1] = 0x10;
-						relocs.push( (base_ofs, Reloc::String(s)) );
+						relocs.push( (base_ofs, Reloc::String(s + "\0")) );
 						},
 					BaseType::Array(_, _) => {
 						buf[..s.len()].copy_from_slice(s.as_bytes());
