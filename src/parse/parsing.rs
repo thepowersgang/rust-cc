@@ -166,7 +166,7 @@ impl<'ast> super::ParseState<'ast>
 						//parse_todo!("Nested functions");
 					}
 					// If the storage class is specified as `static`, it's a "global"
-					else if let Some(crate::types::StorageClass::Static) = storage_class
+					else if let Some(crate::types::StorageClass::Static|crate::types::StorageClass::Extern) = storage_class
 					{
 						self.parse_variable_def(sp, storage_class.clone(), typeid, ident)?;
 						self.parse_variable_list(storage_class, basetype)?;
