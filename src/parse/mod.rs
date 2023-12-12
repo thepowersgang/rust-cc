@@ -108,6 +108,7 @@ pub fn parse(ast: &mut ::ast::Program, filename: &::std::path::Path, include_pat
 		};
 	
 	// Process command-line `-D` arguments
+	self_.lex.parse_define_str("__RCC__").unwrap();
 	for d in defines
 	{
 		self_.lex.parse_define_str(d)?;
