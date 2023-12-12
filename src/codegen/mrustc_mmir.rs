@@ -11,6 +11,7 @@ pub struct Context
 {
 	types: Vec<crate::types::TypeRef>,
 	declared_functions: Vec<(crate::ast::Ident, crate::types::FunctionType)>,
+	mangled_symbols: HashMap<crate::ast::Ident,crate::ast::Ident>,
 	//defined_functions: Vec<crate::ast::Ident>,
 
 	struct_field_mapping: HashMap<String,Vec<(usize,String)>>,
@@ -24,6 +25,7 @@ impl Context
 		Context {
 			types: Default::default(),
 			declared_functions: Default::default(),
+			mangled_symbols: Default::default(),
 			struct_field_mapping: Default::default(),
 			output_buffer: Vec::new(),
 			}
@@ -39,6 +41,10 @@ impl Context
 		sink.write_all(&self.output_buffer).map_err(|e| e.into())
 	}
 
+	pub fn set_symbol_static(&mut self, name: &crate::ast::Ident) {
+		// TODO: Mangle the symbol
+		self.mangled_symbols.entry(name.clone()).or_insert_with(|| format!("{}#{:p}", name, name.as_ptr()));
+	}
 	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
 	{
 		self.declared_functions.push((name.clone(), ty.clone()));
@@ -255,7 +261,10 @@ impl Context
 				write!(self.output_buffer, " @{}+{}=", ofs, crate::types::POINTER_SIZE).unwrap();
 				match r {
 				Reloc::String(s) => fmt_bytes(&mut self.output_buffer, &s.as_bytes()),
-				Reloc::Addr(a) => write!(self.output_buffer, "{}", a).unwrap(),
+				Reloc::Addr(ref name) => {
+					let name = self.mangled_symbols.get(name).unwrap_or(name);
+					write!(self.output_buffer, "{}", name).unwrap()
+				},
 				}
 				write!(self.output_buffer, ",").unwrap();
 			}
@@ -296,6 +305,7 @@ impl Context
 		//rv += "extern \"C\" ";
 		rv += "fn";
 		if let Some(name) = name {
+			let name = self.mangled_symbols.get(name).unwrap_or(name);
 			write!(rv, " {}", name).unwrap();
 		}
 		rv += "(";
@@ -328,12 +338,16 @@ impl Context
 		BaseType::Void => "()".to_owned(),
 		BaseType::Bool => "bool".to_owned(),
 		BaseType::Struct(sr) => {
+			let si = sr.borrow();
 			let name = sr.borrow().name.clone();
-			if name == "" {
-				format!("struct_{:p}", *sr)
+			if name != "" {
+				name
+			}
+			else if let Some(i) = si.get_items() {
+				format!("struct_{}", i.identifier)
 			}
 			else {
-				name
+				format!("struct_{:p}", *sr)
 			}
 			},
 		BaseType::Enum(_enm) => {
@@ -1201,8 +1215,14 @@ impl Builder<'_>
 			{
 			None => panic!("No binding on `NodeKind::Identifier`"),
 			Some(crate::ast::IdentRef::Local(idx)) => ValueRef::Slot(self.vars[*idx].lvalue.clone()),
-			Some(crate::ast::IdentRef::StaticItem) => ValueRef::Slot(format!("{}", name)),
-			Some(crate::ast::IdentRef::Function) => ValueRef::Function(name.clone(), self.parent.fmt_type(ty).to_string()),
+			Some(crate::ast::IdentRef::StaticItem) => {
+				let name = self.parent.mangled_symbols.get(name).unwrap_or(name);
+				ValueRef::Slot(format!("{}", name))
+			},
+			Some(crate::ast::IdentRef::Function) => {
+				let name = self.parent.mangled_symbols.get(name).unwrap_or(name);
+				ValueRef::Function(name.clone(), self.parent.fmt_type(ty).to_string())
+			},
 			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
 				let val = enm.borrow().get_item_val(*idx).expect("Enum index out of range?");
 				let ty = crate::types::Type::new_ref_bare(BaseType::Integer(crate::types::IntClass::Int( crate::types::Signedness::Signed )));
@@ -1245,6 +1265,7 @@ impl Builder<'_>
 				use ::std::fmt::Write;
 				let mut term = format!("CALL {} = ", rv);
 				if let ValueRef::Function(ref name, _) = fcn {
+					let name = self.parent.mangled_symbols.get(name).unwrap_or(name);
 					write!(term, "{}", name).unwrap();
 				}
 				else {

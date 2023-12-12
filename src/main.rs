@@ -97,8 +97,11 @@ fn main()
 	if let Some(output_path) = args.output
 	{
 		let mut c = codegen::Context::new(if args.emit_mmir { codegen::BackendName::MrustcMmir } else { codegen::BackendName::Cranelift });
-		for (name,ty,sym) in program.iter_symbols_with_prototypes()
+		for (vis, name,ty,sym) in program.iter_symbols_with_prototypes()
 		{
+			if let ast::Visibility::Static = vis {
+				c.set_symbol_static(name);
+			}
 			match sym
 			{
 			None => match ty.basetype

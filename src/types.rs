@@ -425,11 +425,17 @@ pub enum StructFieldTy
 	Bitfield(TypeRef, ArraySizeExpr),
 	Value(TypeRef),
 }
-#[derive(Default,Debug,PartialEq)]
+#[derive(Debug,PartialEq)]
 pub struct StructBody
 {
+	pub identifier: String,
 	pub fields: Vec<(StructFieldTy, String)>,
 	pub attributes: Attributes,
+}
+impl StructBody {
+	pub fn new(ident: String) -> Self {
+		StructBody { identifier: ident, fields: Default::default(), attributes: Default::default() }
+	}
 }
 #[derive(Debug,PartialEq)]
 pub struct StructMetadata

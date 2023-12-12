@@ -458,7 +458,27 @@ impl<'ast> super::ParseState<'ast>
 	fn populate_struct(&mut self) -> ParseResult<::types::StructBody>
 	{
 		use crate::types::StructFieldTy;
-		let mut items = ::types::StructBody::default();
+		let ident = {
+			struct Hasher(u64);
+			impl ::std::hash::Hasher for Hasher {
+				fn finish(&self) -> u64 {
+					self.0
+				}
+
+				fn write(&mut self, bytes: &[u8]) {
+					for &b in bytes {
+						self.0 = (self.0 << 3) | (self.0 >> 64-3);
+						self.0 ^= b as u64;
+					}
+				}
+			}
+			let mut hs = Hasher(0);
+			let sp = self.lex.point_span();
+			//::std::hash::Hash::hash(sp.layers().first().unwrap(), &mut hs);
+			::std::hash::Hash::hash(sp.layers().last().unwrap(), &mut hs);
+			format!("{:x}", ::std::hash::Hasher::finish(&hs))
+		};
+		let mut items = ::types::StructBody::new(ident);
 		loop
 		{
 			if peek_token!(self.lex, Token::BraceClose) {

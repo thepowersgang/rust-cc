@@ -31,6 +31,9 @@ impl Context
 		self.inner.finish(sink)
 	}
 
+	pub fn set_symbol_static(&mut self, name: &crate::ast::Ident) {
+		self.inner.set_symbol_static(name);
+	}
 	/// Declare the existance of a function
 	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
 	{
@@ -59,6 +62,13 @@ impl Inner {
 		}
 	}
 
+	pub fn set_symbol_static(&mut self, name: &crate::ast::Ident)
+	{
+		match self {
+		Inner::Cranelift(_i) => {},
+    	Inner::Mmir(i) => i.set_symbol_static(name),
+		}
+	}
 	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
 	{
 		match self {

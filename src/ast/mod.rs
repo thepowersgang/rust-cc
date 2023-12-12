@@ -41,6 +41,9 @@ impl Span {
 		self.message("TODO", msg);
 		panic!("TODO hit");
 	}
+	pub fn layers(&self) -> &[String] {
+		&self.layers
+	}
 }
 
 #[derive(Default)]
@@ -109,7 +112,7 @@ pub struct VarTableEnt
 	pub ty: crate::types::TypeRef,
 }
 #[derive(PartialEq,Copy,Clone)]
-enum Visibility
+pub enum Visibility
 {
 	Auto,
 	Static,
@@ -364,12 +367,12 @@ impl Program
 	pub fn iter_symbols(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, &SymbolValue)> {
 		self.iter_symbols_with_prototypes().filter_map(|v| match v
 			{
-			(n, t, Some(v)) => Some( (n,t,v,) ),
-			(_n, _t, None) => None,
+			(_vis, n, t, Some(v)) => Some( (n,t,v,) ),
+			(_v, _n, _t, None) => None,
 			}
 			)
 	}
-	pub fn iter_symbols_with_prototypes(&self) -> impl Iterator<Item=(&Ident, &crate::types::TypeRef, Option<&SymbolValue>)> {
+	pub fn iter_symbols_with_prototypes(&self) -> impl Iterator<Item=(Visibility, &Ident, &crate::types::TypeRef, Option<&SymbolValue>)> {
 		self.item_order.iter()
 			.filter_map(move |v| {
 				let (name, is_fwd) = match v
@@ -381,10 +384,11 @@ impl Program
 				let s = &self.symbols[name];
 				match s.value
 				{
-				Some(ref v) if !is_fwd => Some( (name, &s.symtype, Some(v),) ),
+				Some(ref v) if !is_fwd => Some( (s.vis, name, &s.symtype, Some(v),) ),
 				_ => {
+					// TODO: `static` needs to be passed to the backend
 					if true {
-						Some( (name, &s.symtype, None,) )
+						Some( (s.vis, name, &s.symtype, None,) )
 					}
 					else if false /*s.symtype.qualifiers.is_extern()*/ {
 						None
