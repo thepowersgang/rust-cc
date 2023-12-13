@@ -582,6 +582,31 @@ impl<'a> Context<'a>
 					let ty_bool = crate::types::Type::new_ref_bare(BaseType::Bool);
 					self.coerce_ty(&ty_bool, val_l);
 					self.coerce_ty(&ty_bool, val_r);
+
+					fn make_int_node(span: &ast::Span, v: u64) -> ast::Node {
+						ast::Node {	
+							kind: NodeKind::Integer(v, crate::types::IntClass::Char(Some(crate::types::Signedness::Unsigned))),
+							span: span.clone(),
+							meta: Some(ast::NodeMeta {
+								ty: crate::types::Type::new_ref_bare(BaseType::Bool),
+								is_lvalue: false,
+							}),
+						}
+					}
+					// Semi-hack - Transform into a ternary to handle short-circuiting
+					if true {
+						let val_l = ::std::mem::replace(val_l, Box::new(make_int_node(span, 99)));
+						let val_r = ::std::mem::replace(val_r, Box::new(make_int_node(span, 99)));
+						if let BinOp::LogicAnd = *op {
+							let node_false = Box::new(make_int_node(span, 0));
+							*node_kind = NodeKind::Ternary(val_l, val_r, node_false)
+						}
+						else {
+							let node_true = Box::new(make_int_node(span, 1));
+							*node_kind = NodeKind::Ternary(val_l, node_true, val_r)
+						}
+					}
+
 					ty_bool
 				},
 			BinOp::ShiftLeft
