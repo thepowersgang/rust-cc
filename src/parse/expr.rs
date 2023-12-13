@@ -161,29 +161,36 @@ impl<'ast> super::ParseState<'ast>
 		Token::Percent => node!( sp, BinOp(::ast::BinOp::Mod, Box::new(rv), Box::new(self.parse_expr_8()?)) ),
 	}}
 	
-	parse_left_assoc!{
-		/// Expression #8 - Unary Righthand
-		self, parse_expr_8, parse_expr_9, sp, rv, {
-		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PreInc, Box::new(rv)) ),
-		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PreDec, Box::new(rv)) ),
-	}}
+	//parse_left_assoc!{
+	//	/// Expression #8 - Unary Righthand
+	//	self, parse_expr_8, parse_expr_9, sp, rv, {
+	//}}
 	
 	/// Expression #9 - Unary left
-	fn parse_expr_9(&mut self) -> ParseResult<::ast::Node>
+	fn parse_expr_8(&mut self) -> ParseResult<::ast::Node>
 	{
 		let sp = self.lex.point_span();
 		Ok( match self.lex.get_token()?
 		{
-		Token::Minus       => node!( sp, UniOp(::ast::UniOp::Neg,      Box::new(self.parse_expr_9()?)) ),
-		Token::Tilde       => node!( sp, UniOp(::ast::UniOp::BitNot,   Box::new(self.parse_expr_9()?)) ),
-		Token::Exclamation => node!( sp, UniOp(::ast::UniOp::LogicNot, Box::new(self.parse_expr_9()?)) ),
-		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc,  Box::new(self.parse_expr_9()?)) ),
-		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec,  Box::new(self.parse_expr_9()?)) ),
-		Token::Star        => node!( sp, UniOp(::ast::UniOp::Deref,    Box::new(self.parse_expr_9()?)) ),
+		Token::Minus       => node!( sp, UniOp(::ast::UniOp::Neg,      Box::new(self.parse_expr_8()?)) ),
+		Token::Tilde       => node!( sp, UniOp(::ast::UniOp::BitNot,   Box::new(self.parse_expr_8()?)) ),
+		Token::Exclamation => node!( sp, UniOp(::ast::UniOp::LogicNot, Box::new(self.parse_expr_8()?)) ),
+		Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PreInc,   Box::new(self.parse_expr_8()?)) ),
+		Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PreDec,   Box::new(self.parse_expr_8()?)) ),
+		Token::Star        => node!( sp, UniOp(::ast::UniOp::Deref,    Box::new(self.parse_expr_8()?)) ),
 		Token::Ampersand   => node!( sp, UniOp(::ast::UniOp::Address,  Box::new(self.parse_expr_member()?)) ),	// different, as double addr is inval
 		t @ _ => {
 			self.lex.put_back(t);
-			self.parse_expr_member()?
+			let rv = self.parse_expr_member()?;
+			match self.lex.get_token()?
+			{
+			Token::DoublePlus  => node!( sp, UniOp(::ast::UniOp::PostInc, Box::new(rv)) ),
+			Token::DoubleMinus => node!( sp, UniOp(::ast::UniOp::PostDec, Box::new(rv)) ),
+			t => {
+				self.lex.put_back(t);
+				rv
+				}
+			}
 			},
 		})
 	}
@@ -235,7 +242,7 @@ impl<'ast> super::ParseState<'ast>
 				if peek_token_nc!(self.lex, Token::BraceOpen) {
 					self.lex.point_span().todo(format_args!("Handle inline init syntax `(struct Foo){{ ... }}`"));
 				}
-				node!( sp, Cast(fulltype, Box::new(self.parse_expr_9()?)) )
+				node!( sp, Cast(fulltype, Box::new(self.parse_expr_8()?)) )
 				},
 			None => {
 				let rv = self.parse_expr_list()?;
