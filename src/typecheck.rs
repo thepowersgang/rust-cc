@@ -461,7 +461,8 @@ impl<'a> Context<'a>
 		// ...
 		NodeKind::Ternary(ref mut cond, ref mut val_true, ref mut val_false) => {
 			self.visit_node(cond, false);
-			// TODO: Ensure that this is bool-like
+			let ty_bool = crate::types::Type::new_ref_bare(BaseType::Bool);
+			self.coerce_ty(&ty_bool, cond);
 			self.visit_node(val_true, req_lvalue);
 			self.visit_node(val_false, req_lvalue);
 			if node_ty(&val_true) != node_ty(&val_false) {
