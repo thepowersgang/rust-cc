@@ -1,3 +1,7 @@
 *.swp
 *.swo
-target/
+*.log
+/target/
+/output/
+/*.sh
+/[0-9].*
