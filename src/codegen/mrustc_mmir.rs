@@ -32,12 +32,14 @@ impl Context
 	}
 	pub fn finish(mut self, mut sink: impl ::std::io::Write) -> Result<(), Box<dyn std::error::Error>>
 	{
-		//write!(self.output_buffer, "fn main#(arg0: isize, arg1: *const *const i8) -> i32 {{\n").unwrap();
-		write!(self.output_buffer, "fn main#(arg0: i32, arg1: *mut *mut i8) -> i32 {{\n").unwrap();
-		write!(self.output_buffer, "\t0: {{ CALL RETURN = main(arg0, arg1) goto 1 else 2 }}\n").unwrap();
-		write!(self.output_buffer, "\t1: {{ RETURN }}\n").unwrap();
-		write!(self.output_buffer, "\t2: {{ DIVERGE }}\n").unwrap();
-		write!(self.output_buffer, "}}\n").unwrap();
+		if self.declared_functions.iter().any(|(name,_)| name == "main") {
+			//write!(self.output_buffer, "fn main#(arg0: isize, arg1: *const *const i8) -> i32 {{\n").unwrap();
+			write!(self.output_buffer, "fn main#(arg0: i32, arg1: *mut *mut i8) -> i32 {{\n").unwrap();
+			write!(self.output_buffer, "\t0: {{ CALL RETURN = main(arg0, arg1) goto 1 else 2 }}\n").unwrap();
+			write!(self.output_buffer, "\t1: {{ RETURN }}\n").unwrap();
+			write!(self.output_buffer, "\t2: {{ DIVERGE }}\n").unwrap();
+			write!(self.output_buffer, "}}\n").unwrap();
+		}
 		sink.write_all(&self.output_buffer).map_err(|e| e.into())
 	}
 
