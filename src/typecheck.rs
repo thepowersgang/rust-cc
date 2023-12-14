@@ -376,10 +376,15 @@ impl<'a> Context<'a>
 			}
 			// Variadic functions have `void` as the last arg
 			if fcn_ty.is_variadic {
-				for _ in args.iter_mut().skip(fcn_ty.args.len()) {
+				for arg_val in args.iter_mut().skip(fcn_ty.args.len()) {
 					// Any restriction on values?
 					// - float must be double?
 					// - integers must be `int` or larger
+					let src_ty = &arg_val.meta.as_ref().unwrap().ty;
+					if let BaseType::Array(ref inner, _) = src_ty.basetype {
+						let ty = crate::types::Type::new_ref(BaseType::Pointer(inner.clone()), src_ty.qualifiers.clone());
+						self.coerce_ty(&ty, arg_val);
+					}
 				}
 			}
 
