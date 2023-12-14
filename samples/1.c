@@ -1,3 +1,4 @@
+// A helper that stress tests the compiler
 
 //#include <stdio.h>
 #define/**/ foo(bar) baz

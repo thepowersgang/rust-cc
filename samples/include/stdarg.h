@@ -1,6 +1,7 @@
 #pragma once
 
-typedef __magictype__("va_list:void")	va_list;
+//typedef __magictype__("va_list:void")	va_list;
+typedef __gnuc_va_list	va_list;
 
 #define va_start(__list, __first)	__magiccall__("va_start" : __list, __first :)
 #define va_end(__list)	__magiccall__("va_end" : __list :)
