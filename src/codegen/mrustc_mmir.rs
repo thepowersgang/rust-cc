@@ -11,8 +11,8 @@ pub struct Context
 {
 	types: Vec<crate::types::TypeRef>,
 	declared_functions: Vec<(crate::ast::Ident, crate::types::FunctionType)>,
+	defined_functions: ::std::collections::HashSet<crate::ast::Ident>,
 	mangled_symbols: HashMap<crate::ast::Ident,crate::ast::Ident>,
-	//defined_functions: Vec<crate::ast::Ident>,
 
 	struct_field_mapping: HashMap<String,Vec<(usize,String)>>,
 
@@ -25,6 +25,7 @@ impl Context
 		Context {
 			types: Default::default(),
 			declared_functions: Default::default(),
+			defined_functions: Default::default(),
 			mangled_symbols: Default::default(),
 			struct_field_mapping: Default::default(),
 			output_buffer: Vec::new(),
@@ -32,7 +33,14 @@ impl Context
 	}
 	pub fn finish(mut self, mut sink: impl ::std::io::Write) -> Result<(), Box<dyn std::error::Error>>
 	{
-		if self.declared_functions.iter().any(|(name,_)| name == "main") {
+		for (name, ty) in &self.declared_functions {
+			if self.defined_functions.contains(name) {
+			}
+			else {
+				write!(self.output_buffer, "{} = \"{}\":\"\";\n", self.fmt_function_ty(ty, Some(name)), name).unwrap();
+			}
+		}
+		if self.defined_functions.contains("main") {
 			//write!(self.output_buffer, "fn main#(arg0: isize, arg1: *const *const i8) -> i32 {{\n").unwrap();
 			write!(self.output_buffer, "fn main#(arg0: i32, arg1: *mut *mut i8) -> i32 {{\n").unwrap();
 			write!(self.output_buffer, "\t0: {{ CALL RETURN = main(arg0, arg1) goto 1 else 2 }}\n").unwrap();
@@ -51,17 +59,16 @@ impl Context
 	{
 		self.declared_functions.push((name.clone(), ty.clone()));
 		self.register_functiontype(ty);
-		write!(self.output_buffer, "{} = \"{}\":\"\";\n", self.fmt_function_ty(ty, Some(name)), name).unwrap();
 	}
 	pub fn declare_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef)
 	{
 		self.register_type(ty);
-		//write!(self.output_buffer, "static {}: {};\n", name, self.fmt_type(ty)).unwrap();
-		let _ = name;
+		write!(self.output_buffer, "static {}: {} = @\"{}\";\n", name, self.fmt_type(ty), name).unwrap();
 	}
 	pub fn lower_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
 		self.register_functiontype(ty);
+		self.defined_functions.insert(name.clone());
 		for var in body.var_table.iter() {
 			self.register_type(&var.ty);
 		}
@@ -77,6 +84,9 @@ impl Context
 		{
 			builder.vars.push( Variable { lvalue: format!("v{}_{}", i, var.name), ty: builder.parent.fmt_type(&var.ty).to_string(), } );
 		}
+		if let BaseType::Void = ty.ret.basetype {
+			builder.push_stmt_assign("RETURN".into(), ValueRef::Value("()".into(), "()".into()));
+		}
 		builder.handle_block(&body.code);
 		if let BaseType::Void = ty.ret.basetype {
 			builder.push_term("RETURN".to_owned());
@@ -86,7 +96,10 @@ impl Context
 		let blocks = builder.blocks;
 
 		// Dump code!
-		write!(self.output_buffer, "{}\n", self.fmt_function_ty(ty, Some(name))).unwrap();
+		write!(self.output_buffer, "{} = \"{}\":\"\"\n",
+			self.fmt_function_ty(ty, Some(name)),
+			self.mangled_symbols.get(name).unwrap_or(name)
+			).unwrap();
 		write!(self.output_buffer, "{{\n").unwrap();
 
 		for (i,v) in vars.into_iter().enumerate() {
@@ -394,7 +407,12 @@ impl Context
 				format!("MAGIC_O_{}#", name),
 			},
 		BaseType::Pointer(inner) => {
-			format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
+			if let BaseType::Function(ref ft) = inner.basetype {
+				self.fmt_function_ty(ft, None)
+			}
+			else {
+				format!("*{} {}", if inner.qualifiers.is_const() { "const" } else { "mut" }, self.fmt_type(inner))
+			}
 			},
 		BaseType::Array(inner, size) => {
 			match size {
@@ -798,11 +816,21 @@ impl Builder<'_>
 				}
 			}
 		}
+		let idx = var_def.index.unwrap();
 		match var_def.value
 		{
-		None => {},
+		None => {
+			if let BaseType::Array(_, crate::types::ArraySize::Expr(_)) = &var_def.ty.basetype {
+			}
+			else {
+				// Emit an `"uninit"()` call
+				let next_block = self.create_block();
+				self.push_term(format!("CALL {} = \"uninit\"<{}>() goto {} else {}",
+					self.vars[idx].lvalue, self.parent.fmt_type(&var_def.ty), next_block, BLOCK_PANIC));
+				self.set_block(next_block);
+			}
+		},
 		Some(ref init) => {
-			let idx = var_def.index.unwrap();
 			self.handle_init(&var_def.span, &var_def.ty, self.vars[idx].lvalue.clone(), init);
 			},
 		}
@@ -1238,6 +1266,9 @@ impl Builder<'_>
 				},
 			}
 			},
+		NodeKind::Integer(val, _) if (if let BaseType::Bool = res_ty.basetype { true } else { false }) => {
+			ValueRef::Value( (if val > 0 { "true" } else { "false" }).into(), "bool".into() )
+			},
 		NodeKind::Integer(val, ty) => {
 			let ty_s = self.parent.fmt_type(&crate::types::Type::new_ref_bare(BaseType::Integer(ty))).to_string();
 			if ty_s.starts_with("u") {
@@ -1436,7 +1467,16 @@ impl Builder<'_>
 			UniOp::Address => match val_in
 				{
 				ValueRef::Value(_,_) => panic!("Taking address of temporary"),
-				ValueRef::Slot(v) => ValueRef::Value(format!("&{} {}", self.parent.borrow_type(res_ty), v), self.parent.fmt_type(res_ty).to_string()),
+				ValueRef::Slot(v) => {
+					let t = match res_ty.basetype
+						{
+						BaseType::Pointer(ref inner) => format!("&{} {}", self.parent.borrow_type(res_ty), self.parent.fmt_type(inner)),
+						_ => todo!(""),
+						};
+					let v = ValueRef::Value(format!("&{} {}", self.parent.borrow_type(res_ty), v), t);
+					let v = ValueRef::Value(format!("CAST {} as {}", self.get_value(v), self.parent.fmt_type(res_ty)), self.parent.fmt_type(res_ty).to_string());
+					v
+					},
 				_ => todo!("handle_node - UniOp Address {:?}", val_in),
 				},
 			UniOp::Neg => {
@@ -1682,8 +1722,10 @@ impl Builder<'_>
 				_ => panic!("Invalid {} from {:?} to {:?}", cast_name, src_ty, dst_ty),
 				}
 				let dst_ty_s = self.parent.fmt_type(dst_ty).to_string();
-				let tmp_ty = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
-				let v = ValueRef::Value(format!("&mut {}", self.get_value(src_val)), self.parent.fmt_type(&tmp_ty).to_string());
+				let ty_ptr = crate::types::Type::new_ref(BaseType::Pointer(src_ty.clone()), crate::types::Qualifiers::new());
+				let ty_ptr_s = self.parent.fmt_type(&ty_ptr).to_string();
+				let v = ValueRef::Value(format!("&mut {}", self.get_value(src_val)), format!("&mut {}", self.parent.fmt_type(&src_ty)));
+				let v = ValueRef::Value(format!("CAST {} as {}", self.get_value(v), ty_ptr_s), ty_ptr_s);
 				ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
 			}
 		}
