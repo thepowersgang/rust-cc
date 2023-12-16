@@ -15,3 +15,6 @@ cranelift-codegen = "0.100"
 cranelift-module = "0.100"
 cranelift-object = "0.100"
 target-lexicon = "0.11"
+
+[workspace]
+members = ["tools/mmir_opt"]
