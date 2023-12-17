@@ -59,13 +59,14 @@ pub enum Value {
     Borrow(crate::types::Mutability, Slot),
     BinOp(Param, BinOp, Param),
     UniOp(UniOp, Slot),
-    Cast(Param, crate::types::TypeRef),
-    DstPtr(Param),
+    Cast(Slot, crate::types::TypeRef),
+    DstPtr(Slot),
     DstMeta(Slot),
     Tuple(Vec<Param>),
     Array(Vec<Param>),
     Struct(String, Vec<Param>),
-    Variant(String, usize, Slot),
+    UnionVariant(String, usize, Param),
+    EnumVariant(String, usize, Vec<Param>),
 }
 pub enum UniOp {
     Inv,

@@ -348,6 +348,7 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                 lex.consume_sym("=");
                 let saved = lex.clone();
                 let val = match lex.get_tok_noeof() {
+                    // Composite Literals
                     Token::Sym("(") => {
                         let mut ents: Vec<crate::mir::Param> = Vec::new();
                         while ! lex.consume_if_sym(")") {
@@ -378,7 +379,38 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                             }
                         }
                     },
+                    Token::Sym("{") => {
+                        let mut ents: Vec<crate::mir::Param> = Vec::new();
+                        while ! lex.consume_if_sym("}") {
+                            ents.push( lookup.parse_param(lex) );
+                            if !lex.consume_if_sym(",") {
+                                lex.consume_sym("}");
+                            }
+                        }
+                        lex.consume_sym(":");
+                        let ty = lex.consume_ident().to_owned();
+                        Value::Struct(ty, ents)
+                    },
+                    Token::Ident("ENUM") => {
+                        let ty = lex.consume_ident().to_owned();
+                        let idx = lex.consume_int() as usize;
+                        let mut ents: Vec<crate::mir::Param> = Vec::new();
+                        while ! lex.consume_if_sym("}") {
+                            ents.push( lookup.parse_param(lex) );
+                            if !lex.consume_if_sym(",") {
+                                lex.consume_sym("}");
+                            }
+                        }
+                        Value::EnumVariant(ty, idx, ents)
+                    },
+                    Token::Ident("UNION") => {
+                        let ty = lex.consume_ident().to_owned();
+                        let idx = lex.consume_int() as usize;
+                        let val = lookup.parse_param(lex);
+                        Value::UnionVariant(ty, idx, val)
+                    },
 
+                    // Operations
                     Token::Ident("UNIOP") => {
                         let op = match lex.get_tok_noeof() {
                             Token::Sym("!") => crate::mir::UniOp::Inv,
@@ -414,13 +446,13 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                         Value::BinOp(lhs, op, rhs)
                     },
                     Token::Ident("CAST") => {
-                        let val = lookup.parse_param(lex);
+                        let val = lookup.parse_slot(lex);
                         lex.consume_keyword("as");
                         let ty = parse_type(lex);
                         Value::Cast(val, ty)
                     },
                     Token::Ident("DSTPTR") => {
-                        let val = lookup.parse_param(lex);
+                        let val = lookup.parse_slot(lex);
                         Value::DstPtr(val)
                         },
                     Token::Ident("DSTMETA") => {
@@ -442,6 +474,7 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                         let slot = lookup.parse_slot(lex);
                         Value::Borrow(mutability, slot)
                     },
+                    // Constants
                     Token::Sym("+")
                     |Token::Sym("-")
                     |Token::Ident("true")
@@ -643,6 +676,14 @@ fn parse_const(lex: &mut Lexer) -> crate::mir::Const {
             crate::types::Root::Unsigned(bits) if t.wrappers.is_empty()
                 => crate::mir::Const::Unsigned( v as u128, bits),
             _ => panic!("{lex}: Unexpected unsigned integer type {t:?}"),
+            }
+        },
+    Token::Float(v) => {
+        let t = parse_type(lex);
+        match t.root {
+            crate::types::Root::Float(bits) if t.wrappers.is_empty()
+                => crate::mir::Const::Float(v, bits),
+            _ => panic!("{lex}: Unexpected float type {t:?}"),
             }
         },
     Token::Ident("true") => crate::mir::Const::Boolean(true),

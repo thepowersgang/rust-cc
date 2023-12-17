@@ -128,7 +128,8 @@ pub fn dump_tree(dst: &::std::path::Path, tree: &crate::modtree::Root) -> ::std:
                         },
                         crate::mir::Value::Array(_) => todo!(),
                         crate::mir::Value::Struct(_, _) => todo!(),
-                        crate::mir::Value::Variant(_, _, _) => todo!(),
+                        crate::mir::Value::UnionVariant(_, _, _) => todo!(),
+                        crate::mir::Value::EnumVariant(_, _, _) => todo!(),
                         }
                     },
                     }
