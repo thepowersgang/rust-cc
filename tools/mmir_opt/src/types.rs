@@ -58,7 +58,7 @@ pub enum Wrapper {
     Borrow(Mutability),
 }
 #[repr(transparent)]
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Bits(u8);
 impl Bits {
     pub const SIZE: Bits = Bits(0xFF);

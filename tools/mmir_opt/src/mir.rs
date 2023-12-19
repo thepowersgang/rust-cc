@@ -39,6 +39,14 @@ pub struct Slot {
     pub root: SlotRoot,
     pub wrappers: Vec<SlotWrapper>,
 }
+impl Slot {
+    pub fn is_local(&self) -> Option<usize> {
+        match self.root {
+        SlotRoot::Local(i) if self.wrappers.is_empty() => Some(i),
+        _ => None,
+        }
+    }
+}
 pub enum SlotRoot {
     Named(String),
     Argument(usize),
@@ -68,10 +76,12 @@ pub enum Value {
     UnionVariant(String, usize, Param),
     EnumVariant(String, usize, Vec<Param>),
 }
+#[derive(Debug)]
 pub enum UniOp {
     Inv,
     Neg,
 }
+#[derive(Debug)]
 pub enum BinOp {
     Add, Sub, Div, Mul, Rem,
     Shr, Shl,
@@ -86,6 +96,7 @@ pub enum Param {
     Const(Const),
     Slot(Slot),
 }
+#[derive(Debug,Clone)]
 pub enum Const {
     Boolean(bool),
     Unsigned(u128, crate::types::Bits),

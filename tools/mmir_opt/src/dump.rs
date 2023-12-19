@@ -59,119 +59,126 @@ pub fn dump_tree(dst: &::std::path::Path, tree: &crate::modtree::Root) -> ::std:
             write!(fp, " = {link_name:?}:\"\"")?;
         }
         if let Some(b) = &def.body {
-            writeln!(fp, " {{")?;
-            for (name,ty) in &b.locals {
-                writeln!(fp, "\tlet {name}: {ty};", ty=Ty(ty,0))?;
-            }
-            for (name,val) in &b.drop_flags {
-                writeln!(fp, "\tlet {name} = {val};", val=if *val { "1" } else { "0" })?;
-            }
-            for (i, blk) in b.blocks.iter().enumerate() {
-                writeln!(fp, "\t{i}: {{")?;
-                for stmt in &blk.statements {
-                    write!(fp, "\t\t")?;
-                    match stmt {
-                    crate::mir::Statement::SpanComment(c) => {
-                        writeln!(fp, "/*{}*/", c)?;
-                        continue
-                        },
-                    crate::mir::Statement::Assign(dst, rval) => {
-                        write!(fp, "ASSIGN {} = ", Val(dst,def))?;
-                        match rval {
-                        crate::mir::Value::Constant(c) => write!(fp, "{}", C(c))?,
-                        crate::mir::Value::Use(v) => write!(fp, "={}", Val(v,def))?,
-                        crate::mir::Value::Borrow(crate::types::Mutability::Shared, slot)
-                            => write!(fp, "& {}", Val(slot,def))?,
-                        crate::mir::Value::Borrow(mutability, slot)
-                            => write!(fp, "&{} {}", mutability.to_str(), Val(slot,def))?,
-                        crate::mir::Value::BinOp(l,o,r) =>
-                            write!(fp, "BINOP {l} {o} {r}",
-                                l=Val(l,def),
-                                r=Val(r,def),
-                                o=match o
-                                    {
-                                    crate::mir::BinOp::Add => "+",
-                                    crate::mir::BinOp::Sub => "-",
-                                    crate::mir::BinOp::Div => "/",
-                                    crate::mir::BinOp::Mul => "*",
-                                    crate::mir::BinOp::Rem => "%",
-                                    crate::mir::BinOp::Shr => "<<",
-                                    crate::mir::BinOp::Shl => ">>",
-                                    crate::mir::BinOp::BitAnd => "&",
-                                    crate::mir::BinOp::BitOr => "|",
-                                    crate::mir::BinOp::BitXor => "^",
-                                    crate::mir::BinOp::Less => "<",
-                                    crate::mir::BinOp::Greater => ">",
-                                    crate::mir::BinOp::LessEqual => "<=",
-                                    crate::mir::BinOp::GreaterEqual => ">=",
-                                    crate::mir::BinOp::Equals => "==",
-                                    crate::mir::BinOp::NotEquals => "!=",
-                                    }
-                                )?,
-                        crate::mir::Value::UniOp(op, val)
-                            => write!(fp, "UNIOP {op} {v}",
-                                v=Val(val, def),
-                                op=match op  {
-                                    crate::mir::UniOp::Inv => "!",
-                                    crate::mir::UniOp::Neg => "-",
-                                    },
-                                )?,
-                        crate::mir::Value::Cast(val, ty) => write!(fp, "CAST {} as {}", Val(val,def), Ty(ty,0))?,
-                        crate::mir::Value::DstPtr(v) => write!(fp, "DSTPTR {}", Val(v,def))?,
-                        crate::mir::Value::DstMeta(_) => todo!(),
-                        crate::mir::Value::Tuple(ents) => {
-                            write!(fp, "(")?;
-                            for e in ents {
-                                write!(fp, "{}, ", Val(e, def))?;
-                            }
-                            write!(fp, ")")?;
-                        },
-                        crate::mir::Value::Array(_) => todo!(),
-                        crate::mir::Value::Struct(_, _) => todo!(),
-                        crate::mir::Value::UnionVariant(_, _, _) => todo!(),
-                        crate::mir::Value::EnumVariant(_, _, _) => todo!(),
-                        }
-                    },
-                    }
-                    writeln!(fp, ";")?;
-                }
-                write!(fp, "\t\t")?;
-                match &blk.terminator {
-                crate::mir::Terminator::Invalid => writeln!(fp, "INCOMPLETE")?,
-                crate::mir::Terminator::Return => writeln!(fp, "RETURN")?,
-                crate::mir::Terminator::Diverge => writeln!(fp, "DIVERGE")?,
-                crate::mir::Terminator::Goto(idx) => writeln!(fp, "GOTO {}", idx)?,
-                crate::mir::Terminator::Call(call) => {
-                    write!(fp, "CALL {} = ", Val(&call.dst,def))?;
-                    match &call.target {
-                    crate::mir::CallTarget::Path(p) => write!(fp, "{}", p)?,
-                    crate::mir::CallTarget::Intrinsic(name, tys) => {
-                        write!(fp, "{:?}<", name)?;
-                        for t in tys {
-                            write!(fp, "{},", Ty(t,0))?;
-                        }
-                        write!(fp, ">")?;
-                    },
-                    crate::mir::CallTarget::Value(v) => write!(fp, "({})", Val(v, def))?,
-                    }
-                    write!(fp, "(")?;
-                    for v in &call.args {
-                        write!(fp, "{}, ", Val(v, def))?;
-                    }
-                    writeln!(fp, ") goto {} else {}", call.bb_ret, call.bb_panic)?;
-                },
-                crate::mir::Terminator::If(v, bb_true, bb_false)
-                    => writeln!(fp, "IF {} goto {} else {}", Val(v, def), bb_true, bb_false)?,
-                }
-                writeln!(fp, "\t}}")?;
-            }
-            writeln!(fp, "}}")?;
+            dump_function_body(&mut fp, b, Some(def))?;
         }
         else {
             writeln!(fp, ";")?;
         }
     }
 
+    Ok( () )
+}
+
+pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Function, def: Option<&crate::modtree::Function>) -> ::std::io::Result<()>
+{
+    let b = fcn;
+    writeln!(fp, " {{")?;
+    for (name,ty) in &b.locals {
+        writeln!(fp, "\tlet {name}: {ty};", ty=Ty(ty,0))?;
+    }
+    for (name,val) in &b.drop_flags {
+        writeln!(fp, "\tlet {name} = {val};", val=if *val { "1" } else { "0" })?;
+    }
+    for (i, blk) in b.blocks.iter().enumerate() {
+        writeln!(fp, "\t{i}: {{")?;
+        for stmt in &blk.statements {
+            write!(fp, "\t\t")?;
+            match stmt {
+            crate::mir::Statement::SpanComment(c) => {
+                writeln!(fp, "/*{}*/", c)?;
+                continue
+                },
+            crate::mir::Statement::Assign(dst, rval) => {
+                write!(fp, "ASSIGN {} = ", Val(dst,def))?;
+                match rval {
+                crate::mir::Value::Constant(c) => write!(fp, "{}", C(c))?,
+                crate::mir::Value::Use(v) => write!(fp, "={}", Val(v,def))?,
+                crate::mir::Value::Borrow(crate::types::Mutability::Shared, slot)
+                    => write!(fp, "& {}", Val(slot,def))?,
+                crate::mir::Value::Borrow(mutability, slot)
+                    => write!(fp, "&{} {}", mutability.to_str(), Val(slot,def))?,
+                crate::mir::Value::BinOp(l,o,r) =>
+                    write!(fp, "BINOP {l} {o} {r}",
+                        l=Val(l,def),
+                        r=Val(r,def),
+                        o=match o
+                            {
+                            crate::mir::BinOp::Add => "+",
+                            crate::mir::BinOp::Sub => "-",
+                            crate::mir::BinOp::Div => "/",
+                            crate::mir::BinOp::Mul => "*",
+                            crate::mir::BinOp::Rem => "%",
+                            crate::mir::BinOp::Shr => "<<",
+                            crate::mir::BinOp::Shl => ">>",
+                            crate::mir::BinOp::BitAnd => "&",
+                            crate::mir::BinOp::BitOr => "|",
+                            crate::mir::BinOp::BitXor => "^",
+                            crate::mir::BinOp::Less => "<",
+                            crate::mir::BinOp::Greater => ">",
+                            crate::mir::BinOp::LessEqual => "<=",
+                            crate::mir::BinOp::GreaterEqual => ">=",
+                            crate::mir::BinOp::Equals => "==",
+                            crate::mir::BinOp::NotEquals => "!=",
+                            }
+                        )?,
+                crate::mir::Value::UniOp(op, val)
+                    => write!(fp, "UNIOP {op} {v}",
+                        v=Val(val, def),
+                        op=match op  {
+                            crate::mir::UniOp::Inv => "!",
+                            crate::mir::UniOp::Neg => "-",
+                            },
+                        )?,
+                crate::mir::Value::Cast(val, ty) => write!(fp, "CAST {} as {}", Val(val,def), Ty(ty,0))?,
+                crate::mir::Value::DstPtr(v) => write!(fp, "DSTPTR {}", Val(v,def))?,
+                crate::mir::Value::DstMeta(_) => todo!(),
+                crate::mir::Value::Tuple(ents) => {
+                    write!(fp, "(")?;
+                    for e in ents {
+                        write!(fp, "{}, ", Val(e, def))?;
+                    }
+                    write!(fp, ")")?;
+                },
+                crate::mir::Value::Array(_) => todo!(),
+                crate::mir::Value::Struct(_, _) => todo!(),
+                crate::mir::Value::UnionVariant(_, _, _) => todo!(),
+                crate::mir::Value::EnumVariant(_, _, _) => todo!(),
+                }
+            },
+            }
+            writeln!(fp, ";")?;
+        }
+        write!(fp, "\t\t")?;
+        match &blk.terminator {
+        crate::mir::Terminator::Invalid => writeln!(fp, "INCOMPLETE")?,
+        crate::mir::Terminator::Return => writeln!(fp, "RETURN")?,
+        crate::mir::Terminator::Diverge => writeln!(fp, "DIVERGE")?,
+        crate::mir::Terminator::Goto(idx) => writeln!(fp, "GOTO {}", idx)?,
+        crate::mir::Terminator::Call(call) => {
+            write!(fp, "CALL {} = ", Val(&call.dst,def))?;
+            match &call.target {
+            crate::mir::CallTarget::Path(p) => write!(fp, "{}", p)?,
+            crate::mir::CallTarget::Intrinsic(name, tys) => {
+                write!(fp, "{:?}<", name)?;
+                for t in tys {
+                    write!(fp, "{},", Ty(t,0))?;
+                }
+                write!(fp, ">")?;
+            },
+            crate::mir::CallTarget::Value(v) => write!(fp, "({})", Val(v, def))?,
+            }
+            write!(fp, "(")?;
+            for v in &call.args {
+                write!(fp, "{}, ", Val(v, def))?;
+            }
+            writeln!(fp, ") goto {} else {}", call.bb_ret, call.bb_panic)?;
+        },
+        crate::mir::Terminator::If(v, bb_true, bb_false)
+            => writeln!(fp, "IF {} goto {} else {}", Val(v, def), bb_true, bb_false)?,
+        }
+        writeln!(fp, "\t}}")?;
+    }
+    writeln!(fp, "}}")?;
     Ok( () )
 }
 
@@ -249,13 +256,23 @@ impl ::std::fmt::Display for Ty<'_> {
     }
 }
 
-struct Val<'a, T>(&'a T, &'a crate::modtree::Function);
+struct Val<'a, T>(&'a T, Option<&'a crate::modtree::Function>);
 impl<'a,T> Val<'a, T> {
-    pub fn get_arg(&self, i: usize) -> &str {
-        &self.1.arg_names[i]
+    pub fn get_arg(&self, i: usize) -> ::std::borrow::Cow<str> {
+        if let Some(d) = self.1 {
+            d.arg_names[i][..].into()
+        }
+        else {
+            format!("a{}", i).into()
+        }
     }
-    pub fn get_local(&self, i: usize) -> &str {
-        &self.1.body.as_ref().unwrap().locals[i].0
+    pub fn get_local(&self, i: usize) -> ::std::borrow::Cow<str> {
+        if let Some(d) = self.1 {
+            d.body.as_ref().unwrap().locals[i].0[..].into()
+        }
+        else {
+            format!("_{}", i).into()
+        }
     }
 }
 impl<'a> ::std::fmt::Display for Val<'a, crate::mir::Slot> {
