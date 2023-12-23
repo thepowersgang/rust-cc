@@ -83,7 +83,9 @@ impl<'p, 'a> Lexer<'p, 'a> {
             }
         },
         [b'a'..=b'z'|b'A'..=b'Z'|b'_'|0x80.., ..] => {
-            let len = self.rem.as_bytes().iter().position(|&b| !(b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80)).unwrap_or(self.rem.len());
+            let len = self.rem.as_bytes().iter()
+                .position(|&b| !(b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80 || b == b'#'))
+                .unwrap_or(self.rem.len());
             Token::Ident( self.consume(len) )
         },
 

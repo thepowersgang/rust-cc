@@ -15,6 +15,7 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
             }
         {
         "fn" => {
+            let define_location = format!("{lex}");
             let name = lex.consume_ident().to_owned();
             lex.consume_sym("(");
             let mut arg_names = Vec::new();
@@ -61,6 +62,7 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
                 };
 
             let fcn = crate::modtree::Function {
+                define_location,
                 link_name,
                 sig: crate::types::FcnTy {
                     abi,
@@ -74,7 +76,34 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
 
             match dst.functions.entry(name)
             {
-            Entry::Occupied(_) => todo!(),
+            Entry::Occupied(mut e) => {
+                let name = e.key().clone();
+                let exist = e.get_mut();
+                if exist.arg_names != fcn.arg_names {
+                    // Warning
+                }
+                if exist.sig != fcn.sig {
+                    // Warning
+                    panic!("{lex}: Conflicting definition of function {}", e.key())
+                }
+                match exist.body {
+                None => {
+                    exist.define_location = fcn.define_location;
+                    exist.arg_names = fcn.arg_names;
+                    exist.body = fcn.body;
+                    },
+                Some(ref mut body) => {
+                    if let Some(ref b) = fcn.body {
+                        if b != body {
+                            panic!("{lex}: Re-definition of function {} with different body\n{}: Previous definition was here",
+                                name, exist.define_location);
+                        }
+                    }
+                    else {
+                    }
+                    },
+                }
+            },
             Entry::Vacant(e) => { e.insert(fcn); },
             }
         },
@@ -127,11 +156,13 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
             }
         },
         "static" => {
+            let define_location = format!("{lex}");
             let name = lex.consume_ident().to_owned();
             lex.consume_sym(":");
             let ty = parse_type(lex);
             lex.consume_sym("=");
             let mut s = crate::modtree::Static {
+                define_location,
                 link_name: None,
                 ty,
                 value: None,
@@ -175,22 +206,24 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
             match dst.statics.entry(name)
             {
             Entry::Occupied(mut e) => {
-                let v = e.get_mut();
-                if v.link_name.is_none() {
-                    v.link_name = s.link_name;
+                let name = e.key().clone();
+                let existing = e.get_mut();
+                if existing.link_name.is_none() {
+                    existing.link_name = s.link_name;
                 }
                 else if s.link_name.is_none() {
-                    if s.link_name != v.link_name {
+                    if s.link_name != existing.link_name {
                         // Uh-oh
                     }
                 }
                 else {
                 }
-                if v.value.is_none() {
-                    v.value = s.value;
+                if existing.value.is_none() {
+                    existing.define_location = s.define_location;
+                    existing.value = s.value;
                 }
-                else if s.value.is_none() {
-                    panic!("{lex}: Re-definition of {}", e.key());
+                else if s.value.is_some() {
+                    panic!("{lex}: Re-definition of static {}\n{} previous definition was here", name, existing.define_location);
                 }
                 else {
                 }
@@ -548,6 +581,7 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                     bb_panic,
                 })
             }
+            "SWITCHVALUE" => todo!("{lex}: statement/terminator - SWITCHVALUE"),
             i => todo!("{lex}: statement/terminator - {}", i),
             }
             lex.consume_sym(";");

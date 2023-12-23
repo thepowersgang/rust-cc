@@ -29,6 +29,7 @@ pub struct Field {
 }
 pub struct Function
 {
+    pub define_location: String,
     pub link_name: Option<String>,
     pub sig: crate::types::FcnTy,
     pub arg_names: Vec<String>,
@@ -36,6 +37,7 @@ pub struct Function
 }
 pub struct Static
 {
+    pub define_location: String,
     pub link_name: Option<String>,
     pub ty: TypeRef,
     pub value: Option<StaticValue>,

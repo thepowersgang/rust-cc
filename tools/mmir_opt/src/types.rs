@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct TypeRef
 {
     pub root: Root,
@@ -23,7 +23,7 @@ impl TypeRef {
         self
     }
 }
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Mutability {
     Shared,
     Unique,
@@ -39,7 +39,7 @@ impl Mutability {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Root {
     Diverge,
     Str,
@@ -50,7 +50,7 @@ pub enum Root {
     Tuple(Vec<TypeRef>),
     Function(Box<FcnTy>),
 }
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum Wrapper {
     Slice,
     Array(usize),
@@ -58,7 +58,7 @@ pub enum Wrapper {
     Borrow(Mutability),
 }
 #[repr(transparent)]
-#[derive(Debug,Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Bits(u8);
 impl Bits {
     pub const SIZE: Bits = Bits(0xFF);
@@ -78,7 +78,7 @@ impl ::std::fmt::Display for Bits {
         }
     }
 }
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct FcnTy {
     pub abi: String,
     pub args: Vec<TypeRef>,

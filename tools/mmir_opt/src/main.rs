@@ -11,7 +11,7 @@ mod dump;
 struct Options
 {
 	#[structopt(parse(from_os_str))]
-	input: ::std::path::PathBuf,
+	input: Vec<::std::path::PathBuf>,
 
 	#[structopt(short="o", parse(from_os_str))]
 	output: ::std::path::PathBuf,
@@ -22,7 +22,9 @@ fn main()
 	let opts: Options = ::structopt::StructOpt::from_args();
 	let mut tree = crate::modtree::Root::new();
 
-	parser::parse_file(&mut tree, &opts.input);
+	for path in &opts.input {
+		parser::parse_file(&mut tree, path);
+	}
 
 	for (name, fcn) in tree.functions.iter_mut() {
 		if let Some(ref mut b) = fcn.body {
