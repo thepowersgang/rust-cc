@@ -203,6 +203,12 @@ impl Program
 				span.error(format_args!("Conflicting definitions of `{}` - {:?} != {:?}", name, e.get().symtype, typeid));
 			}
 			else {
+				// Update the visibility to the most recently seen visibility
+				match &mut e.get_mut().vis {
+				Visibility::Auto => {},	// Error if different?
+				Visibility::Static => {},	// Error if different?
+				v @ Visibility::Extern => *v = vis,
+				}
 				match e.get().value {
 				None => {
 					e.get_mut().symtype = typeid;
@@ -374,37 +380,42 @@ impl Program
 			)
 	}
 	pub fn iter_symbols_with_prototypes(&self) -> impl Iterator<Item=(Visibility, &Ident, &crate::types::TypeRef, Option<&SymbolValue>)> {
+		// Any items defined with `TypeName foo;` can be both forward declarations and default/zero definitions
 		let values_for_uninit = {
-			let mut uninit_values = ::std::collections::HashMap::<&Ident,bool>::new();
+			let mut uninit_values: Vec<(&Ident, bool)> = Vec::new();
 			for v in self.item_order.iter()
 			{
 				match v
 				{
-				ItemRef::Value(ref name) => {
+				ItemRef::ValueDecl(ref name) => {
 					let s = &self.symbols[name];
-					if s.value.is_none() {
-						uninit_values.insert(name, true);
+					match s.symtype.basetype {
+					crate::types::BaseType::Function(_) => {},
+					_ => {
+						if (s.vis == Visibility::Auto || s.vis == Visibility::Static) && s.value.is_none() {
+							if uninit_values.iter().any(|v| v.0 == name ) {
+							}
+							else {
+								uninit_values.push((name, true));
+							}
+						}
 					}
-					else if let Some(s) = uninit_values.get_mut(&name) {
-						*s = false;
-					}
-					else {
 					}
 				},
 				_ => {},
 				}
 			}
-			uninit_values.into_iter().filter_map(move |(name,is_uninit)| {
-				if is_uninit {
+			uninit_values.into_iter().map(move |(name, emit)| {
+				if emit {
+					println!("FORWARD {}", name);
 					let s = &self.symbols[name];
-					Some( (s.vis, name, &s.symtype, self.empty_symbol.as_ref(),) )
+					(s.vis, name, &s.symtype, self.empty_symbol.as_ref(),)
 				}
 				else {
-					None
+					todo!()
 				}
 			})
 		};
-		// TODO: Any items defined with `TypeName foo;` can be both forward declarations and default/zero definitions
 		self.item_order.iter()
 			.filter_map(move |v| {
 				let (name, is_fwd) = match v
@@ -417,23 +428,7 @@ impl Program
 				match s.value
 				{
 				Some(ref v) if !is_fwd => Some( (s.vis, name, &s.symtype, Some(v),) ),
-				_ => {
-					if true {
-						Some( (s.vis, name, &s.symtype, None,) )
-					}
-					else if false /*s.symtype.qualifiers.is_extern()*/ {
-						None
-					}
-					else if let crate::types::BaseType::Function(..) = s.symtype.basetype {
-						None
-					}
-					else {
-						// Non-extern statics with no value should have `Initialiser::None`
-						//static NONE_INIT: SymbolValue = SymbolValue::Value(Initialiser::None);
-						//Some( (name, &s.symtype, &NONE_INIT,) )
-						todo!("");
-					}
-					},
+				_ => Some( (s.vis, name, &s.symtype, None,) ),
 				}
 				})
 			.chain(values_for_uninit)
