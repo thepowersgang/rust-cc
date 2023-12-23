@@ -61,6 +61,7 @@ pub struct Program
 	symbols: HashMap<Ident, Symbol>,
 
 	anon_enum_count: usize,
+	empty_symbol: Option<crate::ast::SymbolValue>,
 }
 /// Referece to a defined item (typedef/struct/value/...)
 enum ItemRef
@@ -124,6 +125,7 @@ impl Program
 	pub fn new() -> Program
 	{
 		Program {
+			empty_symbol: Some(crate::ast::SymbolValue::Value(::std::cell::RefCell::new(None))),
 			..::std::default::Default::default()
 		}
 	}
@@ -179,8 +181,7 @@ impl Program
 		let value = match value
 			{
 			Some(v) => Some(SymbolValue::Value(::std::cell::RefCell::new(Some(v)))),
-			None if Visibility::Extern == vis => None,
-			None => Some(SymbolValue::Value(::std::cell::RefCell::new(None))),
+			None => None,
 			};
 		self.define_symbol(span, vis, typeid, name, value)
 	}
@@ -373,6 +374,37 @@ impl Program
 			)
 	}
 	pub fn iter_symbols_with_prototypes(&self) -> impl Iterator<Item=(Visibility, &Ident, &crate::types::TypeRef, Option<&SymbolValue>)> {
+		let values_for_uninit = {
+			let mut uninit_values = ::std::collections::HashMap::<&Ident,bool>::new();
+			for v in self.item_order.iter()
+			{
+				match v
+				{
+				ItemRef::Value(ref name) => {
+					let s = &self.symbols[name];
+					if s.value.is_none() {
+						uninit_values.insert(name, true);
+					}
+					else if let Some(s) = uninit_values.get_mut(&name) {
+						*s = false;
+					}
+					else {
+					}
+				},
+				_ => {},
+				}
+			}
+			uninit_values.into_iter().filter_map(move |(name,is_uninit)| {
+				if is_uninit {
+					let s = &self.symbols[name];
+					Some( (s.vis, name, &s.symtype, self.empty_symbol.as_ref(),) )
+				}
+				else {
+					None
+				}
+			})
+		};
+		// TODO: Any items defined with `TypeName foo;` can be both forward declarations and default/zero definitions
 		self.item_order.iter()
 			.filter_map(move |v| {
 				let (name, is_fwd) = match v
@@ -386,7 +418,6 @@ impl Program
 				{
 				Some(ref v) if !is_fwd => Some( (s.vis, name, &s.symtype, Some(v),) ),
 				_ => {
-					// TODO: `static` needs to be passed to the backend
 					if true {
 						Some( (s.vis, name, &s.symtype, None,) )
 					}
@@ -405,6 +436,7 @@ impl Program
 					},
 				}
 				})
+			.chain(values_for_uninit)
 	}
 }
 
