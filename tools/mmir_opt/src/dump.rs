@@ -200,7 +200,7 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
                 }
             }
             }
-            writeln!(fp, "\t\t_ => {}", bb_default)?;
+            writeln!(fp, "\t\t_ = {}", bb_default)?;
             writeln!(fp, "\t\t}}")?;
             },
         }
@@ -305,6 +305,12 @@ impl<'a,T> Val<'a, T> {
 }
 impl<'a> ::std::fmt::Display for Val<'a, crate::mir::Slot> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for w in &self.0.wrappers {
+            match w {
+            crate::mir::SlotWrapper::Deref => f.write_str("(*")?,
+            _ => {},
+            }
+        }
         match self.0.root {
         crate::mir::SlotRoot::Named(ref name) => f.write_str(name)?,
         crate::mir::SlotRoot::Argument(i) => f.write_str(&self.get_arg(i))?,
@@ -313,7 +319,8 @@ impl<'a> ::std::fmt::Display for Val<'a, crate::mir::Slot> {
         }
         for w in &self.0.wrappers {
             match w {
-            crate::mir::SlotWrapper::Deref => f.write_str(".*")?,
+            //crate::mir::SlotWrapper::Deref => f.write_str(".*")?,
+            crate::mir::SlotWrapper::Deref => f.write_str(")")?,
             crate::mir::SlotWrapper::Index(i) => write!(f, "[{}]", self.get_local(*i))?,
             crate::mir::SlotWrapper::Field(i) => write!(f, " .{}", i)?,
             crate::mir::SlotWrapper::Downcast(i) => write!(f, "#{}", i)?,
@@ -341,7 +348,7 @@ impl ::std::fmt::Display for C<'_> {
         crate::mir::Const::Signed(val, bits) => write!(f, "{:+} i{}", val, bits),
         crate::mir::Const::Float(_, _) => todo!(),
         crate::mir::Const::String(v) => write!(f, "{}", Bytes(&v.as_bytes())),
-        crate::mir::Const::ItemAddr(v) => write!(f, "ITEMADDR {}", v),
+        crate::mir::Const::ItemAddr(v) => write!(f, "ADDROF {}", v),
         }
     }
 }
