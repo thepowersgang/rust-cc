@@ -108,8 +108,8 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
                             crate::mir::BinOp::Div => "/",
                             crate::mir::BinOp::Mul => "*",
                             crate::mir::BinOp::Rem => "%",
-                            crate::mir::BinOp::Shr => "<<",
-                            crate::mir::BinOp::Shl => ">>",
+                            crate::mir::BinOp::Shr => ">>",
+                            crate::mir::BinOp::Shl => "<<",
                             crate::mir::BinOp::BitAnd => "&",
                             crate::mir::BinOp::BitOr => "|",
                             crate::mir::BinOp::BitXor => "^",
@@ -170,7 +170,7 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
             }
             write!(fp, "(")?;
             for v in &call.args {
-                write!(fp, "{}, ", Val(v, def))?;
+                write!(fp, "{},", Val(v, def))?;
             }
             writeln!(fp, ") goto {} else {}", call.bb_ret, call.bb_panic)?;
         },

@@ -813,20 +813,20 @@ fn parse_const(lex: &mut Lexer) -> crate::mir::Const {
     Token::Integer(v) => {
         let t = parse_type(lex);
         match t.root {
-            crate::types::Root::Signed(bits) if t.wrappers.is_empty()
-                => crate::mir::Const::Signed( -(v as i128), bits),
-            crate::types::Root::Unsigned(bits) if t.wrappers.is_empty()
-                => crate::mir::Const::Unsigned( v as u128, bits),
-            _ => panic!("{lex}: Unexpected unsigned integer type {t:?}"),
-            }
+        crate::types::Root::Signed(bits) if t.wrappers.is_empty()
+            => crate::mir::Const::Signed( v as i128, bits),
+        crate::types::Root::Unsigned(bits) if t.wrappers.is_empty()
+            => crate::mir::Const::Unsigned( v as u128, bits),
+        _ => panic!("{lex}: Unexpected unsigned integer type {t:?}"),
+        }
         },
     Token::Float(v) => {
         let t = parse_type(lex);
         match t.root {
-            crate::types::Root::Float(bits) if t.wrappers.is_empty()
-                => crate::mir::Const::Float(v, bits),
-            _ => panic!("{lex}: Unexpected float type {t:?}"),
-            }
+        crate::types::Root::Float(bits) if t.wrappers.is_empty()
+            => crate::mir::Const::Float(v, bits),
+        _ => panic!("{lex}: Unexpected float type {t:?}"),
+        }
         },
     Token::Ident("true") => crate::mir::Const::Boolean(true),
     Token::Ident("false") => crate::mir::Const::Boolean(false),
