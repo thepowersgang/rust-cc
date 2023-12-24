@@ -2,34 +2,35 @@ use crate::mir::Terminator;
 use crate::mir::Statement;
 use crate::mir::Value;
 
-pub fn optimise_function(fcn: &mut crate::mir::Function, _sig: &crate::types::FcnTy)
+pub fn optimise_function(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function, _sig: &crate::types::FcnTy)
 {
     loop {
+        log_debug!(logger, "-- PASS");
         let mut changed = false;
         // - Simplify flow control: If a block is just a goto, replace uses of it with the target
-        while simplify_control_flow(fcn) {
+        while simplify_control_flow(logger, fcn) {
             changed = true;
         }
         // - Redundant Pointer Casts
         //  > Two casts in a row can be simplfied into just the latter (if the initial source is a pointer or usize)
         //  * This happens when `NULL` is cast to something.
         #[cfg(false_)]
-        while remove_redundant_casts(fcn, sig) {
+        while remove_redundant_casts(logger, fcn, sig) {
             changed = true;
         }
         // - Single write/use temporaries
         #[cfg(false_)]
-        while remove_single_use(fcn) {
+        while remove_single_use(logger, fcn) {
             changed = true;
         }
         // - Unused writes
-        while remove_dead_writes(fcn) {
+        while remove_dead_writes(logger, fcn) {
             changed = true;
         }
         // - Constant propagation
         //  > Replace casts with literals
         //  > Propagate through to operators
-        while const_propagate(fcn) {
+        while const_propagate(logger, fcn) {
             changed = true;
         }
         if !changed {
@@ -37,17 +38,18 @@ pub fn optimise_function(fcn: &mut crate::mir::Function, _sig: &crate::types::Fc
         }
     }
 
-    //println!(">>");
-    //crate::dump::dump_function_body(&mut ::std::io::stdout(), fcn, None).unwrap();
+    log_debug!(logger, "-- Cleanup");
+    crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
     // Delete unused blocks
-    clean_unused_blocks(fcn);
+    clean_unused_blocks(logger, fcn);
     //println!(">>");
     //crate::dump::dump_function_body(&mut ::std::io::stdout(), fcn, None).unwrap();
-    simplify_control_flow(fcn);
+    simplify_control_flow(logger, fcn);
 }
 
-fn simplify_control_flow(fcn: &mut crate::mir::Function) -> bool
+fn simplify_control_flow(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
 {
+    log_debug!(logger, "simplify_control_flow");
     let rewrites: Vec<_> = fcn.blocks.iter()
         .map(|bb| {
             match bb.terminator {
@@ -65,8 +67,9 @@ fn simplify_control_flow(fcn: &mut crate::mir::Function) -> bool
 }
 
 
-fn const_propagate(fcn: &mut crate::mir::Function) -> bool
+fn const_propagate(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
 {
+    log_debug!(logger, "const_propagate");
     use crate::mir::Const;
 
     let mut rv = false;
@@ -272,8 +275,9 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
     rv
 }
 
-fn remove_dead_writes(fcn: &mut crate::mir::Function) -> bool
+fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
 {
+    log_debug!(logger, "remove_dead_writes");
     // Identify writes to variables that are never read, just overwritten
     // - This catches `"uninit"` assignments, AND just dead statements
 
@@ -554,8 +558,9 @@ fn remove_dead_writes(fcn: &mut crate::mir::Function) -> bool
     rv
 }
 
-fn clean_unused_blocks(fcn: &mut crate::mir::Function)
+fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function)
 {
+    log_debug!(logger, "clean_unused_blocks");
     // Determine if each block is referenced
     loop {
         let mut used: Vec<_> = (0..fcn.blocks.len()).map(|_| false).collect();
@@ -596,7 +601,11 @@ fn clean_unused_blocks(fcn: &mut crate::mir::Function)
         Terminator::Invalid => false,
         _ => true,
     });
-    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize| *tgt = mapping[*tgt].unwrap());
+    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize| *tgt = match mapping[*tgt]
+        {
+        Some(v) => v,
+        None => log_panic!(logger, "Block {tgt} still referenced but was deleted"),
+        });
 }
 
 mod helpers {

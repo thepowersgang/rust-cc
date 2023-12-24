@@ -1,4 +1,7 @@
 
+#[macro_use]
+mod logger;
+
 mod lexer;
 mod parser;
 mod mir;
@@ -28,8 +31,9 @@ fn main()
 
 	for (name, fcn) in tree.functions.iter_mut() {
 		if let Some(ref mut b) = fcn.body {
+			let mut logger = crate::logger::Logger::new(name);
 			println!("--- {}", name);
-			optimise::optimise_function(b, &fcn.sig);
+			optimise::optimise_function(&mut logger, b, &fcn.sig);
 		}
 	}
 
