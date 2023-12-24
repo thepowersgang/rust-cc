@@ -31,6 +31,23 @@ impl<'a> StringLit<'a> {
                     let v2 = (b2 as char).to_digit(16).unwrap() as u8;
                     (v1 * 16 + v2, rest)
                 },
+                &[b'u', ref rest @ ..] => {
+                    assert!(rest.starts_with(b"{"));
+                    let i = rest[1..].iter().position(|v| *v == b'}').expect("");
+                    let (value,rest) = rest[1..].split_at(i);
+                    let mut codepoint = 0;
+                    for b in value {
+                        codepoint *= 16;
+                        codepoint += (*b as char).to_digit(16).unwrap();
+                    }
+                    let mut buf = [0; 4];
+                    let v = char::from_u32(codepoint).unwrap()
+                        .encode_utf8(&mut buf)
+                        .as_bytes();
+                    let mut bytes = v.iter().copied();
+                    rv.extend(bytes.by_ref().take(v.len() - 1));
+                    (bytes.next().unwrap(), rest)
+                },
                 &[b, ..] => todo!("\\{}", b as char),
                 };
             rv.push(ch);
@@ -131,6 +148,7 @@ impl<'p, 'a> Lexer<'p, 'a> {
         [b'<'|b'>', ..] => Token::Sym(self.consume(1)),
         [b'@', ..] => Token::Sym(self.consume(1)),
         [b'&', ..] => Token::Sym(self.consume(1)),
+        [b'%', ..] => Token::Sym(self.consume(1)),
         [b'=', ..] => Token::Sym(self.consume(1)),
         [b'!', ..] => Token::Sym(self.consume(1)),
         [b'_', ..] => Token::Sym(self.consume(1)),

@@ -27,7 +27,7 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
                     lex.consume_sym(")");
                     break;
                 }
-                let name = lex.consume_ident();
+                let name = if lex.consume_if_sym("_") { "" } else { lex.consume_ident() };
                 lex.consume_sym(":");
                 let ty = parse_type(lex);
                 arg_names.push(name.to_string());
@@ -543,13 +543,14 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                 let target = match lex.get_tok_noeof() {
                     Token::Ident(name) => crate::mir::CallTarget::Path(name.to_owned()),
                     Token::String(name) => {
-                        lex.consume_sym("<");
                         let mut tys = Vec::new();
-                        while !lex.consume_if_sym(">") {
-                            tys.push(parse_type(lex));
-                            if !lex.consume_if_sym(",") {
-                                lex.consume_sym(">");
-                                break;
+                        if lex.consume_if_sym("<") {
+                            while !lex.consume_if_sym(">") {
+                                tys.push(parse_type(lex));
+                                if !lex.consume_if_sym(",") {
+                                    lex.consume_sym(">");
+                                    break;
+                                }
                             }
                         }
                         crate::mir::CallTarget::Intrinsic(name.parse_string(), tys)
