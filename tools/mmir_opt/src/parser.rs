@@ -514,6 +514,7 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                     |Token::Ident("false")
                     |Token::Integer(_)
                     |Token::String(_)
+                    |Token::Ident("ADDROF")
                         => { *lex = saved; Value::Constant(parse_const(lex)) }
                     t => todo!("{lex}: ASSIGN {:?}", t),
                     };
@@ -829,6 +830,7 @@ fn parse_const(lex: &mut Lexer) -> crate::mir::Const {
     Token::Ident("true") => crate::mir::Const::Boolean(true),
     Token::Ident("false") => crate::mir::Const::Boolean(false),
     Token::String(v) => crate::mir::Const::String(v.parse_string()),
+    Token::Ident("ADDROF") => crate::mir::Const::ItemAddr( lex.consume_ident().to_owned() ),
     t => todo!("{lex}: parse_const - {t:?}"),
     }
 }

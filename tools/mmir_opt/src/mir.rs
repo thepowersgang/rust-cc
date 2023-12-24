@@ -131,4 +131,5 @@ pub enum Const {
     Signed(i128, crate::types::Bits),
     Float(f64, crate::types::Bits),
     String(String),
+    ItemAddr(String),
 }

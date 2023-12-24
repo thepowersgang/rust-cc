@@ -340,6 +340,7 @@ impl ::std::fmt::Display for C<'_> {
         crate::mir::Const::Signed(val, bits) => write!(f, "{:+} i{}", val, bits),
         crate::mir::Const::Float(_, _) => todo!(),
         crate::mir::Const::String(v) => write!(f, "{}", Bytes(&v.as_bytes())),
+        crate::mir::Const::ItemAddr(v) => write!(f, "ITEMADDR {}", v),
         }
     }
 }

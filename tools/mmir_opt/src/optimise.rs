@@ -146,6 +146,7 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
                                 Const::Signed(v, bits) => Const::Signed(-*v, bits.clone()),
                                 Const::Float(v, bits) => Const::Float(-*v, bits.clone()),
                                 Const::String(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::ItemAddr(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
                             },
                             });
                         rv = true;
@@ -162,7 +163,8 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
                                     Const::Unsigned(v, _bits) => *v,
                                     Const::Signed(v, _bits) => *v as u128,
                                     Const::Float(_, _) => todo!(),
-                                    Const::String(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
+                                    Const::String(_)
+                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
                                     };
                                 Some(Const::Unsigned(new_v, bits.clone()))
                                 },
@@ -173,7 +175,8 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
                                     Const::Unsigned(v, _bits) => *v as i128,
                                     Const::Signed(v, _bits) => *v,
                                     Const::Float(_, _) => todo!(),
-                                    Const::String(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
+                                    Const::String(_)
+                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
                                     };
                                 Some(Const::Signed(new_v, bits.clone()))
                                 },
@@ -184,7 +187,8 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
                                     Const::Unsigned(v, _bits) => *v as f64,
                                     Const::Signed(v, _bits) => *v as f64,
                                     Const::Float(_, _) => todo!(),
-                                    Const::String(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
+                                    Const::String(_)
+                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
                                     };
                                 Some(Const::Float(new_v, bits.clone()))
                                 },
