@@ -82,7 +82,9 @@ impl<'p, 'a> Lexer<'p, 'a> {
                 Token::Integer(u128::from_str_radix(s, 10).unwrap())
             }
         },
-        [b'a'..=b'z'|b'A'..=b'Z'|b'_'|0x80.., ..] => {
+        // Treat `_` as an ident only if it's follwed by an ident character
+        [b'_', b'_'|b'0'..=b'9'|b'a'..=b'z'|b'A'..=b'Z'|0x80.., ..]
+        |[b'a'..=b'z'|b'A'..=b'Z'|0x80.., ..] => {
             let len = self.rem.as_bytes().iter()
                 .position(|&b| !(b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80 || b == b'#'))
                 .unwrap_or(self.rem.len());
@@ -131,6 +133,7 @@ impl<'p, 'a> Lexer<'p, 'a> {
         [b'&', ..] => Token::Sym(self.consume(1)),
         [b'=', ..] => Token::Sym(self.consume(1)),
         [b'!', ..] => Token::Sym(self.consume(1)),
+        [b'_', ..] => Token::Sym(self.consume(1)),
         &[byte, ..] => todo!("{self}: Unexpected byte {:#x} ({:?})", byte, byte as char)
         })
     }
@@ -272,6 +275,13 @@ impl<'a> Lexer<'_, 'a> {
         match self.get_tok_noeof() {
         Token::Integer(rv) => rv,
         t => panic!("{self}: Unexpected {t:?}, expected Integer"),
+        }
+    }
+    #[track_caller]
+    pub fn consume_float(&mut self) -> f64 {
+        match self.get_tok_noeof() {
+        Token::Float(rv) => rv,
+        t => panic!("{self}: Unexpected {t:?}, expected Float"),
         }
     }
     #[track_caller]

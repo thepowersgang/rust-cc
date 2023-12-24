@@ -11,7 +11,7 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
             {
             None => break,
             Some(Token::Ident(i)) => i,
-            Some(t) => panic!("Unexpected {t:?}, expected Ident(_)"),
+            Some(t) => panic!("{lex}: Unexpected {t:?}, expected Ident(_)"),
             }
         {
         "fn" => {
@@ -581,7 +581,113 @@ fn parse_function_body(lex: &mut Lexer, arg_names: &[String]) -> crate::mir::Fun
                     bb_panic,
                 })
             }
-            "SWITCHVALUE" => todo!("{lex}: statement/terminator - SWITCHVALUE"),
+            "SWITCHVALUE" => {
+                let val = lookup.parse_slot(lex);
+                lex.consume_sym("{");
+                let mut targets = Vec::new();
+                let vals = match lex.get_tok_noeof()
+                    {
+                    Token::Sym(sgn @ "+")|Token::Sym(sgn @ "-") => {
+                        fn expect_sign(lex: &mut Lexer) -> bool {
+                            match lex.get_tok_noeof() {
+                            Token::Sym("+") => false,
+                            Token::Sym("-") => true,
+                            t @ _ => panic!("{lex}: Expected a sign - got {t:?}"),
+                            }
+                        }
+                        match lex.get_tok_noeof()
+                        {
+                        Token::Integer(v) => {
+                            let mut vals = Vec::new();
+                            fn get_signed(is_neg: bool, v: u128) -> Option<i128> {
+                                if is_neg && v == (u128::MAX >> 1) + 1 {
+                                    Some(i128::MIN)
+                                }
+                                else {
+                                    let v: i128 = v.try_into().ok()?;
+                                    if is_neg {
+                                        v.checked_neg()
+                                    }
+                                    else {
+                                        Some(v)
+                                    }
+                                }
+                            }
+                            let Some(v) = get_signed(sgn == "-", v) else {
+                                panic!("{lex}: Too large signed value")
+                            };
+                            vals.push(v);
+                            loop {
+                                lex.consume_sym("=");
+                                targets.push(lex.consume_int() as usize);
+                                lex.consume_sym(",");
+                                if lex.consume_if_sym("_") {
+                                    break;
+                                }
+                                let is_neg = expect_sign(lex);
+                                let v = lex.consume_int();
+                                let Some(v) = get_signed(is_neg, v) else {
+                                    panic!("{lex}: Too large signed value")
+                                };
+                                vals.push(v);
+                            }
+                            crate::mir::SwitchValues::Signed(vals)
+                            },
+                        Token::Float(v) => {
+                            let mut vals = Vec::new();
+                            vals.push(if sgn == "-" { -v } else { v });
+                            loop {
+                                lex.consume_sym("=");
+                                targets.push(lex.consume_int() as usize);
+                                lex.consume_sym(",");
+                                if lex.consume_if_sym("_") {
+                                    break;
+                                }
+                                let is_neg = expect_sign(lex);
+                                let v = lex.consume_float();
+                                let v = if is_neg { -v } else { v };
+                                vals.push(v);
+                            }
+                            crate::mir::SwitchValues::Float(vals)
+                            },
+                        t => todo!("{lex}: statement/terminator - SWITCHVALUE: {:?}", t),
+                        }
+                    },
+                    Token::Integer(i) => {
+                        let mut vals = Vec::new();
+                        vals.push(i);
+                        loop {
+                            lex.consume_sym("=");
+                            targets.push(lex.consume_int() as usize);
+                            lex.consume_sym(",");
+                            if lex.consume_if_sym("_") {
+                                break;
+                            }
+                            vals.push(lex.consume_int());
+                        }
+                        crate::mir::SwitchValues::Unsigned(vals)
+                    },
+                    Token::String(s) => {
+                        let mut vals = Vec::new();
+                        vals.push(s.parse_bytes());
+                        loop {
+                            lex.consume_sym("=");
+                            targets.push(lex.consume_int() as usize);
+                            lex.consume_sym(",");
+                            if lex.consume_if_sym("_") {
+                                break;
+                            }
+                            vals.push(lex.consume_str().parse_bytes());
+                        }
+                        crate::mir::SwitchValues::String(vals)
+                    },
+                    t => todo!("{lex}: statement/terminator - SWITCHVALUE: {:?}", t),
+                    };
+                lex.consume_sym("=");
+                let default_bb = lex.consume_int() as usize;
+                lex.consume_sym("}");
+                break Terminator::SwitchValue(val, vals, targets, default_bb);
+                },
             i => todo!("{lex}: statement/terminator - {}", i),
             }
             lex.consume_sym(";");

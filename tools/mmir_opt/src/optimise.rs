@@ -57,26 +57,10 @@ fn simplify_control_flow(fcn: &mut crate::mir::Function) -> bool
         })
         .collect();
     let mut rv = false;
-    let mut check = |tgt: &mut usize|if let Some(new) = rewrites[*tgt] {
+    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize|if let Some(new) = rewrites[*tgt] {
         *tgt = new;
         rv = true;
-    };
-    for bb in &mut fcn.blocks {
-        match &mut bb.terminator {
-        Terminator::Invalid => {},
-        Terminator::Return => {},
-        Terminator::Diverge => {},
-        Terminator::Goto(ref mut tgt) => check(tgt),
-        Terminator::Call(call) => {
-            check(&mut call.bb_panic);
-            check(&mut call.bb_ret);
-        },
-        Terminator::If(_, bb_true, bb_false) => {
-            check(bb_true);
-            check(bb_false);
-        },
-        }
-    }
+    });
     rv
 }
 
@@ -89,22 +73,7 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
     let usage_count = {
         let mut usage_count: Vec<_> = (0..fcn.blocks.len()).map(|_| 0).collect();
         usage_count[0] = 1;
-        for bb in &fcn.blocks {
-            match bb.terminator {
-            Terminator::Invalid => {},
-            Terminator::Return => {},
-            Terminator::Diverge => {},
-            Terminator::Goto(tgt) => usage_count[tgt] += 1,
-            Terminator::Call(ref call) => {
-                usage_count[call.bb_panic] += 1;
-                usage_count[call.bb_ret] += 1;
-            },
-            Terminator::If(_, bb_true, bb_false) => {
-                usage_count[bb_true] += 1;
-                usage_count[bb_false] += 1;
-            },
-            }
-        }
+        helpers::visit_block_targets_mut(fcn, |&mut tgt| usage_count[tgt] += 1);
         usage_count
         };
     
@@ -280,6 +249,20 @@ fn const_propagate(fcn: &mut crate::mir::Function) -> bool
                 // Continue into this block
             }
         },
+        Terminator::SwitchValue(ref value, _, ref targets, bb_default) => {
+            if let Some(c) = get_for_slot(&known_values, value) {
+                todo!("Replace SwitchValue with a jump due to known value - {:?}", c);
+            }
+            for &t in targets {
+                if usage_count[t] == 1 {
+                    // Continue into this block
+                }
+            }
+            if usage_count[bb_default] == 1 {
+                // Continue into this block
+            }
+
+        }
         }
     }
     rv
@@ -334,6 +317,12 @@ fn remove_dead_writes(fcn: &mut crate::mir::Function) -> bool
                 check(v.clone(), Some(bb_true));
                 check(v, Some(bb_false));
             },
+            Terminator::SwitchValue(_, _, ref targets, bb_default) => {
+                for &t in targets {
+                    check(v.clone(), Some(t));
+                }
+                check(v, Some(bb_default))
+            }
             }
         }
         paths
@@ -433,6 +422,9 @@ fn remove_dead_writes(fcn: &mut crate::mir::Function) -> bool
             visit_write(&mut ops, &call.dst, bb_idx, stmt_idx);
         }
         Terminator::If(ref slot, _, _) => {
+            visit_read(&mut ops, slot, bb_idx, stmt_idx);
+        }
+        Terminator::SwitchValue(ref slot, _, _, _) => {
             visit_read(&mut ops, slot, bb_idx, stmt_idx);
         }
         }
@@ -564,22 +556,7 @@ fn clean_unused_blocks(fcn: &mut crate::mir::Function)
     loop {
         let mut used: Vec<_> = (0..fcn.blocks.len()).map(|_| false).collect();
         used[0] = true;
-        for bb in &fcn.blocks {
-            match bb.terminator {
-            Terminator::Invalid => {},
-            Terminator::Return => {},
-            Terminator::Diverge => {},
-            Terminator::Goto(tgt) => used[tgt] = true,
-            Terminator::Call(ref call) => {
-                used[call.bb_panic] = true;
-                used[call.bb_ret] = true;
-            },
-            Terminator::If(_, bb_true, bb_false) => {
-                used[bb_true] = true;
-                used[bb_false] = true;
-            },
-            }
-        }
+        helpers::visit_block_targets_mut(fcn, |&mut tgt| used[tgt] = true);
         let mut changed = false;
         for (used,bb) in Iterator::zip(used.into_iter(), fcn.blocks.iter_mut()) {
             match bb.terminator {
@@ -615,21 +592,33 @@ fn clean_unused_blocks(fcn: &mut crate::mir::Function)
         Terminator::Invalid => false,
         _ => true,
     });
-    let check = |tgt: &mut usize| *tgt = mapping[*tgt].unwrap();
-    for bb in &mut fcn.blocks {
-        match &mut bb.terminator {
-        Terminator::Invalid => {},
-        Terminator::Return => {},
-        Terminator::Diverge => {},
-        Terminator::Goto(ref mut tgt) => check(tgt),
-        Terminator::Call(call) => {
-            check(&mut call.bb_panic);
-            check(&mut call.bb_ret);
-        },
-        Terminator::If(_, bb_true, bb_false) => {
-            check(bb_true);
-            check(bb_false);
-        },
+    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize| *tgt = mapping[*tgt].unwrap());
+}
+
+mod helpers {
+    use crate::mir::{Function,Terminator};
+    pub fn visit_block_targets_mut(fcn: &mut Function, mut check: impl FnMut(&mut usize)) {
+        for bb in &mut fcn.blocks {
+            match &mut bb.terminator {
+            Terminator::Invalid => {},
+            Terminator::Return => {},
+            Terminator::Diverge => {},
+            Terminator::Goto(ref mut tgt) => check(tgt),
+            Terminator::Call(call) => {
+                check(&mut call.bb_panic);
+                check(&mut call.bb_ret);
+            },
+            Terminator::If(_, bb_true, bb_false) => {
+                check(bb_true);
+                check(bb_false);
+            },
+            Terminator::SwitchValue(_, _, targets, bb_default) => {
+                for t in targets {
+                    check(t);
+                }
+                check(bb_default);
+            }
+            }
         }
     }
 }

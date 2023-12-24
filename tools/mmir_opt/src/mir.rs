@@ -34,6 +34,7 @@ pub enum Terminator {
     Goto(usize),
     Call(TerminatorCall),
     If(Slot, usize, usize),
+    SwitchValue(Slot, SwitchValues, Vec<usize>, usize)
 }
 #[derive(PartialEq, Debug)]
 pub struct TerminatorCall {
@@ -48,6 +49,13 @@ pub enum CallTarget {
     Path(String),
     Intrinsic(String, Vec<TypeRef>),
     Value(Slot),
+}
+#[derive(PartialEq, Debug)]
+pub enum SwitchValues {
+    Signed(Vec<i128>),
+    Unsigned(Vec<u128>),
+    Float(Vec<f64>),
+    String(Vec< Vec<u8> >),
 }
 
 #[derive(PartialEq, Debug)]

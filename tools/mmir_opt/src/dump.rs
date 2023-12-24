@@ -175,6 +175,33 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
         },
         crate::mir::Terminator::If(v, bb_true, bb_false)
             => writeln!(fp, "IF {} goto {} else {}", Val(v, def), bb_true, bb_false)?,
+        crate::mir::Terminator::SwitchValue(v, vals, targets, bb_default) => {
+            writeln!(fp, "SWITCHVALUE {} {{", Val(v, def))?;
+            match vals {
+            crate::mir::SwitchValues::Signed(vals) => {
+                for (v,t) in Iterator::zip(vals.iter(), targets.iter()) {
+                    writeln!(fp, "\t\t{:+} = {},", v, t)?;
+                }
+            }
+            crate::mir::SwitchValues::Unsigned(vals) => {
+                for (v,t) in Iterator::zip(vals.iter(), targets.iter()) {
+                    writeln!(fp, "\t\t{:+} = {},", v, t)?;
+                }
+            }
+            crate::mir::SwitchValues::Float(vals) => {
+                for (v,t) in Iterator::zip(vals.iter(), targets.iter()) {
+                    writeln!(fp, "\t\t{:+} = {},", v, t)?;
+                }
+            }
+            crate::mir::SwitchValues::String(vals) => {
+                for (v,t) in Iterator::zip(vals.iter(), targets.iter()) {
+                    writeln!(fp, "\t\t{} = {},", Bytes(v), t)?;
+                }
+            }
+            }
+            writeln!(fp, "\t\t_ => {}", bb_default)?;
+            writeln!(fp, "\t\t}}")?;
+            },
         }
         writeln!(fp, "\t}}")?;
     }
