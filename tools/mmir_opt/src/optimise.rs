@@ -142,7 +142,14 @@ fn const_propagate(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Fun
                 Value::UniOp(op, a) => {
                     if let Some(c) = get_for_slot(&known_values, a) {
                         *src = Value::Constant(match op {
-                            crate::mir::UniOp::Inv => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                            crate::mir::UniOp::Inv => match c {
+                                Const::Boolean(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::Unsigned(v, bits) => Const::Unsigned(bits.mask_unsigned(!*v), bits.clone()),
+                                Const::Signed(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::Float(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::String(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::ItemAddr(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                            },
                             crate::mir::UniOp::Neg => match c {
                                 Const::Boolean(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
                                 Const::Unsigned(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
@@ -237,6 +244,7 @@ fn const_propagate(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Fun
         }
 
         match bb.terminator {
+        Terminator::Removed => {},
         Terminator::Invalid => {},
         Terminator::Return => {},
         Terminator::Diverge => {},
@@ -311,6 +319,7 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
             };
             let bb = &fcn.blocks[*v.last().unwrap()];
             match bb.terminator {
+            Terminator::Removed => { check(v, None); },
             Terminator::Invalid => { check(v, None); },
             Terminator::Return => { check(v, None); },
             Terminator::Diverge => { check(v, None); },
@@ -335,6 +344,7 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
         }
         paths
     };
+    log_debug!(logger, "{} paths", paths.len());
 
     // - Enumerate reads/writes of each variable (locations)
     //  > For each write, see if there is a read before the next write (along the path)
@@ -415,6 +425,7 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
         }
         let stmt_idx = bb.statements.len();
         match bb.terminator {
+        Terminator::Removed => {},
         Terminator::Invalid => {},
         Terminator::Return => {},
         Terminator::Diverge => {},
@@ -443,7 +454,7 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
     }
     let mut rv = false;
     for (i, ops) in &ops {
-        //println!("{i} {ops:?}");
+        log_debug!(logger, "{i} {ops:?}");
         let check_block = |wr_bb_idx: usize, wr_stmt_idx: usize, _i: usize, bb_idx: usize| {
             for v @ &(bb,stmt,ref op) in ops.iter() {
                 // Same BB and variable index
@@ -569,10 +580,10 @@ fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir:
         let mut changed = false;
         for (used,bb) in Iterator::zip(used.into_iter(), fcn.blocks.iter_mut()) {
             match bb.terminator {
-            Terminator::Invalid if bb.statements.is_empty() => {},
+            Terminator::Removed if bb.statements.is_empty() => {},
             _ if !used => {
                 bb.statements.clear();
-                bb.terminator = Terminator::Invalid;
+                bb.terminator = Terminator::Removed;
                 changed = true;
             },
             _ => {},
@@ -586,7 +597,7 @@ fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir:
     let mut new_idx = 0;
     let mapping: Vec<_> = fcn.blocks.iter()
         .map(|bb| {
-            if let Terminator::Invalid = bb.terminator {
+            if let Terminator::Removed = bb.terminator {
                 None
             }
             else {
@@ -598,7 +609,7 @@ fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir:
         .collect()
         ;
     fcn.blocks.retain(|bb| match bb.terminator {
-        Terminator::Invalid => false,
+        Terminator::Removed => false,
         _ => true,
     });
     helpers::visit_block_targets_mut(fcn, |tgt: &mut usize| *tgt = match mapping[*tgt]
@@ -613,6 +624,7 @@ mod helpers {
     pub fn visit_block_targets_mut(fcn: &mut Function, mut check: impl FnMut(&mut usize)) {
         for bb in &mut fcn.blocks {
             match &mut bb.terminator {
+            Terminator::Removed => {},
             Terminator::Invalid => {},
             Terminator::Return => {},
             Terminator::Diverge => {},

@@ -150,6 +150,7 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
         }
         write!(fp, "\t\t")?;
         match &blk.terminator {
+        crate::mir::Terminator::Removed => panic!(),
         crate::mir::Terminator::Invalid => writeln!(fp, "INCOMPLETE")?,
         crate::mir::Terminator::Return => writeln!(fp, "RETURN")?,
         crate::mir::Terminator::Diverge => writeln!(fp, "DIVERGE")?,

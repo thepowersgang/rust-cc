@@ -28,6 +28,7 @@ impl PartialEq for Statement {
 }
 #[derive(PartialEq, Debug)]
 pub enum Terminator {
+    Removed,
     Invalid,
     Return,
     Diverge,

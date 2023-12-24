@@ -1,57 +1,52 @@
-pub struct Logger
+pub struct Logger<'a>
 {
     function: String,
-    messages: Vec<String>,
+    buffer: &'a mut String,
+    force_log: bool,
 }
-impl Logger {
-    pub fn new(name: &str) -> Logger {
+impl<'a> Logger<'a> {
+    pub fn new(buffer: &'a mut String, name: &str, force_log: bool,) -> Self {
         Logger {
             function: name.to_owned(),
-            messages: Vec::new()
+            buffer,
+            force_log,
         }
     }
 
     pub fn log(&mut self, args: ::std::fmt::Arguments) {
-        self.messages.push(format!("{}", args));
+        if self.force_log {
+            println!("{}", args)
+        }
+        else {
+            ::std::fmt::write(&mut self.buffer, args).unwrap();
+            self.buffer.push_str("\n");
+        }
     }
     #[track_caller]
     pub fn error(&mut self, args: ::std::fmt::Arguments) -> ! {
-        for m in &self.messages {
-            println!("{}", m);
-        }
+        print!("{}", self.buffer);
         println!(">> {}", self.function);
-        self.messages.clear();
+        self.buffer.clear();
         panic!("{}", args);
     }
 
-    pub fn writer(&mut self) -> Writer {
+    pub fn writer<'s>(&'s mut self) -> Writer<'s,'a> {
         Writer(self, Vec::new())
     }
 }
-impl Drop for Logger {
+impl Drop for Logger<'_> {
     fn drop(&mut self) {
-        if !self.messages.is_empty() {
-            for m in &self.messages {
-                println!("{}", m);
-            }
+        if !self.buffer.is_empty() && false {
+            print!("{}", self.buffer);
             println!(">> {}", self.function);
-            self.messages.clear();
         }
     }
 }
 
-pub struct Writer<'a>(&'a mut Logger, Vec<u8>);
-impl ::std::io::Write for Writer<'_> {
+pub struct Writer<'a,'b>(&'a mut Logger<'b>, Vec<u8>);
+impl ::std::io::Write for Writer<'_,'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        for &b in buf {
-            if b == b'\n' {
-                self.0.messages.push(String::from_utf8_lossy(&self.1).into_owned());
-                self.1 = Vec::new();
-            }
-            else {
-                self.1.push(b);
-            }
-        }
+        self.0.buffer.push_str(&String::from_utf8_lossy(buf));
         Ok(buf.len())
     }
 
@@ -59,10 +54,11 @@ impl ::std::io::Write for Writer<'_> {
         Ok( () )
     }
 }
-impl Drop for Writer<'_> {
+impl Drop for Writer<'_,'_> {
     fn drop(&mut self) {
-        self.0.messages.push(String::from_utf8_lossy(&self.1).into_owned());
-        self.1 = Vec::new();
+        if ! self.0.buffer.ends_with("\n") {
+            self.0.buffer.push_str("\n");
+        }
     }
 }
 

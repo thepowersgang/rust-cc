@@ -68,6 +68,19 @@ impl Bits {
     pub const _64: Bits = Bits(6);
     pub const _128: Bits = Bits(7);
 }
+impl Bits {
+    pub fn mask_unsigned(&self, v: u128) -> u128 {
+        if self.0 == 0xFF {
+            v & (1 << 64)-1
+        }
+        else if self.0 >= 7 {
+            v
+        }
+        else {
+            v & (1 << (8*self.0))-1
+        }
+    }
+}
 impl ::std::fmt::Display for Bits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 == 0xFF {
