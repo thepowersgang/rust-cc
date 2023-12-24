@@ -1,32 +1,34 @@
 pub struct Logger<'a>
 {
     function: String,
-    buffer: &'a mut String,
+    buffer: ::std::cell::RefCell<&'a mut String>,
     force_log: bool,
 }
 impl<'a> Logger<'a> {
     pub fn new(buffer: &'a mut String, name: &str, force_log: bool,) -> Self {
         Logger {
             function: name.to_owned(),
-            buffer,
+            buffer: ::std::cell::RefCell::new(buffer),
             force_log,
         }
     }
 
-    pub fn log(&mut self, args: ::std::fmt::Arguments) {
+    pub fn log(&self, args: ::std::fmt::Arguments) {
         if self.force_log {
             println!("{}", args)
         }
         else {
-            ::std::fmt::write(&mut self.buffer, args).unwrap();
-            self.buffer.push_str("\n");
+            let mut b = self.buffer.borrow_mut();
+            ::std::fmt::write(&mut *b, args).unwrap();
+            b.push_str("\n");
         }
     }
     #[track_caller]
-    pub fn error(&mut self, args: ::std::fmt::Arguments) -> ! {
-        print!("{}", self.buffer);
+    pub fn error(&self, args: ::std::fmt::Arguments) -> ! {
+        let mut b = self.buffer.borrow_mut();
+        print!("{}", *b);
         println!(">> {}", self.function);
-        self.buffer.clear();
+        b.clear();
         panic!("{}", args);
     }
 
@@ -36,8 +38,8 @@ impl<'a> Logger<'a> {
 }
 impl Drop for Logger<'_> {
     fn drop(&mut self) {
-        if !self.buffer.is_empty() && false {
-            print!("{}", self.buffer);
+        if !self.buffer.get_mut().is_empty() && false {
+            print!("{}", self.buffer.get_mut());
             println!(">> {}", self.function);
         }
     }
@@ -46,7 +48,7 @@ impl Drop for Logger<'_> {
 pub struct Writer<'a,'b>(&'a mut Logger<'b>, Vec<u8>);
 impl ::std::io::Write for Writer<'_,'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.buffer.push_str(&String::from_utf8_lossy(buf));
+        self.0.buffer.get_mut().push_str(&String::from_utf8_lossy(buf));
         Ok(buf.len())
     }
 
@@ -56,8 +58,8 @@ impl ::std::io::Write for Writer<'_,'_> {
 }
 impl Drop for Writer<'_,'_> {
     fn drop(&mut self) {
-        if ! self.0.buffer.ends_with("\n") {
-            self.0.buffer.push_str("\n");
+        if ! self.0.buffer.get_mut().ends_with("\n") {
+            self.0.buffer.get_mut().push_str("\n");
         }
     }
 }

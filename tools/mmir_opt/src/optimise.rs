@@ -1,8 +1,9 @@
 use crate::mir::Terminator;
 use crate::mir::Statement;
 use crate::mir::Value;
+use crate::logger::Logger;
 
-pub fn optimise_function(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function, _sig: &crate::types::FcnTy)
+pub fn optimise_function(logger: &mut Logger, fcn: &mut crate::mir::Function, _sig: &crate::types::FcnTy)
 {
     loop {
         log_debug!(logger, "-- PASS");
@@ -47,7 +48,7 @@ pub fn optimise_function(logger: &mut crate::logger::Logger, fcn: &mut crate::mi
     simplify_control_flow(logger, fcn);
 }
 
-fn simplify_control_flow(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
+fn simplify_control_flow(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
 {
     log_debug!(logger, "simplify_control_flow");
     let rewrites: Vec<_> = fcn.blocks.iter()
@@ -59,7 +60,7 @@ fn simplify_control_flow(logger: &mut crate::logger::Logger, fcn: &mut crate::mi
         })
         .collect();
     let mut rv = false;
-    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize|if let Some(new) = rewrites[*tgt] {
+    helpers::visit_block_targets_mut(fcn, |tgt: &mut usize| if let Some(new) = rewrites[*tgt] {
         *tgt = new;
         rv = true;
     });
@@ -67,7 +68,7 @@ fn simplify_control_flow(logger: &mut crate::logger::Logger, fcn: &mut crate::mi
 }
 
 
-fn const_propagate(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
+fn const_propagate(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
 {
     log_debug!(logger, "const_propagate");
     use crate::mir::Const;
@@ -283,68 +284,54 @@ fn const_propagate(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Fun
     rv
 }
 
-fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function) -> bool
+fn remove_dead_writes(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
 {
     log_debug!(logger, "remove_dead_writes");
     // Identify writes to variables that are never read, just overwritten
     // - This catches `"uninit"` assignments, AND just dead statements
 
-    // Method:
-    // - Enumerate paths through the function, stopping on a loop-back
-    struct Path {
-        ents: Vec<usize>,
-        looped: Option<usize>,
+    /*
+    #[derive(Clone)]
+    struct Path(Vec<u32>);
+    impl Path {
+        pub fn contains(&self, idx: usize) -> Option<usize> {
+            self.0.iter().position(|v| *v == idx as u32)
+        }
     }
-    let paths = {
-        let mut paths = Vec::new();
-        let mut stack = Vec::new();
-        stack.push(vec![0usize]);
-        while let Some(v) = stack.pop() {
-            let mut check = |mut v: Vec<_>, blk: Option<usize>| {
-                //println!("{:?}, {:?}", v, blk);
-                let completed = if let Some(blk) = blk {
-                    v.iter().find(|b| **b == blk).is_some()
-                } else {
-                    true
-                };
-                if completed {
-                    paths.push(Path { ents: v, looped: blk });
+    fn path_contains(p: &[&u32], idx: usize) -> Option<usize> {
+        p.iter().position(|&&v| v == idx as u32)
+    }
+    type PathSet = crate::helper_types::Trie<u32>;
+    fn enumerate_paths_for_bb(logger: &Logger, fcn: &crate::mir::Function, bb_idx: usize) -> PathSet {
+        let mut paths = PathSet::new();
+        let mut stack: Vec<(usize, Path)> = Vec::new();
+        stack.push((bb_idx, Path(Vec::new())));
+        while let Some( (idx, path)) = stack.pop() {
+            let path = helpers::visit_terminator_targets(&fcn.blocks[idx].terminator, path, |mut path,idx| {
+                if ! path.contains(idx).is_some() {
+                    path.0.push(idx as u32);
+                    stack.push((idx, path));
                 }
                 else {
-                    if let Some(blk) = blk {
-                        v.push(blk);
-                    }
-                    stack.push(v);
+                    path.0.push(idx as u32);
+                    //log_debug!(logger, "Paths BB{}: {:?}", bb_idx, path.0);
+                    paths.push(&path.0);
                 }
-            };
-            let bb = &fcn.blocks[*v.last().unwrap()];
-            match bb.terminator {
-            Terminator::Removed => { check(v, None); },
-            Terminator::Invalid => { check(v, None); },
-            Terminator::Return => { check(v, None); },
-            Terminator::Diverge => { check(v, None); },
-            Terminator::Goto(blk) => {
-                check(v, Some(blk));
-                },
-            Terminator::Call(ref call) => {
-                check(v.clone(), Some(call.bb_ret));
-                check(v, Some(call.bb_panic));
-            },
-            Terminator::If(_, bb_true, bb_false) => {
-                check(v.clone(), Some(bb_true));
-                check(v, Some(bb_false));
-            },
-            Terminator::SwitchValue(_, _, ref targets, bb_default) => {
-                for &t in targets {
-                    check(v.clone(), Some(t));
-                }
-                check(v, Some(bb_default))
-            }
+            });
+            if let Some(path) = path {
+                //log_debug!(logger, "Paths BB{}: {:?}", bb_idx, path.0);
+                paths.push(&path.0);
             }
         }
+        log_debug!(logger, "Paths BB{}", bb_idx);
+        paths.dump();
         paths
-    };
-    log_debug!(logger, "{} paths", paths.len());
+    }
+    let paths_from_each_bb: Vec<_> = (0 .. fcn.blocks.len()).map(|bb_idx| {
+        log_debug!(logger, "Paths BB{}", bb_idx);
+        enumerate_paths_for_bb(logger, fcn, bb_idx)
+        }).collect();
+    */
 
     // - Enumerate reads/writes of each variable (locations)
     //  > For each write, see if there is a read before the next write (along the path)
@@ -353,77 +340,71 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
         Read,
         Write,
     }
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct LineRef {
+        bb_idx: usize,
+        stmt_idx: StmtIdx,
+    }
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum StmtIdx {
+        Stmt(u16),
+        Term,
+    }
+    impl ::core::fmt::Display for LineRef {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "BB{}/", self.bb_idx)?;
+            match self.stmt_idx {
+            StmtIdx::Stmt(i) => write!(f, "{}", i),
+            StmtIdx::Term => f.write_str("TERM"),
+            }
+        }
+    }
     use ::std::collections::BTreeMap;
-    let mut ops = BTreeMap::<usize,Vec<(usize,usize,Op)>>::new();
+    let mut ops = BTreeMap::<usize,Vec<(LineRef,Op)>>::new();
     for (bb_idx,bb) in fcn.blocks.iter().enumerate()
     {
-        fn visit_slot_in_param(param: &crate::mir::Param, mut fcn: impl FnMut(&crate::mir::Slot)) {
-            if let crate::mir::Param::Slot(s) = param {
-                fcn(s);
-            }
-        }
-        fn visit_slot_in_value(value: &Value, mut fcn: impl FnMut(&crate::mir::Slot)) {
-            match value {
-            Value::Constant(_) => {},
-            Value::Use(v) => { fcn(v); },
-            Value::Borrow(_, v) => { fcn(v); },
-            Value::BinOp(a, _, b) => {
-                visit_slot_in_param(a, &mut fcn);
-                visit_slot_in_param(b, &mut fcn);
-            },
-            Value::UniOp(_, a) => {
-                fcn(a);
-            },
-            Value::Cast(a, _) => { fcn(a) },
-            Value::DstPtr(a) => { fcn(a) },
-            Value::DstMeta(a) => { fcn(a) },
-            Value::Tuple(ents) => {
-                for p in ents {
-                    visit_slot_in_param(p, &mut fcn);
-                }
-            },
-            Value::Array(_) => todo!(),
-            Value::Struct(_, _) => todo!(),
-            Value::UnionVariant(_, _, _) => todo!(),
-            Value::EnumVariant(_, _, _) => todo!(),
-            }
-        }
-
-        fn visit_read(ops: &mut BTreeMap<usize,Vec<(usize,usize,Op)>>, slot: &crate::mir::Slot, bb_idx: usize, stmt_idx: usize) {
+        fn visit_read(ops: &mut BTreeMap<usize,Vec<(LineRef,Op)>>, slot: &crate::mir::Slot, lr: &LineRef) {
             for w in &slot.wrappers {
                 if let crate::mir::SlotWrapper::Index(i) = *w {
-                    ops.entry(i).or_default().push((bb_idx,stmt_idx, Op::Read));
+                    ops.entry(i).or_default().push((lr.clone(), Op::Read));
                 }
             }
             if let crate::mir::SlotRoot::Local(i) = slot.root {
-                ops.entry(i).or_default().push((bb_idx,stmt_idx, Op::Read));
+                ops.entry(i).or_default().push((lr.clone(), Op::Read));
             }
         }
-        fn visit_write(ops: &mut BTreeMap<usize,Vec<(usize,usize,Op)>>, slot: &crate::mir::Slot, bb_idx: usize, stmt_idx: usize) {
+        fn visit_write(ops: &mut BTreeMap<usize,Vec<(LineRef,Op)>>, slot: &crate::mir::Slot, lr: LineRef) {
             for w in &slot.wrappers {
                 if let crate::mir::SlotWrapper::Index(i) = *w {
-                    ops.entry(i).or_default().push((bb_idx,stmt_idx, Op::Read));
+                    ops.entry(i).or_default().push((lr.clone(), Op::Read));
                 }
             }
             if let Some(i) = slot.is_local() {
-                ops.entry(i).or_default().push((bb_idx,stmt_idx, Op::Write));
+                ops.entry(i).or_default().push((lr, Op::Write));
+            }
+            else {
+                // Any other usage is assumed to be a read
+                if let crate::mir::SlotRoot::Local(i) = slot.root {
+                    ops.entry(i).or_default().push((lr, Op::Read));
+                }
             }
         }
+
         for (stmt_idx, stmt) in bb.statements.iter().enumerate() {
             match stmt {
             Statement::SpanComment(_) => {},
             Statement::Assign(dst, src) => {
                 // Look for usage
-
-                visit_slot_in_value(src, |slot| {
-                    visit_read(&mut ops, slot, bb_idx, stmt_idx);
+                let lr = LineRef { bb_idx, stmt_idx: StmtIdx::Stmt(stmt_idx.try_into().expect("Too many statements?!")) };
+                helpers::visit_slot_in_value(src, |slot| {
+                    visit_read(&mut ops, slot, &lr);
                 });
 
-                visit_write(&mut ops, dst, bb_idx, stmt_idx);
+                visit_write(&mut ops, dst, lr);
             }
             }
         }
-        let stmt_idx = bb.statements.len();
+        let lr = LineRef { bb_idx, stmt_idx: StmtIdx::Term };
         match bb.terminator {
         Terminator::Removed => {},
         Terminator::Invalid => {},
@@ -433,18 +414,18 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
         Terminator::Call(ref call) => {
 
             for p in &call.args {
-                visit_slot_in_param(p, |slot| {
-                    visit_read(&mut ops, slot, bb_idx, stmt_idx);
+                helpers::visit_slot_in_param(p, |slot| {
+                    visit_read(&mut ops, slot, &lr);
                 });
             }
             
-            visit_write(&mut ops, &call.dst, bb_idx, stmt_idx);
+            visit_write(&mut ops, &call.dst, lr);
         }
         Terminator::If(ref slot, _, _) => {
-            visit_read(&mut ops, slot, bb_idx, stmt_idx);
+            visit_read(&mut ops, slot, &lr);
         }
         Terminator::SwitchValue(ref slot, _, _, _) => {
-            visit_read(&mut ops, slot, bb_idx, stmt_idx);
+            visit_read(&mut ops, slot, &lr);
         }
         }
     }
@@ -453,86 +434,78 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
         o.sort();
     }
     let mut rv = false;
-    for (i, ops) in &ops {
-        log_debug!(logger, "{i} {ops:?}");
-        let check_block = |wr_bb_idx: usize, wr_stmt_idx: usize, _i: usize, bb_idx: usize| {
-            for v @ &(bb,stmt,ref op) in ops.iter() {
-                // Same BB and variable index
-                if bb == bb_idx {
-                    if bb_idx == wr_bb_idx {
-                        if stmt < wr_stmt_idx {
-                            return Some(v);
-                        }
-                        else if let (Op::Read,true) = (op, stmt == wr_stmt_idx) {
-                            return Some(v);
-                        }
-                        else {
-                        }
-                    }
-                    else {
-                        return Some(v);
-                    }
-                }
-                if bb > bb_idx {
-                    break;
-                }
-            }
-            None
-        };
-        let find_usage = |wr_bb_idx: usize, wr_stmt_idx: usize, i: usize| {
+    for (&var_idx, ops) in &ops {
+        log_debug!(logger, "{var_idx} {ops:?}");
+        let find_usage = |fcn: &crate::mir::Function, wr_pos: &LineRef, var_idx: usize| {
+            let _ = var_idx;
             // Look for a read/write with the same BB but a higher statement index
+            // - Assumes the list is sorted
             if let Some(v) = ops.iter()
-                .find(|&&(bb,stmt,_)| bb == wr_bb_idx && stmt > wr_stmt_idx) {
+                .find(|(lr,_)| lr.bb_idx == wr_pos.bb_idx && lr.stmt_idx > wr_pos.stmt_idx) {
                 return Some(v);
             }
-            // Find this BB in the paths and then look for a write.
-            'outer: for p in &paths {
-                // Is this starting BB in this path?
-                let Some(start) = p.ents.iter().position(|bb| *bb == wr_bb_idx) else { continue };
 
-                //println!("> {:?}", &p.ents[start+1..]);
-                for bb_idx in p.ents[start+1..].iter().copied() {
-                    if let Some(rv) = check_block(wr_bb_idx, wr_stmt_idx, i, bb_idx) {
-                        return Some(rv);
-                    }
-                    if bb_idx == wr_bb_idx {
-                        continue 'outer;
-                    }
-                }
-                // If this path looped, then semi-recurse
-                // - Find the loop-back point, and visit all path entries without recursing again
-                if let Some(loop_idx) = p.looped {
-                    for p in &paths {
-                        let Some(start) = p.ents.iter().position(|bb| *bb == loop_idx) else { continue };
-            
-                        //println!(">> {:?}", &p.ents[start..]);
-                        for bb_idx in p.ents[start..].iter().copied() {
-                            if let Some(rv) = check_block(wr_bb_idx, wr_stmt_idx, i, bb_idx) {
-                                return Some(rv);
+            let mut found_read = None;
+            let mut found_write = None;
+            helpers::visit_path_from_bb(logger, fcn, wr_pos.bb_idx, |_path_index, bb_idx| {
+                for ops_ent @ (lr,op) in ops.iter() {
+                    if lr.bb_idx == bb_idx {
+                        log_debug!(logger, ">> {_path_index} {op:?} @ {lr}");
+                        match op {
+                        Op::Read => {
+                            found_read = Some(ops_ent);
+                            // Any read (before a write) from this is an immediate exit
+                            return helpers::PathVisit::StopAll;
                             }
-                            if bb_idx == wr_bb_idx {
-                                break;
+                        Op::Write => {
+                            found_write = Some(ops_ent);
+                            return helpers::PathVisit::StopArm;
                             }
                         }
                     }
                 }
-
+                return helpers::PathVisit::Continue;
+            });
+            if let Some(r) = found_read {
+                return Some(r);
             }
-            None
+            // If there was no write, then return not-found
+            return None;
         };
-        for &(bb_idx, stmt_idx, ref o) in ops {
-            //println!("_{i}: Write {}-{}", bb_idx, stmt_idx);
+        for (lr, o) in ops.iter() {
             if let Op::Write = o {
-                match find_usage(bb_idx, stmt_idx, *i) {
-                None | Some((_,_,Op::Write)) => {
-                    let bb = &mut fcn.blocks[bb_idx];
-                    if stmt_idx == bb.statements.len() {
+                let try_remove = if ops.iter().all(|(_,o)| matches!(o, Op::Write)) {
+                        // Only use is a write? Remove
+                        log_debug!(logger, "_{var_idx}: Write {lr} - Never read; remove");
+                        true
+                    }
+                    else if ops.iter().filter(|(_,o)| matches!(o, Op::Write)).count() == 1 {
+                        // Only one write (and non-zero reads)? Don't remove
+                        log_debug!(logger, "_{var_idx}: Write {lr} - One write, has reads; keep");
+                        false
+                    }
+                    else {
+                        log_debug!(logger, "_{var_idx}: Write {lr} - Check");
+                        // Otherwise, there's multiple writes - so we need to determine if this is invalidated
+                        match find_usage(fcn, lr, var_idx) {
+                        None | Some((_,Op::Write)) => true,
+                        _ => false
+                        }
+                    };
+                if try_remove {
+                    let bb = &mut fcn.blocks[lr.bb_idx];
+                    match lr.stmt_idx {
+                    StmtIdx::Term => {
                         let can_remove = match bb.terminator {
                             Terminator::Call(ref call) => {
                                 match call.target {
                                 crate::mir::CallTarget::Path(_) => None,
                                 crate::mir::CallTarget::Intrinsic(ref name, _) => match &name[..] {
-                                    "uninit" => Some(call.bb_ret),
+                                    // These intrinsics have no side-effects (not the case with all intrinsics)
+                                    "uninit"
+                                    |"init"
+                                    |"offset"
+                                        => Some(call.bb_ret),
                                     _ => None,
                                     },
                                 crate::mir::CallTarget::Value(_) => None,
@@ -542,18 +515,20 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
                             _ => panic!(),
                             };
                         if let Some(target) = can_remove {
-                            println!("remove write at {},{} - terminator {:?}", bb_idx, stmt_idx, bb.terminator);
+                            log_debug!(logger, "remove write at {lr} - terminator {:?}", bb.terminator);
                             bb.terminator = Terminator::Goto(target);
                             rv = true;
                         }
-                    }
-                    else {
-                        println!("remove write at {},{} - statement {:?}", bb_idx, stmt_idx, bb.statements[stmt_idx]);
-                        bb.statements[stmt_idx] = Statement::SpanComment("".into());
+                        else {
+                            log_debug!(logger, "CANNOT remove write at {lr} - terminator {:?}", bb.terminator);
+                        }
+                        },
+                    StmtIdx::Stmt(stmt_idx) => {
+                        log_debug!(logger, "remove write at {lr} - statement {:?}", bb.statements[stmt_idx as usize]);
+                        bb.statements[stmt_idx as usize] = Statement::SpanComment("".into());
                         rv = true;
+                        }
                     }
-                },
-                _ => {},
                 }
             }
         }
@@ -569,7 +544,7 @@ fn remove_dead_writes(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::
     rv
 }
 
-fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir::Function)
+fn clean_unused_blocks(logger: &mut Logger, fcn: &mut crate::mir::Function)
 {
     log_debug!(logger, "clean_unused_blocks");
     // Determine if each block is referenced
@@ -620,7 +595,7 @@ fn clean_unused_blocks(logger: &mut crate::logger::Logger, fcn: &mut crate::mir:
 }
 
 mod helpers {
-    use crate::mir::{Function,Terminator};
+    use crate::mir::{Function,Terminator, Value};
     pub fn visit_block_targets_mut(fcn: &mut Function, mut check: impl FnMut(&mut usize)) {
         for bb in &mut fcn.blocks {
             match &mut bb.terminator {
@@ -644,6 +619,142 @@ mod helpers {
                 check(bb_default);
             }
             }
+        }
+    }
+
+    pub fn visit_slot_in_param(param: &crate::mir::Param, mut fcn: impl FnMut(&crate::mir::Slot)) {
+        if let crate::mir::Param::Slot(s) = param {
+            fcn(s);
+        }
+    }
+    pub fn visit_slot_in_value(value: &Value, mut fcn: impl FnMut(&crate::mir::Slot)) {
+        match value {
+        Value::Constant(_) => {},
+        Value::Use(v) => { fcn(v); },
+        Value::Borrow(_, v) => { fcn(v); },
+        Value::BinOp(a, _, b) => {
+            visit_slot_in_param(a, &mut fcn);
+            visit_slot_in_param(b, &mut fcn);
+        },
+        Value::UniOp(_, a) => {
+            fcn(a);
+        },
+        Value::Cast(a, _) => { fcn(a) },
+        Value::DstPtr(a) => { fcn(a) },
+        Value::DstMeta(a) => { fcn(a) },
+        Value::Tuple(ents) => {
+            for p in ents {
+                visit_slot_in_param(p, &mut fcn);
+            }
+        },
+        Value::Array(_) => todo!(),
+        Value::Struct(_, _) => todo!(),
+        Value::UnionVariant(_, _, _) => todo!(),
+        Value::EnumVariant(_, _, _) => todo!(),
+        }
+    }
+
+    pub fn visit_terminator_targets<S: Clone>(term: &Terminator, state: S, mut check: impl FnMut(S, usize)) -> Option<S>
+    {
+        match *term {
+        Terminator::Removed => Some(state),
+        Terminator::Invalid => Some(state),
+        Terminator::Return => Some(state),
+        Terminator::Diverge => Some(state),
+        Terminator::Goto(blk) => {
+            check(state, blk);
+            None
+            },
+        Terminator::Call(ref call) => {
+            check(state.clone(), call.bb_ret);
+            check(state, call.bb_panic);
+            None
+        },
+        Terminator::If(_, bb_true, bb_false) => {
+            check(state.clone(), bb_true);
+            check(state, bb_false);
+            None
+        },
+        Terminator::SwitchValue(_, _, ref targets, bb_default) => {
+            for &t in targets {
+                check(state.clone(), t);
+            }
+            check(state, bb_default);
+            None
+        }
+        }
+    }
+
+
+    // If `cb` returns true, the path is stopped
+    pub enum PathVisit {
+        Continue,
+        StopArm,
+        StopAll,
+    }
+    pub fn visit_path_from_bb(logger: &crate::logger::Logger, fcn: &crate::mir::Function, bb_idx: usize, mut cb: impl FnMut(usize, usize)->PathVisit) {
+        let _ = logger;
+        struct Counter(::std::cell::Cell<usize>);
+        impl Counter {
+            fn get(&self) -> usize {
+                let rv = self.0.get();
+                self.0.set(rv + 1);
+                rv
+            }
+        }
+        struct State<'a> {
+            state_idx: usize,
+            next_state_idx: &'a Counter,
+            cur_bb: u32,
+            visited: crate::helper_types::Bitmap,
+        }
+        impl Clone for State<'_> {
+            fn clone(&self) -> Self {
+                Self {
+                    state_idx: self.next_state_idx.get(),
+                    next_state_idx: self.next_state_idx,
+                    cur_bb: self.cur_bb,
+                    visited: self.visited.clone()
+                }
+            }
+        }
+        let next_state_idx = Counter(Default::default());
+        let mut visited = crate::helper_types::Bitmap::new(fcn.blocks.len());
+        visited.set(bb_idx);
+        let mut stack: Vec<State<'_>> = Vec::new();
+        stack.push(State {
+            state_idx: next_state_idx.get(),
+            next_state_idx: &next_state_idx,
+            cur_bb: bb_idx as u32,
+            visited,
+        });
+        let mut abort = false;
+        while let Some(s) = stack.pop() {
+            if abort {
+                break;
+            }
+            //log_debug!(logger, "-- {}: BB{}", s.state_idx, s.cur_bb);
+            visit_terminator_targets(&fcn.blocks[s.cur_bb as usize].terminator, s, |mut s, idx| {
+                match cb(s.state_idx, idx)
+                {
+                PathVisit::StopAll => {
+                    abort = true;
+                },
+                PathVisit::StopArm => {
+                    // Stop processing this state, just let `s` drop
+                    },
+                PathVisit::Continue => {
+                    if s.visited.get(idx) {
+                        // We've already visited this block
+                    }
+                    else {
+                        s.visited.set(idx);
+                        s.cur_bb = idx as u32;
+                        stack.push(s);
+                    }
+                    }
+                }
+                });
         }
     }
 }

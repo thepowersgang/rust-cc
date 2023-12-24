@@ -2,6 +2,8 @@
 #[macro_use]
 mod logger;
 
+mod helper_types;
+
 mod lexer;
 mod parser;
 mod mir;
