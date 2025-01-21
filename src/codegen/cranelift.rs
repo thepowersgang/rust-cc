@@ -22,7 +22,7 @@ pub struct Context
 }
 struct FunctionRecord
 {
-	name: ::cranelift_codegen::ir::UserExternalNameRef,
+	name: ::cranelift_codegen::ir::UserExternalName,
 	id: ::cranelift_module::FuncId,
 	sig: ::cranelift_codegen::ir::Signature,
 }
@@ -58,14 +58,15 @@ impl Context
 	fn get_function(&mut self, name: &Ident, ty: &crate::types::FunctionType) -> &FunctionRecord
 	{
 		let idx = self.functions.len();
+		trace!("get_function: idx={idx}");
 		let module = &mut self.module;
 		self.functions.entry(name.clone())
 			.or_insert_with(|| {
 				let sig = make_sig(ty);
 				FunctionRecord {
-					name: ::cranelift_codegen::ir::entities::UserExternalNameRef::from_u32(idx as u32),
+					name: ::cranelift_codegen::ir::UserExternalName { namespace: 0, index: idx as u32 },
 					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
-					sig: sig,
+					sig,
 					}
 				})
 	}
@@ -171,7 +172,7 @@ impl Context
 				{
 				CRTY_PTR => {
 					if let Some(fr) = self.functions.get(name) {
-						let name = cranelift_module::ModuleExtName::User { namespace: 0, index: fr.name.as_u32() };
+						let name = cranelift_module::ModuleRelocTarget::User { namespace: fr.name.namespace, index: fr.name.index };
 						let fcn = data_ctx.import_function(name);
 						data_ctx.write_function_addr(offset as u32, fcn);
 					}
@@ -201,8 +202,7 @@ impl Context
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
 		let mut func = {
 			let fr = self.get_function(name, ty);
-			let name = cranelift_codegen::ir::UserExternalName { namespace: 0, index: fr.name.as_u32() };
-			Function::with_name_signature(cranelift_codegen::ir::UserFuncName::User(name), fr.sig.clone())
+			Function::with_name_signature(cranelift_codegen::ir::UserFuncName::User(fr.name.clone()), fr.sig.clone())
 			};
 		let mut b = Builder {
 			context: self,
@@ -224,12 +224,12 @@ impl Context
 		for var in body.var_table.iter().skip( ty.args.len() )
 		{
 			use ::cranelift_codegen::ir::stackslot as ss;
-			let size = match var.ty.get_size()
+			let (size,align) = match var.ty.get_size_align()
 				{
 				Some(s) => s,
 				None => panic!("Type {:?} has no size", var.ty),
 				};
-			let slot = b.builder.create_sized_stack_slot(ss::StackSlotData::new(ss::StackSlotKind::ExplicitSlot, size));
+			let slot = b.builder.create_sized_stack_slot(ss::StackSlotData::new(ss::StackSlotKind::ExplicitSlot, size, align.ilog2() as u8));
 			b.vars.push( ValueRef::StackSlot(slot, 0, var.ty.clone()) );
 		}
 
@@ -262,8 +262,6 @@ impl Context
 		for (lbl, _blk) in b.missed_labels {
 			panic!("TODO: Error for missing label {:?}", lbl);
 		}
-
-		//debug!("{}", b.builder.display(None));
 
 		b.builder.finalize();
 
@@ -710,9 +708,11 @@ impl Builder<'_>
 				// TODO: For variadic functions, we need to make a new entry/signature every time they're called
 				let v = self.fcn_imports.entry(name.clone())
 					.or_insert_with(|| {
-						let fr = context.get_function(&name, match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), });
+						let fcn_ty = match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), };
+						let fr = context.get_function(&name, fcn_ty);
+						let name = builder.func.declare_imported_user_function(fr.name.clone());
 						let func_data = ::cranelift_codegen::ir::ExtFuncData {
-							name: cranelift_codegen::ir::ExternalName::User(fr.name.clone()),
+							name: cranelift_codegen::ir::ExternalName::User(name),
 							signature: builder.import_signature(fr.sig.clone()),
 							colocated: false,
 							};
@@ -1297,6 +1297,7 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 	BaseType::Enum(_) => cr_tys::I32,
 	BaseType::MagicType(crate::types::MagicType::VaList) => CRTY_PTR,
 	BaseType::MagicType(crate::types::MagicType::Named(_,crate::types::MagicTypeRepr::VoidPointer)) => CRTY_PTR,
+	BaseType::MagicType(crate::types::MagicType::Named(_,crate::types::MagicTypeRepr::Integer { signed: _, bits: 64 })) => cr_tys::I64,
 	BaseType::Array(ref _ty, crate::types::ArraySize::None) => CRTY_PTR,
 	_ => todo!("Convert {:?} to cranelift", ty),
 	})

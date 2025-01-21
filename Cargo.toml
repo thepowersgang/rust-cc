@@ -1,5 +1,5 @@
 [package]
-
+edition = "2015"
 name = "rcc"
 version = "0.0.1"
 authors = ["John Hodge <tpg@mutabah.net>"]
@@ -10,10 +10,10 @@ env_logger = "0.5"
 structopt = "0.2"
 utf8reader = "0.1"
 
-cranelift-frontend = "0.100"
-cranelift-codegen = "0.100"
-cranelift-module = "0.100"
-cranelift-object = "0.100"
+cranelift-frontend = "0.115"
+cranelift-codegen = "0.115"
+cranelift-module = "0.115"
+cranelift-object = "0.115"
 target-lexicon = "0.11"
 
 [workspace]
