@@ -33,7 +33,7 @@ impl<'a> Logger<'a> {
     }
 
     pub fn writer<'s>(&'s mut self) -> Writer<'s,'a> {
-        Writer(self, Vec::new())
+        Writer(self)
     }
 }
 impl Drop for Logger<'_> {
@@ -45,7 +45,7 @@ impl Drop for Logger<'_> {
     }
 }
 
-pub struct Writer<'a,'b>(&'a mut Logger<'b>, Vec<u8>);
+pub struct Writer<'a,'b>(&'a mut Logger<'b>);
 impl ::std::io::Write for Writer<'_,'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.buffer.get_mut().push_str(&String::from_utf8_lossy(buf));
