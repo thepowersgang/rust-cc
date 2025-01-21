@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./tools/mmir_opt/Cargo.toml"
+    ]
+}
