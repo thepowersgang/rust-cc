@@ -16,14 +16,14 @@ extern crate target_lexicon;
 pub struct Context
 {
 	module: ::cranelift_object::ObjectModule,
-	functions: HashMap<Ident, FunctionRecord>,
+	functions: HashMap< (Ident, Vec<cr_tys::Type>,), FunctionRecord>,
 	globals: HashMap<Ident, ::cranelift_module::DataId>,
 	string_count: usize,
 }
 struct FunctionRecord
 {
 	name: ::cranelift_codegen::ir::UserExternalName,
-	id: ::cranelift_module::FuncId,
+	id: Option<::cranelift_module::FuncId>,
 	sig: ::cranelift_codegen::ir::Signature,
 }
 impl Context
@@ -55,17 +55,28 @@ impl Context
 		Ok( () )
 	}
 
-	fn get_function(&mut self, name: &Ident, ty: &crate::types::FunctionType) -> &FunctionRecord
+	fn get_function(&mut self, name: &Ident, ty: &crate::types::FunctionType, tail_arg_types: Vec<cr_tys::Type>) -> &FunctionRecord
 	{
-		let idx = self.functions.len();
+		let idx = self.functions.len() as u32;
 		trace!("get_function: idx={idx}");
 		let module = &mut self.module;
-		self.functions.entry(name.clone())
+		// Ensure that the function name is the same as the non-variadic (zero-argument/default/declared) version
+		let idx = self.functions.get(&(name.clone(), Vec::new()))
+			.map(|v| v.name.index)
+			.unwrap_or(idx)
+			;
+		self.functions.entry((name.clone(), tail_arg_types.clone(),))
 			.or_insert_with(|| {
-				let sig = make_sig(ty);
+				let not_va = tail_arg_types.is_empty();
+				let sig = make_sig(ty, tail_arg_types);
 				FunctionRecord {
-					name: ::cranelift_codegen::ir::UserExternalName { namespace: 0, index: idx as u32 },
-					id: module.declare_function(&name, Linkage::Export, &sig).expect("get_function"),
+					name: ::cranelift_codegen::ir::UserExternalName { namespace: 0, index: idx },
+					id: if not_va {
+						Some(module.declare_function(&name, Linkage::Export, &sig).expect("get_function"))
+					}
+					else {
+						None
+					},
 					sig,
 					}
 				})
@@ -171,7 +182,7 @@ impl Context
 				match cvt_ty(ty)
 				{
 				CRTY_PTR => {
-					if let Some(fr) = self.functions.get(name) {
+					if let Some(fr) = self.functions.get(&(name.clone(),Vec::new())) {
 						let name = cranelift_module::ModuleRelocTarget::User { namespace: fr.name.namespace, index: fr.name.index };
 						let fcn = data_ctx.import_function(name);
 						data_ctx.write_function_addr(offset as u32, fcn);
@@ -189,7 +200,7 @@ impl Context
 
 	pub fn declare_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType)
 	{
-		self.get_function(name, ty);
+		self.get_function(name, ty, Vec::new());
 	}
 	pub fn lower_function(&mut self, name: &Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
@@ -201,7 +212,7 @@ impl Context
 		// - Arguments
 		let mut fn_builder_ctx = FunctionBuilderContext::new();
 		let mut func = {
-			let fr = self.get_function(name, ty);
+			let fr = self.get_function(name, ty, Vec::new());
 			Function::with_name_signature(cranelift_codegen::ir::UserFuncName::User(fr.name.clone()), fr.sig.clone())
 			};
 		let mut b = Builder {
@@ -268,13 +279,14 @@ impl Context
 		let mut c = ::cranelift_codegen::Context::new();
 		c.func = func;
 		//c.compile().expect("Unable to compile?");
-		let func_id = self.get_function(name, ty).id;
+		let func_id = self.get_function(name, ty, Vec::new()).id.unwrap();
 		match self.module.define_function(func_id, &mut c)
 		{
 		Ok(_) => {},
 		Err(::cranelift_module::ModuleError::Compilation(e)) => match e
 			{
 			::cranelift_codegen::CodegenError::Verifier(errors) => {
+				println!("{}", c.func.display());
 				panic!("Failed to define function (verifier errors):\n{}", errors);
 				},
 			e => panic!("Failed to define function code: {:?}", e),
@@ -306,7 +318,7 @@ enum ValueRef
 	///// A pointer to an item in global/static storage
 	//GlobalAddr(crate::ast::Ident, u32, TypeRef),
 	/// By-value use of a function (decays to a pointer)
-	Function(crate::ast::Ident, cr_e::FuncRef),
+	Function(crate::ast::Ident, TypeRef),
 	/// Pointer dereference
 	// pointer, offset, type
 	Pointer(cr_e::Value, u32, TypeRef),
@@ -319,7 +331,7 @@ struct Builder<'a>
 	stack: Vec<Scope>,
 	vars: Vec<ValueRef>,
 
-	fcn_imports: HashMap<Ident, cr_e::FuncRef>,
+	fcn_imports: HashMap<(Ident,Vec<cr_tys::Type>,), cr_e::FuncRef>,
 	global_imports: HashMap<Ident, cr_e::GlobalValue>,
 
 	labels: HashMap<Ident, cr_e::Block>,
@@ -604,7 +616,7 @@ impl Builder<'_>
 		Statement::CaseDefault => {
 			trace!("{}default:", self.indent());
 			let blk = {	// TODO: if there's chanined cases, be more efficient
-				let blk = self.builder.create_block(); trace!("++{:?}", blk);
+				let blk = self.builder.create_block(); trace!("++{:?} default", blk);
 				self.builder.ins().jump(blk, &[]);
 				self.builder.switch_to_block(blk);
 				// - No seal, it's a target
@@ -623,7 +635,7 @@ impl Builder<'_>
 		Statement::CaseSingle(v) => {
 			trace!("{}case {}:", self.indent(), v);
 			let blk = {	// TODO: if there's chanined cases, be more efficient
-				let blk = self.builder.create_block(); trace!("++{:?}", blk);
+				let blk = self.builder.create_block(); trace!("++{:?} case", blk);
 				self.builder.ins().jump(blk, &[]);
 				self.builder.switch_to_block(blk);
 				// - No seal, it's a target
@@ -679,6 +691,27 @@ impl Builder<'_>
 		}
 	}
 
+	fn get_function_ref(&mut self, name: &Ident, fcn_ty: &crate::types::FunctionType, tail_arg_types: Vec<cr_tys::Type>) -> cr_e::FuncRef
+	{
+		let context = &mut self.context;
+		let builder = &mut self.builder;
+		// TODO: For variadic functions, we need to make a new entry/signature every time they're called
+		let v = self.fcn_imports.entry((name.clone(), tail_arg_types.clone(),))
+			.or_insert_with(|| {
+				let fr = context.get_function(&name, fcn_ty, tail_arg_types);
+				let name = builder.func.declare_imported_user_function(fr.name.clone());
+				let func_data = ::cranelift_codegen::ir::ExtFuncData {
+					name: cranelift_codegen::ir::ExternalName::User(name),
+					signature: builder.import_signature(fr.sig.clone()),
+					colocated: false,
+					};
+				builder.import_function(func_data)
+				})
+			.clone()
+			;
+		v
+	}
+
 	fn handle_node(&mut self, node: &crate::ast::Node) -> ValueRef
 	{
 		use crate::ast::NodeKind;
@@ -703,24 +736,7 @@ impl Builder<'_>
 				ValueRef::Global(name.clone(), 0, ty.clone())
 				},
 			Some(crate::ast::IdentRef::Function) => {
-				let context = &mut self.context;
-				let builder = &mut self.builder;
-				// TODO: For variadic functions, we need to make a new entry/signature every time they're called
-				let v = self.fcn_imports.entry(name.clone())
-					.or_insert_with(|| {
-						let fcn_ty = match ty.basetype { BaseType::Function(ref f) => f, ref t => panic!("Function not function type {:?}", t), };
-						let fr = context.get_function(&name, fcn_ty);
-						let name = builder.func.declare_imported_user_function(fr.name.clone());
-						let func_data = ::cranelift_codegen::ir::ExtFuncData {
-							name: cranelift_codegen::ir::ExternalName::User(name),
-							signature: builder.import_signature(fr.sig.clone()),
-							colocated: false,
-							};
-						builder.import_function(func_data)
-						})
-					.clone()
-					;
-				ValueRef::Function(name.clone(), v)
+				ValueRef::Function(name.clone(), ty.clone())
 				},
 			Some(crate::ast::IdentRef::Enum(ref enm, idx)) => {
 				let val = enm.borrow().get_item_val(*idx).expect("Enum index out of range?");
@@ -745,6 +761,15 @@ impl Builder<'_>
 
 		NodeKind::FcnCall(ref fcn, ref args) => {
 			let fcn = self.handle_node(fcn);
+			let ValueRef::Function(ref name, ref ty) = fcn else {
+				todo!("FcnCall {:?} {:?}", fcn, args);
+			};
+			let fcn_ty = match ty.basetype {
+				BaseType::Function(ref f) => f,
+				ref t => panic!("Function not function type {:?}", t),
+				};
+
+			let tail_arg_types: Vec<_> = args[fcn_ty.args.len()..].iter().map(|v| cvt_ty(&v.meta.as_ref().unwrap().ty)).collect();
 			let args: Vec<_> = args.iter()
 				.map(|v| {
 					let v = self.handle_node(v);
@@ -753,12 +778,8 @@ impl Builder<'_>
 					})
 				.collect()
 				;
-			let inst = if let ValueRef::Function(ref _name, fcn_ref) = fcn {
-					self.builder.ins().call(fcn_ref, &args)
-				}
-				else {
-					todo!("FcnCall {:?} {:?}", fcn, args);
-				};
+			let fcn_ref = self.get_function_ref(name, fcn_ty, tail_arg_types);
+			let inst = self.builder.ins().call(fcn_ref, &args);
 			let res = self.builder.inst_results(inst);
 			match res
 			{
@@ -801,9 +822,10 @@ impl Builder<'_>
 
 			let cond_v = self.handle_node(cond);
 			let cond_v = self.get_value(cond_v);
-			let true_blk = self.builder.create_block();	trace!("++{:?}", true_blk);
-			let else_blk = self.builder.create_block();	trace!("++{:?}", else_blk);
-			let done_blk = self.builder.create_block();	trace!("++{:?}", done_blk);
+			let true_blk = self.builder.create_block();	trace!("++{:?} ternary true", true_blk);
+			let else_blk = self.builder.create_block();	trace!("++{:?} ternary else", else_blk);
+			let done_blk = self.builder.create_block();	trace!("++{:?} ternary done", done_blk);
+			self.builder.append_block_param(done_blk, cvt_ty(&node.meta.as_ref().unwrap().ty));
 			self.builder.ins().brif(cond_v, true_blk, &[], else_blk, &[]);
 
 			self.builder.switch_to_block(true_blk);
@@ -815,7 +837,7 @@ impl Builder<'_>
 				else {
 					self.get_value(val_true)
 				};
-			self.builder.ins().jump(done_blk, &[]);
+			self.builder.ins().jump(done_blk, &[val_true]);
 
 			self.builder.switch_to_block(else_blk);
 			self.builder.seal_block(else_blk);
@@ -826,17 +848,18 @@ impl Builder<'_>
 				else {
 					self.get_value(val_false)
 				};
-			self.builder.ins().jump(done_blk, &[]);
+			self.builder.ins().jump(done_blk, &[val_false]);
 
 			self.builder.switch_to_block(done_blk);
 			self.builder.seal_block(done_blk);
+			let ret_val = self.builder.block_params(done_blk)[0];
 
 			// NOTE: Ternary an LValue. This needs to be handled
 			if is_lvalue {
 				panic!("TODO: handle_node - Ternary (LValue) - result {:?} and {:?}", val_true, val_false);
 			}
 			else {
-				ValueRef::Temporary( self.builder.ins().select( cond_v, val_true, val_false ) )
+				ValueRef::Temporary( ret_val )
 			}
 			},
 		NodeKind::UniOp(ref op, ref val) => {
@@ -1303,7 +1326,7 @@ fn cvt_ty_opt(ty: &TypeRef) -> Option<cr_tys::Type>
 	})
 }
 
-fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signature
+fn make_sig(ty: &crate::types::FunctionType, tail_arg_types: Vec<cr_tys::Type>) -> ::cranelift_codegen::ir::Signature
 {
 	use cranelift_codegen::isa::CallConv;
 	use cranelift_codegen::ir::{AbiParam, Signature};
@@ -1331,6 +1354,12 @@ fn make_sig(ty: &crate::types::FunctionType) -> ::cranelift_codegen::ir::Signatu
 		// TODO: Encode variadic types (cranelift can't do that yet)
 		// Workaround suggested in https://github.com/bytecodealliance/wasmtime/issues/1030#issuecomment-549111736
 		// - Create a new function entry/signature for each time a variadic is called
+		for a in tail_arg_types {
+			sig.params.push(AbiParam::new(a));
+		}
+	}
+	else {
+		assert!(tail_arg_types.is_empty());
 	}
 	sig
 }
