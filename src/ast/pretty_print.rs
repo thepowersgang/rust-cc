@@ -38,7 +38,10 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				self.write_enum_def(&self.prog.enums[name].borrow(), true);
 				self.write_str(";\n");
 				},
-			_ => {},
+			&ItemRef::Union(ref name) => {
+				self.write_union_def(&self.prog.unions[name].borrow(), true);
+				self.write_str(";\n");
+				},
 			}
 		}
 	}
@@ -137,6 +140,23 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 				}
 				self.write_str("))");
 			}*/
+		}
+	}
+	fn write_union_def(&mut self, s: &::types::Union, use_newlines: bool)
+	{
+		let nl = if true || use_newlines { "\n" } else { " " };
+		let indent = if true || use_newlines { "\t" } else { "" };
+		self.write_str("union "); self.write_str(&s.name); self.write_str(nl);
+		if let Some(ref body) = s.get_items()
+		{
+			self.write_str("{"); self.write_str(nl);
+			for &(ref ty, ref name) in body.iter()
+			{
+				self.write_str(indent);
+				self.write_type(ty, |s| s.write_str(name));
+				self.write_str(";"); self.write_str(nl);
+			}
+			self.write_str("}");
 		}
 	}
 
@@ -318,6 +338,28 @@ impl<'a, 'b> PrettyPrinter<'a, 'b>
 			}
 			self.write_str(")");
 			self.write_type_qualifiers(&ty.qualifiers);
+			if !info.attributes.gcc.is_empty() {
+				self.write_str(" __attribute__((");
+				b = false;
+				for (name,args) in &info.attributes.gcc {
+					if b {
+						self.write_str(", ");
+					}
+					b = true;
+					self.write_str(name);
+					if !args.is_empty() {
+						self.write_str("(");
+						let mut b = false;
+						for a in args {
+							if b { self.write_str(",") };
+							b = true;
+							self.write_str(a);
+						}
+						self.write_str(")");
+					}
+				}
+				self.write_str("))");
+			}
 			},
 		BaseType::TypeOf(ref inner) => {
 			self.write_str("typeof(");

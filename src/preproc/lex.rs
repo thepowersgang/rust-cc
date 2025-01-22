@@ -41,7 +41,7 @@ macro_rules! match_ch {
 
 impl<'a> Lexer<'a>
 {
-	pub fn new(instream: LexerInput<'a>) -> Lexer {
+	pub fn new(instream: LexerInput<'a>) -> Lexer<'a> {
 		Lexer {
 			instream: instream,
 			lastchar: None,

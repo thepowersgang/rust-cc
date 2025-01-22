@@ -24,7 +24,7 @@ pub fn handle_function(program: &ast::Program, name: &str, ty: &crate::types::Fu
 	for e in ctx.variables
 	{
 		fcn_body.var_table.push(ast::VarTableEnt {
-			span: e.span,
+			//span: e.span,
 			name: e.name,
 			ty: e.ty,
 			});
@@ -63,7 +63,7 @@ enum ValDef
 }
 struct VarDef
 {
-	span: crate::ast::Span,
+	//span: crate::ast::Span,
 	name: Ident,
 	ty: TypeRef,
 }
@@ -76,7 +76,7 @@ impl<'a> Context<'a>
 
 		let idx = self.variables.len();
 		self.variables.push(VarDef {
-			span: span.clone(),
+			//span: span.clone(),
 			name: name.clone(),
 			ty: ty,
 			});

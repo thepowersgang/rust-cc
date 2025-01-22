@@ -101,6 +101,7 @@ pub enum SymbolValue
 #[derive(Debug)]
 pub struct FunctionBody
 {
+	#[allow(dead_code)]	// Neither backend supports inline flags
 	pub inline: bool,
 	pub code: Block,
 	pub var_table: Vec<VarTableEnt>,
@@ -108,7 +109,7 @@ pub struct FunctionBody
 #[derive(Debug)]
 pub struct VarTableEnt
 {
-	pub span: Span,
+	//pub span: Span,
 	pub name: Ident,
 	pub ty: crate::types::TypeRef,
 }
@@ -741,6 +742,7 @@ impl Node
 			NodeKind::UniOp(ref op,ref a) => match (op,a.const_eval(false))
 				{
 				(&UniOp::Neg,ConstVal::Integer(a)) => ConstVal::Integer(!a + 1),
+				(&UniOp::Neg,ConstVal::Float(a)) => ConstVal::Float(-a),
 				(&UniOp::BitNot,ConstVal::Integer(a)) => ConstVal::Integer(!a),
 				_ => ConstVal::None,
 				},
@@ -755,6 +757,12 @@ impl Node
 				(&BinOp::BitAnd,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a&b),
 				(&BinOp::ShiftLeft,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a<<b),
 				(&BinOp::ShiftRight,ConstVal::Integer(a),ConstVal::Integer(b)) => ConstVal::Integer(a<<b),
+
+				(&BinOp::Add,ConstVal::Float(a),ConstVal::Float(b)) => ConstVal::Float(a+b),
+				(&BinOp::Sub,ConstVal::Float(a),ConstVal::Float(b)) => ConstVal::Float(a-b),
+				(&BinOp::Div,ConstVal::Float(a),ConstVal::Float(b)) => ConstVal::Float(a/b),
+				(&BinOp::Mul,ConstVal::Float(a),ConstVal::Float(b)) => ConstVal::Float(a*b),
+
 				_ => ConstVal::None,
 				},
 			NodeKind::Identifier(ref name, ref binding) =>

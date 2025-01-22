@@ -170,7 +170,14 @@ impl Context
 					let s = ty.get_size().unwrap() as usize;
 					buf[..s].copy_from_slice(&val.to_le_bytes()[..s])
 					},
-				crate::ast::ConstVal::Float(_) => todo!("float"),
+				crate::ast::ConstVal::Float(val) => {
+					let s = ty.get_size().unwrap() as usize;
+					match s {
+					4 => buf[..s].copy_from_slice(&(val as f32).to_le_bytes()),
+					8 => buf[..s].copy_from_slice(&val.to_le_bytes()),
+					_ => todo!("Handle non f32/f64"),
+					}
+					},
 				crate::ast::ConstVal::Address(s,ofs) => {
 					buf[..4].copy_from_slice( &(0x1000 + ofs as u32).to_le_bytes() );
 					relocs.push( (base_ofs, Reloc::Addr(s)) );

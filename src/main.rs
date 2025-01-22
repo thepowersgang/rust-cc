@@ -58,7 +58,7 @@ fn main()
 	match ::parse::parse(&mut program, &args.input, args.include_dirs, &args.defines)
 	{
 	Err(e) => {
-		panic!("Error parsing file: {:?}", e);
+		panic!("Error parsing file - {}", e);
 		},
 	Ok(_) => {}
 	}

@@ -84,6 +84,18 @@ impl From<::preproc::Error> for Error
 		}
 	}
 }
+impl ::std::fmt::Display for Error
+{
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+		Error::Todo(msg) => write!(f, "TODO: {}", msg),
+		Error::EOF => f.write_str("Unexpected EOF"),
+		Error::IOError(error) => write!(f, "IO Error: {}", error),
+		Error::BadCharacter(ch) => write!(f, "Unexpected character: {:?}", ch),
+		Error::SyntaxError(msg) => write!(f, "Syntax Error: {}", msg),
+		}
+	}
+}
 
 pub type ParseResult<T> = Result<T,Error>;
 

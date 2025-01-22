@@ -172,7 +172,7 @@ impl PartialEq for ArraySizeExpr {
 		if self as *const _ == v as *const _ {
 			return true;
 		}
-		#[cfg(false_)]
+		#[cfg(any())]
 		self.with_node(|node_l| {
 			v.with_node(|node_r| {
 				match (node_l,node_r)
