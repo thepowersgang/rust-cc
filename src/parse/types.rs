@@ -15,10 +15,16 @@ enum TypeNode
 	Array(Box<TypeNode>, Option<::ast::Node>),
 }
 
+#[derive(Clone)]
+pub struct BaseTypeExtra {
+	pub storage_class: Option<crate::types::StorageClass>,
+	pub is_inline: bool,
+}
+
 impl<'ast> super::ParseState<'ast>
 {
 	/// Parse a bare type name (no pointer handling)
-	pub fn get_base_type(&mut self) -> ParseResult<(Option<crate::types::StorageClass>, ::types::TypeRef,)> {
+	pub fn get_base_type(&mut self) -> ParseResult<(BaseTypeExtra, ::types::TypeRef,)> {
 		match self.get_base_type_opt()?
 		{
 		Some(t) => Ok(t),
@@ -28,10 +34,13 @@ impl<'ast> super::ParseState<'ast>
 	
 	/// Read a single basic type.
 	/// - Could be a primitive, a verbatim struct/union/enum, or a typedef
-	pub fn get_base_type_opt(&mut self) -> ParseResult<Option<(Option<crate::types::StorageClass>, ::types::TypeRef,)>>
+	pub fn get_base_type_opt(&mut self) -> ParseResult<Option<(BaseTypeExtra, ::types::TypeRef,)>>
 	{
 		let mut qualifiers = ::types::Qualifiers::new();
-		let mut storageclass = None;
+		let mut extra = BaseTypeExtra {
+			storage_class: None,
+			is_inline: false,
+		};
 		
 		let mut typeid = None;
 		//let mut is_primitive = false;	// Set on any primitive specifier
@@ -49,11 +58,11 @@ impl<'ast> super::ParseState<'ast>
 		{
 			match self.lex.get_token()?
 			{
-			Token::Rword_extern =>   { storageclass = Some(::types::StorageClass::Extern); },
-			Token::Rword_auto =>     { storageclass = Some(::types::StorageClass::Auto); },
-			Token::Rword_static =>   { storageclass = Some(::types::StorageClass::Static); },
-			Token::Rword_register => { storageclass = Some(::types::StorageClass::Register); },
-			Token::Rword_inline =>   { storageclass = Some(::types::StorageClass::Inline); },
+			Token::Rword_extern =>   { extra.storage_class = Some(::types::StorageClass::Extern); },
+			Token::Rword_auto =>     { extra.storage_class = Some(::types::StorageClass::Auto); },
+			Token::Rword_static =>   { extra.storage_class = Some(::types::StorageClass::Static); },
+			Token::Rword_register => { extra.storage_class = Some(::types::StorageClass::Register); },
+			Token::Rword_inline =>   { extra.is_inline = true; },
 			tok @ _ => {
 				self.lex.put_back(tok);
 				break;
@@ -223,7 +232,7 @@ impl<'ast> super::ParseState<'ast>
 			}
 			else {
 				// If any tokens were consumed during this function, we have to error
-				if qualifiers != ::types::Qualifiers::new() || storageclass.is_some() {
+				if qualifiers != ::types::Qualifiers::new() || extra.storage_class.is_some() {
 					syntax_error!("No type provided, got token {:?}", self.lex.get_token()?);
 				}
 				else {
@@ -232,7 +241,7 @@ impl<'ast> super::ParseState<'ast>
 				}
 			};
 		
-		Ok( Some((storageclass, ::types::Type::new_ref(rv, qualifiers),)) )
+		Ok( Some((extra, ::types::Type::new_ref(rv, qualifiers),)) )
 	}
 	/// Parse a full type (Pointers, arrays, and functions) from a base (starting) type
 	///	

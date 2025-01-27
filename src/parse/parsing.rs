@@ -78,7 +78,7 @@ impl<'ast> super::ParseState<'ast>
 	{
 		let span = self.lex.point_span();
 		// 1. Get base type
-		let (storage_class, basetype) = self.get_base_type()?;
+		let (extra, basetype) = self.get_base_type()?;
 		debug!("do_definition: basetype={:?}", basetype);
 		// 2. Get extended type and identifier
 		let (typeid, ident) = self.get_full_type(basetype.clone())?;
@@ -89,12 +89,12 @@ impl<'ast> super::ParseState<'ast>
 			match self.lex.get_token()?
 			{
 			// NOTE: The following would need changes for C++11 array literals
-			Token::BraceOpen => return self.parse_function(span, storage_class, typeid, ident),
+			Token::BraceOpen => return self.parse_function(span, extra, typeid, ident),
 			tok @ _ => {
 				self.lex.put_back(tok);
 
-				self.parse_variable_def(span, storage_class.clone(), typeid, ident)?;
-				return self.parse_variable_list(storage_class, basetype)
+				self.parse_variable_def(span, extra.clone(), typeid, ident)?;
+				return self.parse_variable_list(extra, basetype)
 				}
 			}
 		}
@@ -111,12 +111,12 @@ impl<'ast> super::ParseState<'ast>
 // ---
 impl<'ast> super::ParseState<'ast>
 {
-	fn parse_function(&mut self, span: crate::ast::Span, storage_class: Option<crate::types::StorageClass>, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
+	fn parse_function(&mut self, span: crate::ast::Span, extra: crate::parse::types::BaseTypeExtra, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
 		// TODO: Store function name for `__func__`
 		let code = self.parse_block()?;
 		debug!("parse_function: code = {:?}", code);
-		self.ast.define_function(span, storage_class, typeid, ident, Some(code));
+		self.ast.define_function(span, extra.is_inline, extra.storage_class, typeid, ident, Some(code));
 		Ok( () )
 	}
 	
@@ -151,7 +151,7 @@ impl<'ast> super::ParseState<'ast>
 		let sp = self.lex.point_span();
 		Ok(match self.get_base_type_opt()?
 		{
-		Some((storage_class, basetype)) => {
+		Some((extra, basetype)) => {
 			debug!("try_parse_local_var - basetype={:?}", basetype);
 			// Definition!
 			let (typeid, ident) = self.get_full_type(basetype.clone())?;
@@ -161,15 +161,15 @@ impl<'ast> super::ParseState<'ast>
 					if peek_token!(self.lex, Token::BraceOpen)
 					{
 						// NOTE: The following would need changes for C++11 struct initialisation
-						self.parse_function(sp, storage_class, typeid, ident)?;
+						self.parse_function(sp, extra, typeid, ident)?;
 						return Ok(Some(vec![]));
 						//parse_todo!("Nested functions");
 					}
 					// If the storage class is specified as `static`, it's a "global"
-					else if let Some(crate::types::StorageClass::Static|crate::types::StorageClass::Extern) = storage_class
+					else if let Some(crate::types::StorageClass::Static|crate::types::StorageClass::Extern) = extra.storage_class
 					{
-						self.parse_variable_def(sp, storage_class.clone(), typeid, ident)?;
-						self.parse_variable_list(storage_class, basetype)?;
+						self.parse_variable_def(sp, extra.clone(), typeid, ident)?;
+						self.parse_variable_list(extra, basetype)?;
 						return Ok(Some(vec![]));
 					}
 					else
@@ -407,7 +407,7 @@ impl<'ast> super::ParseState<'ast>
 		Ok( ::ast::Statement::Switch(cnd, code) )
 	}
 	
-	fn parse_variable_list(&mut self, storage_class: Option<crate::types::StorageClass>, basetype: ::types::TypeRef) -> ParseResult<()>
+	fn parse_variable_list(&mut self, extra: super::types::BaseTypeExtra, basetype: ::types::TypeRef) -> ParseResult<()>
 	{
 		loop
 		{
@@ -423,14 +423,14 @@ impl<'ast> super::ParseState<'ast>
 			
 			let span = self.lex.point_span();
 			let (typeid, ident) = self.get_full_type(basetype.clone())?;
-			self.parse_variable_def(span, storage_class.clone(), typeid, ident)?;
+			self.parse_variable_def(span, extra.clone(), typeid, ident)?;
 
 		}
 		
 		Ok( () )
 	}
 	
-	fn parse_variable_def(&mut self, span: crate::ast::Span, storage_class: Option<crate::types::StorageClass>, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
+	fn parse_variable_def(&mut self, span: crate::ast::Span, extra: super::types::BaseTypeExtra, typeid: ::types::TypeRef, ident: String) -> ParseResult<()>
 	{
 		if peek_token!(self.lex, Token::Ident(ref n) if n == "__attribute__")
 		{
@@ -450,7 +450,7 @@ impl<'ast> super::ParseState<'ast>
 		let init = self.parse_var_init()?;
 		match init {
 		None => {
-			self.ast.define_variable(span, storage_class, typeid, ident, None);
+			self.ast.define_variable(span, extra.is_inline, extra.storage_class, typeid, ident, None);
 			}
 		Some(init) => {
 			let mut typeid = typeid;
@@ -464,7 +464,7 @@ impl<'ast> super::ParseState<'ast>
 					};
 				typeid = ::types::Type::new_ref(::types::BaseType::Array(ty.clone(), ::types::ArraySize::Fixed(len as u64)), typeid.qualifiers.clone());
 			}
-			self.ast.define_variable(span, storage_class, typeid, ident, Some(init));
+			self.ast.define_variable(span, extra.is_inline, extra.storage_class, typeid, ident, Some(init));
 			}
 		}
 

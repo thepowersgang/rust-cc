@@ -733,6 +733,20 @@ impl<'a> Context<'a>
 			},
 		NodeKind::Member(ref mut val, ref name) => {
 			self.visit_node(val, req_lvalue);
+			loop {
+				if let Some((anon_name,ty)) = node_ty(&val).get_anon_field(name) {
+					*val = Box::new(ast::Node::new(val.span.clone(),
+						NodeKind::Member(::std::mem::replace(val, Box::new( null_node(span) ) ), anon_name)
+						) );
+					val.meta = Some(ast::NodeMeta {
+						is_lvalue: req_lvalue,
+						ty: ty,
+						});
+				}
+				else {
+					break
+				}
+			}
 			match node_ty(&val).get_field(name)
 			{
 			None => span.error(format_args!("Unable to find field `{}`", name)),

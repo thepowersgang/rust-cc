@@ -33,6 +33,8 @@ impl Context
 	}
 	pub fn finish(mut self, mut sink: impl ::std::io::Write) -> Result<(), Box<dyn std::error::Error>>
 	{
+		write!(self.output_buffer, "type va_list#inner;\n").unwrap();
+		write!(self.output_buffer, "type va_list {{ SIZE 8, ALIGN 8; 0 = *const va_list#inner; }}\n").unwrap();
 		for (name, ty) in &self.declared_functions {
 			if self.defined_functions.contains(name) {
 			}
@@ -63,7 +65,7 @@ impl Context
 	pub fn declare_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef)
 	{
 		self.register_type(ty);
-		write!(self.output_buffer, "static {}: {} = @\"{}\";\n", name, self.fmt_type(ty), name).unwrap();
+		write!(self.output_buffer, "static {}: {} = @\"{}\";\n", self.mangled_symbols.get(name).unwrap_or(name), self.fmt_type(ty), name).unwrap();
 	}
 	pub fn lower_function(&mut self, name: &crate::ast::Ident, ty: &crate::types::FunctionType, body: &crate::ast::FunctionBody)
 	{
@@ -127,7 +129,7 @@ impl Context
 	pub fn lower_value(&mut self, name: &crate::ast::Ident, ty: &crate::types::TypeRef, val: Option<&crate::ast::Initialiser>)
 	{
 		self.register_type(ty);
-		write!(self.output_buffer, "static {}: {} = ", name, self.fmt_type(ty)).unwrap();
+		write!(self.output_buffer, "static {}: {} = ", self.mangled_symbols.get(name).unwrap_or(name), self.fmt_type(ty)).unwrap();
 
 		let size = ty.get_size().expect("lower_value with unsized/undefined type") as usize;
 		enum Reloc {
@@ -279,7 +281,10 @@ impl Context
 		if relocs.len() > 0
 		{
 			write!(self.output_buffer, "{{").unwrap();
-			for (ofs,r) in relocs {
+			for (i,(ofs,r)) in relocs.iter().enumerate() {
+				if i % 8 == 0 {
+					write!(self.output_buffer, "\n   ").unwrap();
+				}
 				write!(self.output_buffer, " @{}+{}=", ofs, crate::types::POINTER_SIZE).unwrap();
 				match r {
 				Reloc::String(s) => fmt_bytes(&mut self.output_buffer, &s.as_bytes()),
@@ -290,7 +295,7 @@ impl Context
 				}
 				write!(self.output_buffer, ",").unwrap();
 			}
-			write!(self.output_buffer, " }}").unwrap();
+			write!(self.output_buffer, "\n    }}").unwrap();
 		}
 		write!(self.output_buffer, ";\n").unwrap();
 /*
@@ -830,6 +835,17 @@ impl Builder<'_>
 			if let BaseType::Array(_, crate::types::ArraySize::Expr(_)) = &var_def.ty.basetype {
 			}
 			else {
+				// TODO: bitfields should be initialised, as smiri doesn't do bit-level validity tracking
+				if let BaseType::Struct(sr) = &var_def.ty.basetype {
+					if sr.borrow().iter_fields().any(|v| v.3.is_some()) {
+						// Emit an `"init"()` call
+						let next_block = self.create_block();
+						self.push_term(format!("CALL {} = \"init\"<{}>() goto {} else {}",
+							self.vars[idx].lvalue, self.parent.fmt_type(&var_def.ty), next_block, BLOCK_PANIC));
+						self.set_block(next_block);
+						return ;
+					}
+				}
 				// Emit an `"uninit"()` call
 				let next_block = self.create_block();
 				self.push_term(format!("CALL {} = \"uninit\"<{}>() goto {} else {}",
@@ -1334,13 +1350,22 @@ impl Builder<'_>
 				ValueRef::Slot(slot)
 				},
 			ValueRef::Bitfield(base, mask, ty) => {
+				//let slot_ty = &slot.meta.as_ref().unwrap().ty;
+				let val_ty = &val.meta.as_ref().unwrap().ty;
 				let val = self.handle_node(val);
+				let val = if ty != self.parent.fmt_type(val_ty).to_string() {
+					ValueRef::Value(format!("CAST {} as {}", self.get_value(val), ty), ty.to_string())
+				}
+				else {
+					val
+				};
 				let val = if mask.trailing_zeros() == 0 {
 						val
 					} else {
 						ValueRef::Value(format!("BINOP {} << {} i32", self.get_value(val), mask.trailing_zeros()), ty.clone().into_owned())
 					};
-				let val = ValueRef::Value(format!("BINOP {} & {:#x} {}", self.get_value(val), mask, ty), ty.clone().into_owned());
+				let val = self.get_value(val);
+				let val = ValueRef::Value(format!("BINOP {} & {:#x} {}", val, mask, ty), ty.clone().into_owned());
 				let dst = ValueRef::Value(format!("BINOP {} & {:#x} {}", base, !mask, ty), ty.clone().into_owned());
 				let val = ValueRef::Value(format!("BINOP {} | {}", self.get_value(dst), self.get_value(val)), ty.clone().into_owned());
 				self.push_stmt_assign(base.clone(), val);
@@ -1358,7 +1383,7 @@ impl Builder<'_>
 				};
 			let val = self.handle_node(val);
 			let val_r = self.get_value(val);
-			let new_val = self.handle_binop(op, ty, slot.clone(), val_r);
+			let new_val = self.handle_binop(op, ty, slot.clone(), ty, val_r);
 			self.push_stmt_assign(slot.clone(), new_val);
 			ValueRef::Slot(slot)
 			},
@@ -1522,18 +1547,20 @@ impl Builder<'_>
 			},
 		NodeKind::BinOp(ref op, ref val_l, ref val_r) => {
 			let ty_l = &val_l.meta.as_ref().unwrap().ty;
+			let ty_r = &val_r.meta.as_ref().unwrap().ty;
 			let val_l = self.handle_node(val_l);
 			let val_r = self.handle_node(val_r);
 			let val_l = self.get_value(val_l);
 			let val_r = self.get_value(val_r);
 
-			self.handle_binop(op, ty_l, val_l, val_r)
+			self.handle_binop(op, ty_l, val_l, ty_r, val_r)
 			},
 			
 		NodeKind::Index(..) => panic!("Unexpected Index op"),
 		NodeKind::DerefMember(..) => panic!("Unexpected DerefMember op"),
 		NodeKind::Member(ref val, ref name) => {
 			let ty = &val.meta.as_ref().unwrap().ty;
+			self.push_comment(format_args!("Field: {name} of {ty:?}"));
 			let val = self.handle_node(val);
 			match ty.get_field(name)
 			{
@@ -1603,7 +1630,7 @@ impl Builder<'_>
 		}
 	}
 
-	fn handle_binop(&mut self, op: &crate::ast::BinOp, ty_l: &crate::types::TypeRef, val_l: String, val_r: String) -> ValueRef
+	fn handle_binop(&mut self, op: &crate::ast::BinOp, ty_l: &crate::types::TypeRef, val_l: String, ty_r: &crate::types::TypeRef, val_r: String) -> ValueRef
 	{
 		if let BaseType::Pointer(ref inner) = ty_l.basetype {
 			match op
@@ -1612,8 +1639,13 @@ impl Builder<'_>
 				let (method,dst) = match op
 					{
 					BinOp::Add => ("offset", self.alloc_local(ty_l),),
-					BinOp::Sub => ("ptr_diff", self.alloc_local_raw("usize".to_owned()),),
-					_ => panic!(""),
+					BinOp::Sub => if let BaseType::Pointer(_) = ty_r.basetype {
+						("ptr_diff", self.alloc_local_raw("usize".to_owned()),)
+					}
+					else {
+						("offset", self.alloc_local(ty_l),)
+					},
+					_ => panic!("Impossible"),
 					};
 				let next_block = self.create_block();
 				self.push_term(format!("CALL {} = \"{}\"<{}>({}, {}) goto {} else {}",
@@ -1736,7 +1768,16 @@ impl Builder<'_>
 				ValueRef::Value(format!("CAST {} as {}", self.get_value(v), dst_ty_s), dst_ty_s)
 			}
 		}
-		else if let BaseType::Pointer(_) = dst_ty.basetype {
+		else if let BaseType::Pointer(ref inner) = dst_ty.basetype {
+			if let BaseType::Function(_) = inner.basetype {
+				let dst = self.alloc_local(dst_ty);
+				let next_block = self.create_block();
+				let t = format!("CALL {} = \"transmute\"<{},{}>({}) goto {} else {}",
+					dst, self.parent.fmt_type(dst_ty), self.parent.fmt_type(src_ty), self.get_value(src_val), next_block, BLOCK_PANIC);
+				self.push_term(t);
+				self.set_block(next_block);
+				return ValueRef::Slot(dst);
+			}
 			// Force integers to cast to usize first
 			let src_val = if let BaseType::Integer(_) = src_ty.basetype {
 					ValueRef::Value(format!("CAST {} as usize", self.get_value(src_val)), "usize".to_owned())

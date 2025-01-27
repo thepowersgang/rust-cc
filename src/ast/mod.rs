@@ -131,19 +131,19 @@ impl Program
 		}
 	}
 	
-	pub fn define_function(&mut self, span: Span, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Block>)
+	pub fn define_function(&mut self, span: Span, is_inline: bool, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Block>)
 	{
-		let (vis, is_inline) = match storage_class
+		let vis = match storage_class
 			{
-			None => { (Visibility::Auto, false,) },
+			None => Visibility::Auto,
 			Some(crate::types::StorageClass::Extern) => {
 				if value.is_some() {
 					// TODO: Warning?
 				}
-				(Visibility::Extern, false,)
+				Visibility::Extern
 			},
-			Some(crate::types::StorageClass::Static) => (Visibility::Static, false,),
-			Some(crate::types::StorageClass::Inline) => (Visibility::Extern, true,),
+			Some(crate::types::StorageClass::Static) => Visibility::Static,
+			//Some(crate::types::StorageClass::Inline) => Visibility::Extern,
 			Some(crate::types::StorageClass::Register)
 			|Some(crate::types::StorageClass::Auto) => panic!("TODO: Error message"),
 			};
@@ -158,12 +158,15 @@ impl Program
 			};
 		self.define_symbol(span, vis, typeid, name, value)
 	}
-	pub fn define_variable(&mut self, span: Span, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
+	pub fn define_variable(&mut self, span: Span, is_inline: bool, storage_class: Option<::types::StorageClass>, typeid: ::types::TypeRef, name: Ident, value: Option<Initialiser>)
 	{
 		if let crate::types::BaseType::Function(_) = typeid.basetype {
 			if value.is_none() {
-				return self.define_function(span, storage_class, typeid, name, None);
+				return self.define_function(span, is_inline, storage_class, typeid, name, None);
 			}
+		}
+		if is_inline {
+			// TODO: Warn/error?
 		}
 		let vis = match storage_class
 			{
@@ -176,8 +179,8 @@ impl Program
 			},
 			Some(crate::types::StorageClass::Static) => Visibility::Static,
 			Some(crate::types::StorageClass::Register) => Visibility::Auto,
-			Some(crate::types::StorageClass::Inline)
-			|Some(crate::types::StorageClass::Auto) => todo!("Invalid storage class on global?"),
+			//Some(crate::types::StorageClass::Inline)|
+			Some(crate::types::StorageClass::Auto) => todo!("Invalid storage class on global?"),
 			};
 		let value = match value
 			{

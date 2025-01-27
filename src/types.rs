@@ -373,7 +373,7 @@ pub enum StorageClass
 	Extern,
 	Static,
 	Register,
-	Inline,
+	//Inline,
 	//StaticInline,
 }
 
@@ -545,40 +545,87 @@ impl Type
 		_ => None,
 		}
 	}
-	pub fn get_field(&self, name: &str) -> Option<(usize, u32, TypeRef, Option<u64>)> {
+	pub fn get_anon_field(&self, name: &str) -> Option<(String, TypeRef)> {
 		match self.basetype
 		{
 		BaseType::Struct(ref r) => {
 			let b = r.borrow();
-			for (i,(ofs, fld_name, fld_ty, bit_mask)) in b.iter_fields().enumerate()
+			for (i,(_ofs, fld_name, fld_ty, _bit_mask)) in b.iter_fields().enumerate()
 			{
 				if fld_name == "" {
-					if let Some((_, s_ofs, fld_ty, mask)) = fld_ty.get_field(name) {
-						return Some((i, ofs + s_ofs, fld_ty, mask));
+					if fld_ty.get_field(name).is_some() || fld_ty.get_anon_field(name).is_some() {
+						return Some((format!("#{}", i), fld_ty.clone(),));
 					}
-				}
-				if fld_name == name {
-					return Some( (i, ofs, fld_ty.clone(), bit_mask) );
 				}
 			}
 			None
 			},
 		BaseType::Union(ref r) => {
 			let r = r.borrow();
-			for (i, (fld_ty,fld_name)) in r.get_items().unwrap_or(&[]).iter().enumerate() {
+			let items = r.get_items().unwrap_or(&[]);
+			for (i, (fld_ty,fld_name)) in items.iter().enumerate() {
 				if fld_name == "" {
-					if let Some((_, s_ofs, fld_ty, mask)) = fld_ty.get_field(name) {
-						return Some((i, 0 + s_ofs, fld_ty, mask));
+					if fld_ty.get_field(name).is_some() || fld_ty.get_anon_field(name).is_some() {
+						return Some((format!("#{}", i), fld_ty.clone(),));
 					}
-				}
-				if fld_name == name {
-					return Some((i, 0, fld_ty.clone(), None));
 				}
 			}
 			None
 			},
-		BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
+		BaseType::MagicType(_) => todo!("Type::get_anon_field({:?}, {})", self, name),
 		_ => None,
+		}
+	}
+	pub fn get_field(&self, name: &str) -> Option<(usize, u32, TypeRef, Option<u64>)> {
+		if name.starts_with('#') {
+			let idx = name[1..].parse().unwrap();
+			match self.basetype
+			{
+			BaseType::Struct(ref r) => {
+				let b = r.borrow();
+				let rv = b.iter_fields().nth(idx).map(|(ofs, _fld_name, fld_ty, bit_mask)| {
+					(idx, ofs, fld_ty.clone(), bit_mask)
+				});
+				rv
+				},
+			BaseType::Union(ref r) => {
+				let r = r.borrow();
+				let rv = r.get_items().unwrap_or(&[]).get(idx).map(|(fld_ty,_fld_name)| {
+					(idx, 0, fld_ty.clone(), None)
+				});
+				rv
+				},
+			BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
+			_ => None,
+			}
+		}
+		else {
+			match self.basetype
+			{
+			BaseType::Struct(ref r) => {
+				let b = r.borrow();
+				for (i,(ofs, fld_name, fld_ty, bit_mask)) in b.iter_fields().enumerate()
+				{
+					if fld_name == name {
+						return Some( (i, ofs, fld_ty.clone(), bit_mask) );
+					}
+				}
+				None
+				},
+			BaseType::Union(ref r) => {
+				let r = r.borrow();
+				let items = r.get_items().unwrap_or(&[]);
+				for (i, (fld_ty,fld_name)) in items.iter().enumerate()
+				{
+					if fld_name == name {
+						return Some((i, 0, fld_ty.clone(), None));
+					}
+				}
+				None
+				},
+			BaseType::MagicType(_) => todo!("Type::get_field({:?}, {})", self, name),
+			_ => None,
+			}
 		}
 	}
 
