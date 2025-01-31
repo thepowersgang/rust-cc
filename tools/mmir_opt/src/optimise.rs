@@ -15,14 +15,17 @@ pub fn optimise_function(logger: &mut Logger, fcn: &mut crate::mir::Function, _s
         // - Redundant Pointer Casts
         //  > Two casts in a row can be simplfied into just the latter (if the initial source is a pointer or usize)
         //  * This happens when `NULL` is cast to something.
-        #[cfg(false_)]
+        #[cfg(any())]
         while remove_redundant_casts(logger, fcn, sig) {
             changed = true;
         }
         // - Single write/use temporaries
-        #[cfg(false_)]
+        #[cfg(any())]
         while remove_single_use(logger, fcn) {
             changed = true;
+        }
+        if changed {
+            crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         // - Unused writes
         while remove_dead_writes(logger, fcn) {
@@ -146,7 +149,7 @@ fn const_propagate(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
                             crate::mir::UniOp::Inv => match c {
                                 Const::Boolean(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
                                 Const::Unsigned(v, bits) => Const::Unsigned(bits.mask_unsigned(!*v), bits.clone()),
-                                Const::Signed(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
+                                Const::Signed(v, bits) => Const::Signed(!*v, bits.clone()),
                                 Const::Float(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
                                 Const::String(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
                                 Const::ItemAddr(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
@@ -340,25 +343,7 @@ fn remove_dead_writes(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bo
         Read,
         Write,
     }
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    struct LineRef {
-        bb_idx: usize,
-        stmt_idx: StmtIdx,
-    }
-    #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum StmtIdx {
-        Stmt(u16),
-        Term,
-    }
-    impl ::core::fmt::Display for LineRef {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "BB{}/", self.bb_idx)?;
-            match self.stmt_idx {
-            StmtIdx::Stmt(i) => write!(f, "{}", i),
-            StmtIdx::Term => f.write_str("TERM"),
-            }
-        }
-    }
+    use crate::{LineRef,StmtIdx};
     use ::std::collections::BTreeMap;
     let mut ops = BTreeMap::<usize,Vec<(LineRef,Op)>>::new();
     for (bb_idx,bb) in fcn.blocks.iter().enumerate()
@@ -412,6 +397,14 @@ fn remove_dead_writes(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bo
         Terminator::Diverge => {},
         Terminator::Goto(_) => {},
         Terminator::Call(ref call) => {
+
+            match &call.target {
+            crate::mir::CallTarget::Path(_) => {},
+            crate::mir::CallTarget::Intrinsic(_, _) => {},
+            crate::mir::CallTarget::Value(slot) => {
+                visit_read(&mut ops, slot, &lr);
+            },
+            }
 
             for p in &call.args {
                 helpers::visit_slot_in_param(p, |slot| {

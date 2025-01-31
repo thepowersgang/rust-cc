@@ -83,7 +83,15 @@ impl<'p, 'a> Lexer<'p, 'a> {
         Some(match self.rem.as_bytes()
         {
         [] => return None,
-        [b'0', b'x', ..] => todo!("{self}: hex numbers"),
+        [b'0', b'x', ..] => {
+            self.consume(2);
+            let len = self.rem.as_bytes().iter().position(|&b| !b.is_ascii_hexdigit()).unwrap_or(self.rem.len());
+            if len == 0 {
+                panic!("{self}: Bare `0x`");
+            }
+            let s = self.consume(len);
+            Token::Integer(u128::from_str_radix(s, 16).unwrap())
+        },
         [b'0', b'b', ..] => todo!("{self}: binary numbers"),
         [b'0', b'o', ..] => todo!(),
         [b'0'..=b'9', ..] => {

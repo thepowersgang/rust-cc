@@ -23,7 +23,7 @@ impl TypeRef {
         self
     }
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Mutability {
     Shared,
     Unique,

@@ -72,14 +72,14 @@ impl Slot {
         }
     }
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum SlotRoot {
     Named(String),
     Argument(usize),
     Local(usize),
     Return,
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum SlotWrapper {
     Deref,
     Index(usize),

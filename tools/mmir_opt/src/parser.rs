@@ -3,6 +3,10 @@ use ::std::collections::btree_map::Entry;
 
 pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
     let inner = ::std::fs::read_to_string(path).expect("Unable to open file");
+    if ! dst.loaded_crates.insert(path.canonicalize().unwrap()) {
+        // Ignore the file, as it has already been loaded
+        return ;
+    }
     let mut lexer = Lexer::new(path, &inner);
     let lex = &mut lexer;
 
@@ -14,6 +18,22 @@ pub fn parse_file(dst: &mut crate::modtree::Root, path: &::std::path::Path) {
             Some(t) => panic!("{lex}: Unexpected {t:?}, expected Ident(_)"),
             }
         {
+        "crate" => {
+            let new_path = lex.consume_str().parse_string();
+            if true {
+                parse_file(dst, new_path.as_ref());
+            }
+            else {
+                let new_path = path.parent().unwrap_or(::std::path::Path::new(".")).join(&new_path);
+                match new_path.canonicalize() {
+                Ok(v) => {
+                    parse_file(dst, &v);
+                    },
+                Err(e) => panic!("{lex}: Unable to find crate {:?} - {}", new_path, e),
+                }
+            }
+            lex.consume_sym(";");
+        }
         "fn" => {
             let define_location = format!("{lex}");
             let name = lex.consume_ident().to_owned();

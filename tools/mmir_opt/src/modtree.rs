@@ -3,6 +3,7 @@ use ::std::collections::BTreeMap;
 
 pub struct Root
 {
+    pub loaded_crates: ::std::collections::HashSet<::std::path::PathBuf>,
     pub types: BTreeMap<String, Type>,
     pub functions: BTreeMap<String, Function>,
     pub statics: BTreeMap<String, Static>,
@@ -10,6 +11,7 @@ pub struct Root
 impl Root {
     pub fn new() -> Self {
         Root {
+            loaded_crates: Default::default(),
             types: Default::default(),
             functions: Default::default(),
             statics: Default::default(),
