@@ -58,7 +58,7 @@ pub enum Wrapper {
     Borrow(Mutability),
 }
 #[repr(transparent)]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq,PartialOrd, Debug, Copy, Clone)]
 pub struct Bits(u8);
 impl Bits {
     pub const SIZE: Bits = Bits(0xFF);
@@ -78,6 +78,15 @@ impl Bits {
         }
         else {
             v & (1 << (8*self.0))-1
+        }
+    }
+    pub fn mask_signed(&self, v: i128) -> i128 {
+        if v < 0 {
+            let v = -v;
+            -(self.mask_unsigned(v as u128) as i128)
+        }
+        else {
+            self.mask_unsigned(v as u128) as i128
         }
     }
 }

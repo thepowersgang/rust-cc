@@ -125,7 +125,7 @@ pub enum Param {
     Const(Const),
     Slot(Slot),
 }
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub enum Const {
     Boolean(bool),
     Unsigned(u128, crate::types::Bits),

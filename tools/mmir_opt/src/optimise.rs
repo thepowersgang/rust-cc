@@ -1,6 +1,5 @@
 use crate::mir::Terminator;
 use crate::mir::Statement;
-use crate::mir::Value;
 use crate::logger::Logger;
 
 pub fn optimise_function(logger: &mut Logger, fcn: &mut crate::mir::Function, _sig: &crate::types::FcnTy)
@@ -11,6 +10,7 @@ pub fn optimise_function(logger: &mut Logger, fcn: &mut crate::mir::Function, _s
         // - Simplify flow control: If a block is just a goto, replace uses of it with the target
         while simplify_control_flow(logger, fcn) {
             changed = true;
+            crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         // - Redundant Pointer Casts
         //  > Two casts in a row can be simplfied into just the latter (if the initial source is a pointer or usize)
@@ -18,24 +18,25 @@ pub fn optimise_function(logger: &mut Logger, fcn: &mut crate::mir::Function, _s
         #[cfg(any())]
         while remove_redundant_casts(logger, fcn, sig) {
             changed = true;
+            crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         // - Single write/use temporaries
         #[cfg(any())]
         while remove_single_use(logger, fcn) {
             changed = true;
-        }
-        if changed {
             crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         // - Unused writes
         while remove_dead_writes(logger, fcn) {
             changed = true;
+            crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         // - Constant propagation
         //  > Replace casts with literals
         //  > Propagate through to operators
         while const_propagate(logger, fcn) {
             changed = true;
+            crate::dump::dump_function_body(&mut logger.writer(), fcn, None).unwrap();
         }
         if !changed {
             break
@@ -70,222 +71,8 @@ fn simplify_control_flow(logger: &mut Logger, fcn: &mut crate::mir::Function) ->
     rv
 }
 
-
-fn const_propagate(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
-{
-    log_debug!(logger, "const_propagate");
-    use crate::mir::Const;
-
-    let mut rv = false;
-    let usage_count = {
-        let mut usage_count: Vec<_> = (0..fcn.blocks.len()).map(|_| 0).collect();
-        usage_count[0] = 1;
-        helpers::visit_block_targets_mut(fcn, |&mut tgt| usage_count[tgt] += 1);
-        usage_count
-        };
-    
-    let mut known_values = ::std::collections::HashMap::new();
-    for bb in &mut fcn.blocks {
-        known_values.clear();
-
-        fn get_for_slot<'a>(
-            known_values: &::std::collections::HashMap<usize,&'a crate::mir::Const>,
-            lv: &crate::mir::Slot
-        ) -> Option<&'a crate::mir::Const> {
-            if let Some(i) = lv.is_local() {
-                if let Some(&v) = known_values.get(&i) {
-                    return Some(v);
-                }
-            }
-            None
-        }
-        fn get_for_param<'a>(
-            known_values: &::std::collections::HashMap<usize,&'a crate::mir::Const>,
-            lv: &crate::mir::Param
-        ) -> Option<&'a crate::mir::Const> {
-            if let crate::mir::Param::Slot(lv) = lv {
-                return get_for_slot(known_values, lv);
-            }
-            None
-        }
-        for stmt in &mut bb.statements {
-            match stmt {
-            Statement::SpanComment(_) => {},
-            Statement::Assign(dst, src) => {
-                if let Some(i) = dst.is_local() {
-                    known_values.remove(&i);
-                }
-                match src
-                {
-                Value::Constant(c) => {
-                    if let Some(idx) = dst.is_local() {
-                        known_values.insert(idx, &*c);
-                    }
-                },
-                Value::Use(v) => {
-                    if let Some(c) = get_for_slot(&known_values, v) {
-                        *src = Value::Constant(c.clone());
-                        rv = true;
-                    }
-                }
-                Value::Borrow(_, slot) => {
-                    if let Some(i) = slot.is_local() {
-                        known_values.remove(&i);
-                    }
-                },
-                Value::BinOp(a, _, b) => {
-                    if let Some(c) = get_for_param(&known_values, a) {
-                        *a = crate::mir::Param::Const(c.clone());
-                        rv = true;
-                    }
-                    if let Some(c) = get_for_param(&known_values, b) {
-                        *b = crate::mir::Param::Const(c.clone());
-                        rv = true;
-                    }
-                },
-                Value::UniOp(op, a) => {
-                    if let Some(c) = get_for_slot(&known_values, a) {
-                        *src = Value::Constant(match op {
-                            crate::mir::UniOp::Inv => match c {
-                                Const::Boolean(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::Unsigned(v, bits) => Const::Unsigned(bits.mask_unsigned(!*v), bits.clone()),
-                                Const::Signed(v, bits) => Const::Signed(!*v, bits.clone()),
-                                Const::Float(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::String(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::ItemAddr(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                            },
-                            crate::mir::UniOp::Neg => match c {
-                                Const::Boolean(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::Unsigned(_, _) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::Signed(v, bits) => Const::Signed(-*v, bits.clone()),
-                                Const::Float(v, bits) => Const::Float(-*v, bits.clone()),
-                                Const::String(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                                Const::ItemAddr(_) => todo!("Evaluate UniOp {:?} {:?}", op, c),
-                            },
-                            });
-                        rv = true;
-                    }
-                },
-                Value::Cast(v, ty) => {
-                    if let Some(c) = get_for_slot(&known_values, v) {
-                        use crate::types::Root;
-                        let v = match &ty.root {
-                            Root::Unsigned(bits) if ty.wrappers.is_empty() => {
-                                let new_v = match c
-                                    {
-                                    Const::Boolean(v) => *v as u128,
-                                    Const::Unsigned(v, _bits) => *v,
-                                    Const::Signed(v, _bits) => *v as u128,
-                                    Const::Float(_, _) => todo!(),
-                                    Const::String(_)
-                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
-                                    };
-                                Some(Const::Unsigned(new_v, bits.clone()))
-                                },
-                            Root::Signed(bits) if ty.wrappers.is_empty() => {
-                                let new_v = match c
-                                    {
-                                    Const::Boolean(v) => *v as i128,
-                                    Const::Unsigned(v, _bits) => *v as i128,
-                                    Const::Signed(v, _bits) => *v,
-                                    Const::Float(_, _) => todo!(),
-                                    Const::String(_)
-                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
-                                    };
-                                Some(Const::Signed(new_v, bits.clone()))
-                                },
-                            Root::Float(bits) if ty.wrappers.is_empty() => {
-                                let new_v = match c
-                                    {
-                                    Const::Boolean(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
-                                    Const::Unsigned(v, _bits) => *v as f64,
-                                    Const::Signed(v, _bits) => *v as f64,
-                                    Const::Float(_, _) => todo!(),
-                                    Const::String(_)
-                                    | Const::ItemAddr(_) => panic!("Malformed cast: {:?} to {:?}", c, ty),
-                                    };
-                                Some(Const::Float(new_v, bits.clone()))
-                                },
-                            _ => None,
-                            };
-                        if let Some(c) = v {
-                            *src = Value::Constant(c);
-                            rv = true;
-                        }
-                    }
-                },
-                Value::DstPtr(_) => {},
-                Value::DstMeta(_) => {},
-                Value::Tuple(vals) => {
-                    for v in vals {
-                        if let Some(c) = get_for_param(&known_values, v) {
-                            *v = crate::mir::Param::Const(c.clone());
-                            rv = true;
-                        }
-                    }
-                },
-                Value::Array(vals) => {
-                    for v in vals {
-                        if let Some(c) = get_for_param(&known_values, v) {
-                            *v = crate::mir::Param::Const(c.clone());
-                            rv = true;
-                        }
-                    }
-                },
-                Value::Struct(_, vals) => {
-                    for v in vals {
-                        if let Some(c) = get_for_param(&known_values, v) {
-                            *v = crate::mir::Param::Const(c.clone());
-                            rv = true;
-                        }
-                    }
-                },
-                Value::UnionVariant(_, _, _) => {},
-                Value::EnumVariant(_, _, _) => {},
-                }
-                },
-            }
-        }
-
-        match bb.terminator {
-        Terminator::Removed => {},
-        Terminator::Invalid => {},
-        Terminator::Return => {},
-        Terminator::Diverge => {},
-        Terminator::Goto(tgt) => if usage_count[tgt] == 1 {
-            // Continue into this block
-        },
-        Terminator::Call(ref call) => {
-            if usage_count[call.bb_ret] == 1 {
-                // Continue into this block
-            }
-        },
-        Terminator::If(_, bb_true, bb_false) => {
-            if usage_count[bb_true] == 1 {
-                // Continue into this block
-            }
-            if usage_count[bb_false] == 1 {
-                // Continue into this block
-            }
-        },
-        Terminator::SwitchValue(ref value, _, ref targets, bb_default) => {
-            if let Some(c) = get_for_slot(&known_values, value) {
-                todo!("Replace SwitchValue with a jump due to known value - {:?}", c);
-            }
-            for &t in targets {
-                if usage_count[t] == 1 {
-                    // Continue into this block
-                }
-            }
-            if usage_count[bb_default] == 1 {
-                // Continue into this block
-            }
-
-        }
-        }
-    }
-    rv
-}
+mod const_propagate;
+use const_propagate::const_propagate;
 
 fn remove_dead_writes(logger: &mut Logger, fcn: &mut crate::mir::Function) -> bool
 {
