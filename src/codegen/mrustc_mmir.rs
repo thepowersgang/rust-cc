@@ -1447,6 +1447,24 @@ impl Builder<'_>
 			}
 			},
 		NodeKind::UniOp(ref op, ref val) => {
+			// Detect `*(array + index)` and convert into indexing
+			if let (UniOp::Deref, NodeKind::BinOp(crate::ast::BinOp::Add, lhs, rhs)) = (op, &val.kind) {
+				if let NodeKind::ImplicitCast(_dst, lhs) = &lhs.kind {
+					if let BaseType::Array(_, ref size) = lhs.meta.as_ref().unwrap().ty.basetype {
+						if let crate::types::ArraySize::None = size {
+							// Unsized array, can't index
+						}
+						else {
+							let val_slot = self.handle_node(lhs);
+							let val_index = self.handle_node(rhs);
+							let slot = self.get_value(val_slot);
+							let idx = self.get_value(val_index);
+							return ValueRef::Slot(format!("({slot})[{idx}]"));
+						}
+					}
+				}
+			}
+
 			let ty = &val.meta.as_ref().unwrap().ty;
 			let val_in = self.handle_node(val);
 			use crate::ast::UniOp;
