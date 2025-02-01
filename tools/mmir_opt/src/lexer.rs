@@ -35,6 +35,7 @@ impl<'a> StringLit<'a> {
                     assert!(rest.starts_with(b"{"));
                     let i = rest[1..].iter().position(|v| *v == b'}').expect("");
                     let (value,rest) = rest[1..].split_at(i);
+                    let rest = &rest[1..];  // Chop off the closing `}`
                     let mut codepoint = 0;
                     for b in value {
                         codepoint *= 16;
@@ -48,6 +49,7 @@ impl<'a> StringLit<'a> {
                     rv.extend(bytes.by_ref().take(v.len() - 1));
                     (bytes.next().unwrap(), rest)
                 },
+                &[b't', ref rest @ ..] => (b'\t', rest),
                 &[b, ..] => todo!("\\{}", b as char),
                 };
             rv.push(ch);

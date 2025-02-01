@@ -186,7 +186,7 @@ pub fn dump_function_body(fp: &mut dyn ::std::io::Write, fcn: &crate::mir::Funct
             }
             crate::mir::SwitchValues::Unsigned(vals) => {
                 for (v,t) in Iterator::zip(vals.iter(), targets.iter()) {
-                    writeln!(fp, "\t\t{:+} = {},", v, t)?;
+                    writeln!(fp, "\t\t{} = {},", v, t)?;
                 }
             }
             crate::mir::SwitchValues::Float(vals) => {
